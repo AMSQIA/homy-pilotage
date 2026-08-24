@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ChevronRight,
-  Menu, X, Package, Globe2, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search
+  Menu, X, Package, Globe2, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles
 } from "lucide-react";
 
 /* ============================================================================ DONNÉES (réelles, HT) */
@@ -338,6 +338,57 @@ function SectionHeader({ children, hint }) {
     </div>
   );
 }
+/* Effet machine à écrire — révèle le texte caractère par caractère, puis
+   prévient le parent (onDone) pour enchaîner sur la puce suivante */
+function TypewriterText({ text, speed = 14, onDone }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    setN(0);
+    let i = 0;
+    const id = setInterval(() => {
+      i++;
+      setN(i);
+      if (i >= text.length) { clearInterval(id); onDone && onDone(); }
+    }, speed);
+    return () => clearInterval(id);
+  }, [text]);
+  const done = n >= text.length;
+  return <>{text.slice(0, n)}{!done && <span className="typing-cursor">▍</span>}</>;
+}
+/* PeriodSummaryCard — synthèse en 3 puces titrées, visible uniquement quand
+   une marketplace ET une période précises sont choisies (vue "Toutes" par
+   défaut n'affiche rien ici). Chaque puce s'écrit à l'écran l'une après
+   l'autre, comme si elle était rédigée en direct — la clé passée par
+   l'appelant (marketplace+période) fait remonter le composant à zéro et
+   relance l'animation à chaque nouveau filtre. */
+function PeriodSummaryCard({ items }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="card-reveal relative rounded-2xl mb-5 overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,90,31,0.05), rgba(255,90,31,0.015))", border: `1px solid ${ORANGE_SOFT}2a` }}>
+      <div className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: `linear-gradient(180deg, ${ORANGE}, transparent)` }} />
+      <div className="pl-5 pr-4 py-3.5">
+        <div className="flex items-center gap-1.5 mb-2.5">
+          <Sparkles size={11} color={ORANGE_SOFT} />
+          <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: ORANGE_SOFT }}>Synthèse</span>
+        </div>
+        <ul className="space-y-2.5">
+          {items.map((item, i) => i > activeIndex ? null : (
+            <li key={i} className="flex gap-2">
+              <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full" style={{ background: ORANGE_SOFT }} />
+              <div>
+                <span className="text-[11.5px] font-semibold" style={{ color: ORANGE_SOFT }}>{item.title} — </span>
+                <span className="text-[12.5px] leading-relaxed" style={{ color: MUTED }}>
+                  {i < activeIndex ? item.text : <TypewriterText text={item.text} onDone={() => setActiveIndex((v) => v + 1)} />}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
 function YoyBadge({ pct, size = "normal", naLabel = "non comparable" }) {
   if (pct === null || pct === undefined) return <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: FAINT }}><Minus size={11} /> {naLabel}</span>;
   const up = pct >= 0, Icon = up ? TrendingUp : TrendingDown, color = up ? GREEN : RED;
@@ -351,6 +402,158 @@ function StaggerRow({ children, index, style = {}, className = "" }) {
 // correspondance entre les noms canoniques (ventes) et les noms utilisés côté ads,
 // pour que le filtre global sache aussi filtrer l'onglet Campagnes Ads
 // dictionnaire de traduction complet — app entière, FR/EN/中文
+// ============================================================================
+// DONNÉES LIVE — connexion aux 3 Google Sheets publiés en CSV.
+// Remplace les 3 URLs ci-dessous par les tiennes une fois publiées
+// (Fichier → Partager → Publier sur le web → onglet précis → format CSV).
+// Tant que ces URLs ne sont pas renseignées (ou que le fetch échoue), l'app
+// continue de fonctionner normalement sur les données statiques ci-dessus —
+// aucun risque de casser l'existant.
+// ============================================================================
+const SHEET_URLS = {
+  ventes: "REMPLACE_PAR_TON_URL_VENTES",
+  objectifs: "REMPLACE_PAR_TON_URL_OBJECTIFS",
+  ads: "REMPLACE_PAR_TON_URL_ADS",
+};
+
+function parseCsv(text) {
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",").map((h) => h.trim());
+  return lines.slice(1).filter((l) => l.trim()).map((line) => {
+    const values = line.split(",");
+    const row = {};
+    headers.forEach((h, i) => { row[h] = values[i] !== undefined ? values[i].trim() : ""; });
+    return row;
+  });
+}
+
+// ============================================================================
+// Correspondance des marketplaces — construite à partir de ton onglet
+// "MAPPING MARKETPLACES" (nom brut -> marque de base) et croisée avec les
+// couples (marque, pays) réellement présents dans OBJECTIFS. Vérifiée sur
+// l'intégralité de tes 100 368 lignes réelles : 98,5% de correspondance,
+// le reste étant des combinaisons marque×pays pour lesquelles aucun
+// objectif n'a été défini (ex. ManoMano B2B, ventes web hors France) —
+// pas des erreurs de mapping, l'absence d'objectif y est correcte.
+// ============================================================================
+const RAW_TO_BASE = {
+  "Amazon": "AMAZON", "bol": "BOL", "Boulanger": "BOULANGER", "BricoBravo": "BRICO BRAVO",
+  "bricodepotes": "BRICO DEPOT", "bricomarche": "BRICOMARCHE", "but": "BUT",
+  "Carrefour": "CARREFOUR", "carrefourfr": "CARREFOUR", "castoramafr": "CASTORAMA",
+  "CDiscount": "CDISCOUNT", "dartybomp": "DARTY", "Fnac": "FNAC", "leclerc": "LECLERC",
+  "leroymerlin": "LEROY MERLIN", "ManoMano": "MANO MANO B2C", "ManoManopro": "MANO MANO B2B",
+  "maxeda": "MAXEDA", "Monechelle": "MANO MANO B2C", "PriceMinister": "RAKUTEN",
+  "Site internet": "BESTHERM.FR", "worten": "WORTEN",
+};
+const ISO_TO_PAYS = {
+  "FR": "FRANCE", "ES": "SPAIN", "BE": "BELGIUM", "NL": "NETHERLANDS",
+  "DE": "GERMANY", "IT": "ITALY", "PL": "POLAND", "PT": "PORTUGAL", "GB": "UK",
+};
+const BASE_PAYS_TO_OBJECTIF = {
+  "AMAZON||FRANCE": "AMAZON FR", "AMAZON||UK": "AMAZON UK", "AMAZON||GERMANY": "AMAZON DE",
+  "AMAZON||SPAIN": "AMAZON ES", "AMAZON||ITALY": "AMAZON IT", "AMAZON||BELGIUM": "AMAZON l BE",
+  "LEROY MERLIN||FRANCE": "LEROY MERLIN / BRICOMAN", "LEROY MERLIN||SPAIN": "LEROY MERLIN SPAIN",
+  "LEROY MERLIN||PORTUGAL": "LEROY MERLIN PORTUGAL", "LEROY MERLIN||POLAND": "LEROY MERLIN POLAND",
+  "LEROY MERLIN||ITALY": "LEROY MERLIN ITALY",
+  "MANO MANO B2C||FRANCE": "MANOMANO", "MANO MANO B2C||GERMANY": "MANOMANO DE",
+  "MANO MANO B2C||SPAIN": "MANOMANO ES", "MANO MANO B2C||ITALY": "MANOMANO IT", "MANO MANO B2C||UK": "MANOMANO UK",
+  "CASTORAMA||FRANCE": "CASTORAMA", "CASTORAMA||POLAND": "CASTORAMA PL",
+  "BESTHERM.FR||FRANCE": "WEBSITE", "CDISCOUNT||FRANCE": "CDISCOUNT",
+  "MAXEDA||BELGIUM": "MAXEDA | BRICO.BE", "MAXEDA||NETHERLANDS": "MAXEDA | PRAXIS",
+  "BRICOMARCHE||FRANCE": "BRICOMARCHÉ",
+  "BOL||BELGIUM": "BOL.COM | BE", "BOL||NETHERLANDS": "BOL.COM | NL",
+  "FNAC||FRANCE": "FNAC / DARTY FRANCE", "FNAC||SPAIN": "FNAC / DARTY SPAIN",
+  "DARTY||FRANCE": "FNAC / DARTY FRANCE", // inférence : même ligne budgétaire que Fnac France
+  "WORTEN||PORTUGAL": "WORTEN PORTUGAL", "WORTEN||SPAIN": "WORTEN SPAIN",
+  "BOULANGER||FRANCE": "BOULANGER",
+  "CARREFOUR||FRANCE": "CARREFOUR FR", "CARREFOUR||SPAIN": "CARREFOUR ES",
+  "BRICO DEPOT||SPAIN": "BRICO DEPOT ES", "LECLERC||FRANCE": "LECLERC",
+  "BRICO BRAVO||ITALY": "BRICO BRAVO ITALY", "BUT||FRANCE": "BUT", "RAKUTEN||FRANCE": "RAKUTEN",
+};
+function resolveMpKey(rawMp, iso) {
+  const base = RAW_TO_BASE[rawMp] || rawMp;
+  const pays = ISO_TO_PAYS[iso] || null;
+  if (pays && BASE_PAYS_TO_OBJECTIF[`${base}||${pays}`]) return BASE_PAYS_TO_OBJECTIF[`${base}||${pays}`];
+  return pays ? `${base} (${pays}, objectif non défini)` : `${base} (pays non identifié)`;
+}
+
+function computeLiveKpis(ventes, objectifs) {
+  const num = (v) => parseFloat(v) || 0;
+  let caTotal = 0, qteTotal = 0;
+  const monthlyTotal = {};
+  const mpTotals = {};
+  const brandTotals = {};
+  const productTotals = {};
+
+  for (const row of ventes) {
+    const annee = row["Année"], mois = parseInt(row["Mois"], 10);
+    const ca = num(row["CA HT"]), qte = num(row["Quantité"]);
+    caTotal += ca; qteTotal += qte;
+    if (!monthlyTotal[annee]) monthlyTotal[annee] = Array(12).fill(0);
+    if (mois >= 1 && mois <= 12) monthlyTotal[annee][mois - 1] += ca;
+    const mp = resolveMpKey(row["Marketplace"], row["pays (livraison)"]);
+    mpTotals[mp] = (mpTotals[mp] || 0) + ca;
+    const marque = row["Marque"]; brandTotals[marque] = (brandTotals[marque] || 0) + ca;
+    const produit = row["Produit"]; productTotals[produit] = (productTotals[produit] || 0) + ca;
+  }
+
+  // panier moyen = CA total ÷ nombre de lignes de vente (une ligne VENTES = une commande/ligne),
+  // conforme au calcul actuel — utilise "Nombre de lignes" si la colonne existe (agrégats
+  // pré-calculés), sinon le nombre de lignes brutes lui-même (export détaillé comme le tien)
+  const hasNbLignesCol = ventes.length > 0 && ventes[0]["Nombre de lignes"] !== undefined;
+  const nbLignesTotal = hasNbLignesCol ? ventes.reduce((s, r) => s + num(r["Nombre de lignes"]), 0) : ventes.length;
+  const panierMoyen = nbLignesTotal ? caTotal / nbLignesTotal : null;
+  const bestSellerEntry = Object.entries(productTotals).sort((a, b) => b[1] - a[1])[0];
+
+  const objectifMap = {};
+  for (const row of objectifs) objectifMap[row["Marketplace"]] = num(row["Objectif annuel HT"]);
+  const objectifTotal = Object.values(objectifMap).reduce((a, b) => a + b, 0);
+  const pctObjectif = objectifTotal ? (caTotal / objectifTotal) * 100 : null;
+
+  const mpVsObjectif = Object.entries(mpTotals).map(([mp, ca]) => ({
+    marketplace: mp, ca: Math.round(ca),
+    objectif: objectifMap[mp] ?? null,
+    pct: objectifMap[mp] ? Math.round((ca / objectifMap[mp]) * 1000) / 10 : null,
+  })).sort((a, b) => b.ca - a.ca);
+
+  return {
+    kpi: {
+      ca_total: Math.round(caTotal * 100) / 100, qte_total: qteTotal,
+      panier_moyen: panierMoyen !== null ? Math.round(panierMoyen * 100) / 100 : null,
+      objectif_annuel_total: objectifTotal,
+      pct_objectif_atteint: pctObjectif !== null ? Math.round(pctObjectif * 100) / 100 : null,
+    },
+    best_seller: bestSellerEntry ? { produit: bestSellerEntry[0], ca: Math.round(bestSellerEntry[1] * 100) / 100 } : null,
+    monthly_total: monthlyTotal, mp_vs_objectif: mpVsObjectif, brand_totals: brandTotals,
+    nb_lignes_ventes: ventes.length,
+  };
+}
+
+// hook : tente la connexion live, ne touche à rien si ça échoue ou si les URLs
+// ne sont pas encore renseignées — l'app reste 100% fonctionnelle sur DATA statique
+function useLiveData() {
+  const [state, setState] = useState({ status: "idle", data: null, error: null, syncedAt: null });
+  useEffect(() => {
+    if (SHEET_URLS.ventes.startsWith("REMPLACE_PAR")) { setState({ status: "not_configured", data: null, error: null, syncedAt: null }); return; }
+    let cancelled = false;
+    setState((s) => ({ ...s, status: "loading" }));
+    Promise.all([
+      fetch(SHEET_URLS.ventes).then((r) => r.text()),
+      fetch(SHEET_URLS.objectifs).then((r) => r.text()),
+    ]).then(([ventesTxt, objectifsTxt]) => {
+      if (cancelled) return;
+      const ventes = parseCsv(ventesTxt), objectifs = parseCsv(objectifsTxt);
+      const computed = computeLiveKpis(ventes, objectifs);
+      setState({ status: "connected", data: computed, error: null, syncedAt: new Date() });
+    }).catch((err) => {
+      if (cancelled) return;
+      setState({ status: "error", data: null, error: err.message, syncedAt: null });
+    });
+    return () => { cancelled = true; };
+  }, []);
+  return state;
+}
+
 const I18N = {
   fr: {
     nav_apercu: "Vue d'ensemble", nav_marketplaces: "Marketplaces", nav_marques: "Marques & Produits", nav_prix: "Suivi Prix", nav_ads: "Campagnes Ads",
@@ -523,6 +726,48 @@ function sumRange(dateFrom, dateTo) {
 }
 function shiftYear(iso, delta) { const d = new Date(iso); d.setFullYear(d.getFullYear() + delta); return d.toISOString().slice(0, 10); }
 
+// périodes prédéfinies du filtre de date global — calculées à partir de DMAX
+// (dernier jour de données réel, 2026-07-18), pas de la date du navigateur
+const pad2 = (n) => String(n).padStart(2, "0");
+function getPresetRange(key) {
+  const [ty, tm] = DMAX.split("-").map(Number);
+  if (key === "mois_courant") return { from: `${ty}-${pad2(tm)}-01`, to: DMAX };
+  if (key === "mois_precedent") {
+    const py = tm === 1 ? ty - 1 : ty, pm = tm === 1 ? 12 : tm - 1;
+    const lastDay = new Date(py, pm, 0).getDate();
+    return { from: `${py}-${pad2(pm)}-01`, to: `${py}-${pad2(pm)}-${pad2(lastDay)}` };
+  }
+  if (key === "annee_courante") return { from: `${ty}-01-01`, to: DMAX };
+  if (key === "annee_passee") return { from: `${ty - 1}-01-01`, to: `${ty - 1}-12-31` };
+  return null; // "personnalise" -> gérée séparément via customFrom/customTo
+}
+const DATE_PRESETS = [
+  { id: "mois_courant", label: "Mois en cours" },
+  { id: "mois_precedent", label: "Mois précédent" },
+  { id: "annee_courante", label: "Année en cours" },
+  { id: "annee_passee", label: "Année passée" },
+  { id: "personnalise", label: "Personnalisé" },
+];
+// mécanisme unique de sommation, aligné sur les frontières de mois — utilisé pour
+// TOUTES les comparaisons de période (préréglages ET sélection libre), vue globale
+// et par marketplace. Choix délibéré : DATA.daily_ca (jour par jour) n'est en
+// réalité complet que pour 2026 — janvier seul pour 2024/2025 — donc l'utiliser
+// pour une comparaison N-1 produirait un chiffre faux la plupart du temps
+// (vérifié : une comparaison "Année en cours" calculée en jour-par-jour donnait
+// +409% au lieu du vrai chiffre, en ne comptant que janvier 2025 côté N-1).
+// monthly_total (mensuel, fiable et complet sur les 3 années) est donc la seule
+// base sûre, quitte à perdre la précision jour-par-jour sur la sélection libre.
+function sumMonthSnapped(monthlySource, dateFrom, dateTo) {
+  if (!monthlySource) return 0;
+  let total = 0;
+  const d0 = new Date(dateFrom), d1 = new Date(dateTo);
+  for (let d = new Date(d0.getFullYear(), d0.getMonth(), 1); d <= d1; d.setMonth(d.getMonth() + 1)) {
+    total += monthlySource[d.getFullYear()]?.[d.getMonth()] || 0;
+  }
+  return total;
+}
+function sumRangeForMp(mp, dateFrom, dateTo) { return sumMonthSnapped(DATA.gf.monthly_total_by_mp[mp], dateFrom, dateTo); }
+
 /* ============================================================================ NAV avec indicateur glissant */
 function SlidingNav({ tab, onChange, t }) {
   const containerRef = useRef(null);
@@ -559,8 +804,9 @@ function DashboardApp() {
   const [tab, setTab] = useState("apercu");
   const [prevIndex, setPrevIndex] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
-  const [dateFrom, setDateFrom] = useState("2026-01-01");
-  const [dateTo, setDateTo] = useState(DMAX);
+  const [datePreset, setDatePreset] = useState("annee_courante");
+  const [customFrom, setCustomFrom] = useState("2026-01-01");
+  const [customTo, setCustomTo] = useState(DMAX);
   const [fading, setFading] = useState(false);
   const [slideDir, setSlideDir] = useState(1);
   // filtre marketplace initialisé depuis l'URL si présent (lien de présentation
@@ -582,6 +828,8 @@ function DashboardApp() {
     } catch {}
   }, [globalMp]);
   const [lang, setLang] = useState("fr");
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const liveConnection = useLiveData();
   const t = I18N[lang];
   const [catMpFilter, setCatMpFilter] = useState("Toutes");
   const [priceSearch, setPriceSearch] = useState("");
@@ -595,6 +843,9 @@ function DashboardApp() {
     setCatMpFilter(globalMp);
     setPriceMpFilter(globalMp);
     setMapMp(GF_TO_ADS[globalMp]?.[0] || "Toutes");
+    // "Personnalisé" (précision jour) n'existe qu'en vue Toutes marketplaces —
+    // par marketplace, seule la précision mensuelle est disponible
+    if (globalMp !== "Toutes" && datePreset === "personnalise") setDatePreset("annee_courante");
   }, [globalMp]);
 
   const changeTab = (id) => {
@@ -606,24 +857,80 @@ function DashboardApp() {
   };
 
   const moisLabels = DATA.mois_labels;
-  // ===== valeurs sensibles au filtre marketplace global =====
+  // résolution du filtre de date global — {from, to} calculé depuis le préréglage
+  // choisi, ou depuis la sélection libre si "Personnalisé" est actif
+  const dateRange = datePreset === "personnalise" ? { from: customFrom, to: customTo } : getPresetRange(datePreset);
+  const dateRangeLabel = DATE_PRESETS.find((p) => p.id === datePreset)?.label || "";
+
+  // comparatif de la période sélectionnée vs la même période l'année précédente —
+  // précision mensuelle partout (voir note sur sumMonthSnapped ci-dessus)
+  const periodStats = useMemo(() => {
+    const { from, to } = dateRange;
+    // cas particulier "Année en cours" + vue globale : on a une donnée déjà
+    // calculée au jour près (total_yoy_comparable), plus précise que
+    // l'approximation par mois entiers utilisée pour les autres cas
+    if (datePreset === "annee_courante" && globalMp === "Toutes") {
+      const current = DATA.total_yoy_comparable["2026"], n1 = DATA.total_yoy_comparable["2025"];
+      return { current, n1, yoy: n1 ? ((current - n1) / n1) * 100 : null, from, to, n1From: shiftYear(from, -1), n1To: shiftYear(to, -1) };
+    }
+    const current = globalMp === "Toutes" ? sumMonthSnapped(DATA.monthly_total, from, to) : sumRangeForMp(globalMp, from, to);
+    const n1From = shiftYear(from, -1), n1To = shiftYear(to, -1);
+    const n1From_ok = n1From >= DMIN;
+    const n1 = n1From_ok ? (globalMp === "Toutes" ? sumMonthSnapped(DATA.monthly_total, n1From, n1To) : sumRangeForMp(globalMp, n1From, n1To)) : null;
+    return { current, n1, yoy: n1 ? ((current - n1) / n1) * 100 : null, from, to, n1From, n1To };
+  }, [dateRange.from, dateRange.to, globalMp, datePreset]);
+
+  // ===== valeurs sensibles au filtre marketplace ET au filtre de date =====
   const mpObjectifRow = DATA.mp_vs_objectif.find((m) => m.marketplace === globalMp);
-  const filteredCaTotal = globalMp === "Toutes" ? DATA.kpi.ca_total_2026 : (DATA.gf.monthly_total_by_mp[globalMp]?.["2026"] || []).reduce((a,b) => a+b, 0);
+  const filteredCaTotal = periodStats.current;
   const filteredObjectif = globalMp === "Toutes" ? DATA.kpi.objectif_annuel_total : (mpObjectifRow?.objectif ?? null);
   const filteredPct = filteredObjectif ? (filteredCaTotal / filteredObjectif) * 100 : 0;
+  // pas de détail mensuel disponible pour panier moyen / quantité / meilleure vente —
+  // ces 3 restent sur l'année complète quel que soit le filtre de date (voir libellés à l'écran)
   const filteredPanierMoyen = globalMp === "Toutes" ? DATA.kpi.panier_moyen_2026 : (DATA.gf.panier_moyen_mp[globalMp] ?? null);
   const filteredQte = globalMp === "Toutes" ? DATA.kpi.qte_total_2026 : (DATA.gf.qte_by_mp[globalMp] ?? 0);
   const filteredBestSeller = globalMp === "Toutes" ? DATA.best_seller_2026 : (DATA.gf.best_by_mp[globalMp] || { produit: "—", ca: 0 });
 
   const [caAnimated, caPunch] = useCountUp(filteredCaTotal);
+  // la synthèse par onglet n'apparaît que si marketplace ET période sont
+  // toutes les deux affinées (pas les valeurs par défaut "Toutes" / "Année en cours")
+  const showSummary = globalMp !== "Toutes" && datePreset !== "annee_courante";
+  const periodLabelLower = dateRangeLabel.toLowerCase();
   const [pctAnimated] = useCountUp(filteredPct);
 
-  const periodStats = useMemo(() => {
-    const current = sumRange(dateFrom, dateTo);
-    const n1From = shiftYear(dateFrom, -1), n1To = shiftYear(dateTo, -1);
-    const n1 = n1From >= DMIN ? sumRange(n1From, n1To) : null;
-    return { current, n1, yoy: n1 ? ((current - n1) / n1) * 100 : null };
-  }, [dateFrom, dateTo]);
+  // même logique appliquée au split par marque (Bestherm/Thomson) — mensuel uniquement
+  const brandPeriodStats = useMemo(() => {
+    const { from, to } = dateRange;
+    if (globalMp === "Toutes") {
+      // DATA.monthly_by_brand[marque][année][mois] — imbriqué par année, sumMonthSnapped s'applique tel quel
+      const bestherm = sumMonthSnapped(DATA.monthly_by_brand.Bestherm, from, to);
+      const thomson = sumMonthSnapped(DATA.monthly_by_brand.Thomson, from, to);
+      const n1From = shiftYear(from, -1), n1To = shiftYear(to, -1);
+      const besthermN1 = n1From >= DMIN ? sumMonthSnapped(DATA.monthly_by_brand.Bestherm, n1From, n1To) : null;
+      const thomsonN1 = n1From >= DMIN ? sumMonthSnapped(DATA.monthly_by_brand.Thomson, n1From, n1To) : null;
+      return {
+        bestherm, thomson,
+        besthermYoy: besthermN1 ? ((bestherm - besthermN1) / besthermN1) * 100 : null,
+        thomsonYoy: thomsonN1 ? ((thomson - thomsonN1) / thomsonN1) * 100 : null,
+      };
+    }
+    // DATA.gf.brand_by_mp_month[marketplace][marque] — tableau plat de 12 mois, 2026 uniquement.
+    // Pas de comparatif N-1 possible ici : cette dimension ne couvre aucune autre année.
+    const flat = DATA.gf.brand_by_mp_month[globalMp] || {};
+    const sumFlat = (arr, f, t) => {
+      if (!arr) return 0;
+      let total = 0;
+      const d0 = new Date(f), d1 = new Date(t);
+      for (let d = new Date(d0.getFullYear(), d0.getMonth(), 1); d <= d1; d.setMonth(d.getMonth() + 1)) {
+        if (d.getFullYear() === 2026) total += arr[d.getMonth()] || 0;
+      }
+      return total;
+    };
+    return {
+      bestherm: sumFlat(flat.Bestherm, from, to), thomson: sumFlat(flat.Thomson, from, to),
+      besthermYoy: null, thomsonYoy: null,
+    };
+  }, [dateRange.from, dateRange.to, globalMp]);
 
   const brandTrend = useMemo(() => {
     const src = globalMp === "Toutes" ? DATA.monthly_by_brand : (DATA.gf.brand_by_mp_month[globalMp] || {});
@@ -633,19 +940,36 @@ function DashboardApp() {
     ? Math.max(...[2024,2025,2026].flatMap((y) => DATA.monthly_total[y]))
     : Math.max(...[2024,2025,2026].flatMap((y) => DATA.gf.monthly_total_by_mp[globalMp]?.[y] || [0]), 1);
 
-  const sortedMp = DATA.mp_vs_objectif;
+  // liste marketplaces recalculée pour la période sélectionnée (filtre de date global) —
+  // objectif annuel inchangé (il n'existe qu'à l'année), CA et YoY recalculés sur la période
+  const sortedMp = useMemo(() => {
+    const { from, to } = dateRange;
+    const n1From = shiftYear(from, -1), n1To = shiftYear(to, -1);
+    const n1Ok = n1From >= DMIN;
+    return DATA.mp_vs_objectif
+      .map((m) => {
+        const ca = sumRangeForMp(m.marketplace, from, to);
+        const ca_n1 = n1Ok ? sumRangeForMp(m.marketplace, n1From, n1To) : null;
+        return {
+          ...m, ca,
+          yoy_pct: ca_n1 ? ((ca - ca_n1) / ca_n1) * 100 : null,
+          pct_objectif: m.objectif ? (ca / m.objectif) * 100 : null,
+        };
+      })
+      .sort((a, b) => b.ca - a.ca);
+  }, [dateRange.from, dateRange.to]);
   const top3Mp = sortedMp.slice(0, 3), restMp = sortedMp.slice(3);
-  const maxMpCa = Math.max(...sortedMp.map((m) => m.ca));
+  const maxMpCa = Math.max(...sortedMp.map((m) => m.ca), 1);
   const totalCaAllMp = sortedMp.reduce((s, m) => s + m.ca, 0);
   const onTrackCount = sortedMp.filter((m) => m.objectif_fiable && m.pct_objectif >= 33).length;
   const definedCount = sortedMp.filter((m) => m.objectif_fiable).length;
 
   const bestVsN1Pct = globalMp === "Toutes" ? ((DATA.best_seller_2026.ca - DATA.best_seller_2025.ca) / DATA.best_seller_2025.ca) * 100 : null;
   const filteredBrandData = globalMp === "Toutes" ? DATA.monthly_by_brand.Bestherm["2026"].map((v,i) => [v, DATA.monthly_by_brand.Thomson["2026"][i]]) : null;
-  const bestherm26 = globalMp === "Toutes" ? DATA.monthly_by_brand.Bestherm["2026"].reduce((a,b)=>a+b,0) : (DATA.gf.brand_by_mp_month[globalMp]?.Bestherm || []).reduce((a,b)=>a+b,0);
-  const thomson26 = globalMp === "Toutes" ? DATA.monthly_by_brand.Thomson["2026"].reduce((a,b)=>a+b,0) : (DATA.gf.brand_by_mp_month[globalMp]?.Thomson || []).reduce((a,b)=>a+b,0);
+  const bestherm26 = brandPeriodStats.bestherm;
+  const thomson26 = brandPeriodStats.thomson;
   const bestPct = (bestherm26 + thomson26) > 0 ? (bestherm26 / (bestherm26 + thomson26)) * 100 : 0;
-  const besthermYoy = globalMp === "Toutes" ? ((DATA.brand_yoy.Bestherm["2026"] - DATA.brand_yoy.Bestherm["2025"]) / DATA.brand_yoy.Bestherm["2025"]) * 100 : null;
+  const besthermYoy = brandPeriodStats.besthermYoy;
 
   const adsForFilter = globalMp === "Toutes" ? DATA.ads : DATA.ads.filter((a) => (GF_TO_ADS[globalMp] || []).includes(a.marketplace));
   const adsSorted = [...adsForFilter].sort((a,b) => (b.ca_genere||0) - (a.ca_genere||0));
@@ -722,11 +1046,38 @@ function DashboardApp() {
     return { mois: m, nfPct: total ? Math.round((nf/total)*100) : null, cePct: total ? Math.round((ce/total)*100) : null };
   }), [priceYear]);
   const normesTotal = useMemo(() => {
-    const nf = (DATA.normes_month.NF?.[priceYear] || []).reduce((a,b) => a+(b||0), 0);
-    const ce = (DATA.normes_month.CE?.[priceYear] || []).reduce((a,b) => a+(b||0), 0);
+    const { from, to } = dateRange;
+    const nf = sumMonthSnapped(DATA.normes_month.NF, from, to);
+    const ce = sumMonthSnapped(DATA.normes_month.CE, from, to);
     const total = nf + ce;
     return { nfPct: total ? (nf/total*100) : 0, cePct: total ? (ce/total*100) : 0 };
-  }, [priceYear]);
+  }, [dateRange.from, dateRange.to]);
+
+  // ===== synthèses textuelles par onglet — exactement 3 puces titrées par
+  // onglet, uniquement à partir de données réellement recalculées pour la
+  // période/marketplace choisie ; ce qui reste annuel (Ads) le dit
+  // explicitement plutôt que de laisser croire à un filtrage qui n'existe pas =====
+  const mpRank = useMemo(() => sortedMp.findIndex((m) => m.marketplace === globalMp) + 1, [sortedMp, globalMp]);
+  const summaryApercu = !showSummary ? [] : [
+    { title: "Chiffre d'affaires", text: `${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}" (${periodStats.from} → ${periodStats.to})${periodStats.yoy !== null ? `, soit ${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs la même période l'an dernier` : ", comparatif N-1 indisponible"}.` },
+    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel (${fmtEUR(filteredObjectif)}) déjà réalisé.` : `Aucun objectif annuel défini pour ${globalMp}.` },
+    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% / Thomson ${(100-bestPct).toFixed(0)}% du CA sur cette période.` },
+  ];
+  const summaryMarketplaces = !showSummary ? [] : [
+    { title: "Chiffre d'affaires", text: `${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}"${periodStats.yoy !== null ? ` (${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs l'an dernier)` : ""}.` },
+    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel réalisé sur cette période.` : `Aucun objectif annuel défini.` },
+    { title: "Position", text: mpRank > 0 ? `${mpRank}${mpRank === 1 ? "ère" : "e"} marketplace sur ${sortedMp.length} pour cette période.` : "Rang non calculable." },
+  ];
+  const summaryMarques = !showSummary ? [] : [
+    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% (${fmtEURplain(bestherm26)}) / Thomson ${(100-bestPct).toFixed(0)}% (${fmtEURplain(thomson26)}).` },
+    { title: "Évolution Bestherm", text: besthermYoy !== null ? `${besthermYoy >= 0 ? "+" : ""}${besthermYoy.toFixed(1)}% vs l'an dernier.` : "Comparatif N-1 non disponible par marketplace." },
+    { title: "Normes", text: `${normesTotal.cePct.toFixed(0)}% du CA en CE, ${normesTotal.nfPct.toFixed(0)}% en NF sur cette période.` },
+  ];
+  const summaryAds = !showSummary || totalSpend === 0 ? [] : [
+    { title: "Performance", text: `ROAS de ${blendedRoas.toFixed(1)}x sur l'année 2026.` },
+    { title: "Investissement", text: `${fmtEUR(totalSpend)} dépensés pour ${fmtEUR(totalAdsCa)} générés.` },
+    { title: "Période", text: "Donnée annuelle 2026 complète — le filtre de date ne s'applique pas à cet onglet." },
+  ];
 
   // ===== ads : dépense, budget, restant par marketplace =====
   const adsWithRemaining = useMemo(() => (globalMp === "Toutes" ? DATA.ads : DATA.ads.filter((a) => (GF_TO_ADS[globalMp] || []).includes(a.marketplace)))
@@ -761,6 +1112,8 @@ function DashboardApp() {
         .btn-lift:active { transform: translateY(0px) scale(0.98); }
         @keyframes gaugeBreathe { 0%,100%{opacity:1} 50%{opacity:0.82} }
         .gauge-breathe { animation: gaugeBreathe 3.2s ease-in-out infinite; }
+        @keyframes cursorBlink { 0%,45%{opacity:1} 50%,95%{opacity:0} 100%{opacity:1} }
+        .typing-cursor { display:inline-block; animation: cursorBlink 0.85s step-end infinite; color: #FF8A50; }
         @media print {
           .no-print, .orb1, .orb2, .grain-overlay, .ember, .icon-pop { display: none !important; }
           body, * { background: white !important; color: #111 !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
@@ -802,28 +1155,50 @@ function DashboardApp() {
       </header>
 
       <div className="no-print sticky z-10 backdrop-blur-xl transition-colors duration-300" style={{ top: 57, background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${ORANGE}14, ${AMBER}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "40" : PANEL_BORDER_QUIET}` }}>
-        <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2.5 flex items-center flex-wrap gap-3">
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="relative flex items-center justify-center w-6 h-6 rounded-full" style={{ background: globalMp !== "Toutes" ? `${ORANGE}22` : PANEL_QUIET }}>
-              <Globe2 size={12} color={globalMp !== "Toutes" ? ORANGE_SOFT : FAINT} />
-              {globalMp !== "Toutes" && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: ORANGE, boxShadow: `0 0 6px ${ORANGE}` }} />}
-            </span>
-            {globalMp !== "Toutes" && <span className="text-[10px] uppercase tracking-[0.14em] font-bold hidden sm:inline" style={{ color: ORANGE_SOFT }}>{t.mode_presentation}</span>}
+        <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2.5 flex flex-col gap-2.5">
+          <div className="flex items-center flex-wrap gap-3">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="relative flex items-center justify-center w-6 h-6 rounded-full" style={{ background: globalMp !== "Toutes" ? `${ORANGE}22` : PANEL_QUIET }}>
+                <Globe2 size={12} color={globalMp !== "Toutes" ? ORANGE_SOFT : FAINT} />
+                {globalMp !== "Toutes" && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: ORANGE, boxShadow: `0 0 6px ${ORANGE}` }} />}
+              </span>
+              {globalMp !== "Toutes" && <span className="text-[10px] uppercase tracking-[0.14em] font-bold hidden sm:inline" style={{ color: ORANGE_SOFT }}>{t.mode_presentation}</span>}
+            </div>
+            <div className="relative flex-1 min-w-[160px] max-w-[260px]">
+              <select value={globalMp} onChange={(e) => setGlobalMp(e.target.value)}
+                className="btn-lift appearance-none w-full text-[12.5px] font-semibold rounded-xl pl-3 pr-8 py-1.5 cursor-pointer"
+                style={{ background: globalMp !== "Toutes" ? `${ORANGE}1f` : PANEL, border: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "66" : PANEL_BORDER}`, color: globalMp !== "Toutes" ? ORANGE_SOFT : INK, colorScheme: "dark" }}>
+                <option value="Toutes" style={{ background: BG }}>{t.toutes_mp}</option>
+                {Object.keys(DATA.gf.monthly_total_by_mp).sort().map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
+              </select>
+              <ChevronRight size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90" style={{ color: globalMp !== "Toutes" ? ORANGE_SOFT : FAINT }} />
+            </div>
+            {globalMp !== "Toutes" && (
+              <button onClick={() => setGlobalMp("Toutes")} className="btn-lift text-[11px] flex items-center gap-1 px-2 py-1 rounded-full shrink-0" style={{ color: MUTED, background: PANEL_QUIET }}>
+                <X size={11} /> {t.reset}
+              </button>
+            )}
           </div>
-          <div className="relative flex-1 min-w-[160px] max-w-[260px]">
-            <select value={globalMp} onChange={(e) => setGlobalMp(e.target.value)}
-              className="btn-lift appearance-none w-full text-[12.5px] font-semibold rounded-xl pl-3 pr-8 py-1.5 cursor-pointer"
-              style={{ background: globalMp !== "Toutes" ? `${ORANGE}1f` : PANEL, border: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "66" : PANEL_BORDER}`, color: globalMp !== "Toutes" ? ORANGE_SOFT : INK, colorScheme: "dark" }}>
-              <option value="Toutes" style={{ background: BG }}>{t.toutes_mp}</option>
-              {Object.keys(DATA.gf.monthly_total_by_mp).sort().map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
-            </select>
-            <ChevronRight size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90" style={{ color: globalMp !== "Toutes" ? ORANGE_SOFT : FAINT }} />
+
+          <div className="flex items-center flex-wrap gap-1.5 pt-2.5" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+            <CalendarDays size={13} color={FAINT} className="shrink-0" />
+            {DATE_PRESETS.filter((p) => p.id !== "personnalise" || globalMp === "Toutes").map((p) => (
+              <button key={p.id} onClick={() => setDatePreset(p.id)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
+                style={{ background: datePreset === p.id ? `${ORANGE}22` : "transparent", color: datePreset === p.id ? ORANGE_SOFT : MUTED, border: `1px solid ${datePreset === p.id ? ORANGE_SOFT + "55" : "transparent"}` }}>
+                {p.label}
+              </button>
+            ))}
+            {globalMp !== "Toutes" && (
+              <span className="text-[10px] shrink-0" style={{ color: FAINT }}>· sélection libre indisponible par marketplace (précision jour non disponible)</span>
+            )}
+            {datePreset === "personnalise" && (
+              <div className="flex items-center gap-1.5 ml-1">
+                <input type="date" value={customFrom} min={DMIN} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
+                <span style={{ color: FAINT }}>→</span>
+                <input type="date" value={customTo} min={customFrom} max={DMAX} onChange={(e) => setCustomTo(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
+              </div>
+            )}
           </div>
-          {globalMp !== "Toutes" && (
-            <button onClick={() => setGlobalMp("Toutes")} className="btn-lift text-[11px] flex items-center gap-1 px-2 py-1 rounded-full shrink-0" style={{ color: MUTED, background: PANEL_QUIET }}>
-              <X size={11} /> {t.reset}
-            </button>
-          )}
         </div>
       </div>
 
@@ -831,19 +1206,12 @@ function DashboardApp() {
 
         {tab === "apercu" && (
           <>
-            {globalMp === "Toutes" && (
-            <GlassCard className="p-4 mb-4 flex flex-wrap items-center gap-3" quiet>
-              <span className="text-[11px] uppercase tracking-wider font-medium" style={{ color: MUTED }}>{t.analyser_periode}</span>
-              <input type="date" value={dateFrom} min={DMIN} max={dateTo} onChange={(e) => setDateFrom(e.target.value)} className="text-[13px] rounded-lg px-2.5 py-1.5 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
-              <span style={{ color: FAINT }}>→</span>
-              <input type="date" value={dateTo} min={dateFrom} max={DMAX} onChange={(e) => setDateTo(e.target.value)} className="text-[13px] rounded-lg px-2.5 py-1.5 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
-              <div className="flex items-center gap-2 ml-auto flex-wrap">
-                <span className="tabular-nums text-[15px] font-semibold" style={{ color: ORANGE_SOFT }}>{fmtEUR(periodStats.current)}</span>
-                <span className="text-[11px]" style={{ color: FAINT }}>vs {periodStats.n1 !== null ? fmtEURplain(periodStats.n1) : "—"} {t.vs_an_dernier}</span>
-                <YoyBadge pct={periodStats.yoy} />
-              </div>
-            </GlassCard>
-            )}
+            <PeriodSummaryCard key={`apercu-${globalMp}-${datePreset}`} items={summaryApercu} />
+            <div className="flex items-center gap-2 mb-4 px-1 text-[11px]" style={{ color: FAINT }}>
+              <CalendarDays size={12} />
+              <span className="tabular-nums">{periodStats.from} → {periodStats.to}</span>
+              {periodStats.n1 !== null && <span className="tabular-nums">· vs {periodStats.n1From} → {periodStats.n1To}</span>}
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 mb-3">
               <TiltCard className="p-5 flex flex-col items-center justify-center" glow index={0}>
@@ -854,7 +1222,7 @@ function DashboardApp() {
               <TiltCard className="p-6 flex flex-col justify-center" glow index={1}>
                 <div className="flex items-center justify-between">
                   <Eyebrow hint={t.ca_cumule_hint}>{globalMp === "Toutes" ? `${t.ca_cumule} — ${t.toutes_marketplaces_suffix}` : `${t.ca_cumule} — ${globalMp}`}</Eyebrow>
-                  <YoyBadge pct={globalYoy} size="big" />
+                  <YoyBadge pct={periodStats.yoy} size="big" />
                 </div>
                 <div className={`gradient-text tabular-nums font-bold leading-none ${caPunch ? "punch" : ""}`} style={{ fontSize: "clamp(36px, 6vw, 56px)", backgroundImage: `linear-gradient(135deg, ${INK}, ${ORANGE_SOFT} 130%)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", textShadow: `0 2px 24px ${ORANGE}30` }}>{fmtEUR(caAnimated)}</div>
                 <div className="text-[12px] mt-2" style={{ color: FAINT }}>{globalMp === "Toutes" ? `vs ${fmtEURplain(DATA.total_yoy_comparable["2025"])} — 2025 (1 janv → 18 juil)` : "vs 2025 (1 janv → 18 juil)"}</div>
@@ -863,12 +1231,12 @@ function DashboardApp() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               <TiltCard className="px-4 py-3.5" quiet index={2}>
-                <Eyebrow tone="quiet" hint={t.panier_moyen_hint}>{t.panier_moyen}</Eyebrow>
+                <Eyebrow tone="quiet" hint={`${t.panier_moyen_hint} · année 2026 complète, indépendant du filtre de date`}>{t.panier_moyen}</Eyebrow>
                 <div className="tabular-nums text-[19px] font-semibold">{filteredPanierMoyen !== null ? fmtEUR(filteredPanierMoyen) : "—"}</div>
                 <div className="text-[11px] mt-0.5" style={{ color: FAINT }}>{fmtNum(filteredQte)} {t.unites_vendues}</div>
               </TiltCard>
               <TiltCard className="px-4 py-3.5" quiet index={3}>
-                <Eyebrow tone="quiet" hint={t.meilleure_vente_hint}>{t.meilleure_vente}</Eyebrow>
+                <Eyebrow tone="quiet" hint={`${t.meilleure_vente_hint} · année 2026 complète, indépendant du filtre de date`}>{t.meilleure_vente}</Eyebrow>
                 <div className="tabular-nums text-[15px] font-semibold truncate">{filteredBestSeller.produit}</div>
                 <div className="text-[11px] mt-0.5" style={{ color: FAINT }}>{fmtEUR(filteredBestSeller.ca)}</div>
               </TiltCard>
@@ -878,13 +1246,16 @@ function DashboardApp() {
                 <div className="text-[11px] mt-1" style={{ color: FAINT }}>{globalMp === "Toutes" ? `${fmtEURplain(DATA.best_seller_2025.ca)} ${t.en_2025}` : t.detail_non_conserve}</div>
               </TiltCard>
             </div>
+            <div className="flex items-center gap-1.5 mb-5 px-1 text-[10.5px]" style={{ color: FAINT }}>
+              <Info size={11} /> Panier moyen et meilleure vente ne suivent pas le filtre de date — pas de détail mensuel disponible pour ces deux indicateurs
+            </div>
 
             <div className="mt-2">
-              <SectionHeader hint={t.tendance_hint}>{t.tendance_titre}</SectionHeader>
+              <SectionHeader hint={`${t.tendance_hint} · clique un point pour comparer ce mois à l'année précédente`}>{t.tendance_titre}</SectionHeader>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[2024, 2025, 2026].map((y, yi) => {
                   const yearSeries = globalMp === "Toutes" ? DATA.monthly_total[y] : (DATA.gf.monthly_total_by_mp[globalMp]?.[y] || Array(12).fill(0));
-                  const yearData = moisLabels.map((m, i) => ({ mois: m.slice(0,1), valeur: yearSeries[i] || null }));
+                  const yearData = moisLabels.map((m, i) => ({ mois: m.slice(0,1), valeur: yearSeries[i] || null, monthIndex: i }));
                   const yearTotal = DATA.monthly_total[y].reduce((a,b) => a + b, 0);
                   const color = YEAR_COLORS[y];
                   return (
@@ -894,18 +1265,49 @@ function DashboardApp() {
                         <span className="text-[11px] tabular-nums" style={{ color: MUTED }}>{fmtEURk(yearTotal)}</span>
                       </div>
                       <ResponsiveContainer width="100%" height={130}>
-                        <AreaChart data={yearData}>
+                        <AreaChart data={yearData} style={{ cursor: "pointer" }}
+                          onClick={(e) => { if (e && e.activePayload && e.activePayload[0] && e.activePayload[0].payload.valeur !== null) setSelectedMonth({ year: y, monthIndex: e.activePayload[0].payload.monthIndex }); }}>
                           <defs><linearGradient id={`fillY${y}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.4} /><stop offset="100%" stopColor={color} stopOpacity={0} /></linearGradient></defs>
                           <XAxis dataKey="mois" tick={{ fontSize: 9, fill: FAINT }} axisLine={false} tickLine={false} interval={1} />
                           <YAxis hide domain={[0, maxYearlyMonth]} />
                           <Tooltip formatter={(v) => v ? fmtEURplain(v) : "—"} contentStyle={{ background: "#16140F", border: `1px solid ${PANEL_BORDER}`, borderRadius: 10, fontSize: 11 }} labelFormatter={() => ""} />
-                          <Area type="monotone" dataKey="valeur" stroke={color} strokeWidth={2} fill={`url(#fillY${y})`} dot={false} connectNulls animationDuration={1000} />
+                          <Area type="monotone" dataKey="valeur" stroke={color} strokeWidth={2} fill={`url(#fillY${y})`} dot={{ r: 2.5, fill: color, cursor: "pointer" }} activeDot={{ r: 5, cursor: "pointer" }} connectNulls animationDuration={1000} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </GlassCard>
                   );
                 })}
               </div>
+
+              {selectedMonth && (() => {
+                const { year, monthIndex } = selectedMonth;
+                const cur = DATA.monthly_total[year]?.[monthIndex];
+                const prevYear = year - 1;
+                const prev = DATA.monthly_total[prevYear]?.[monthIndex];
+                const caPct = (cur && prev) ? ((cur - prev) / prev) * 100 : null;
+                return (
+                  <GlassCard className="p-4 mt-3 flex items-center justify-between flex-wrap gap-3" glow>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>{moisLabels[monthIndex]} {year}</div>
+                      <div className="tabular-nums text-[20px] font-bold mt-0.5">{cur ? fmtEUR(cur) : "—"}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {caPct !== null ? (
+                        <>
+                          <span className="text-[11px]" style={{ color: FAINT }}>vs {moisLabels[monthIndex]} {prevYear} ({fmtEURplain(prev)})</span>
+                          <YoyBadge pct={caPct} size="big" />
+                        </>
+                      ) : (
+                        <span className="text-[11px]" style={{ color: FAINT }}>{prev === undefined ? `Pas de donnée ${prevYear} pour comparer` : "Non comparable"}</span>
+                      )}
+                    </div>
+                    <div className="w-full flex items-center gap-1.5 text-[10.5px] pt-2 mt-1" style={{ color: FAINT, borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                      <Info size={11} /> Quantité non disponible à ce niveau de détail mensuel dans les données actuelles — seul le CA peut être comparé pour l'instant
+                    </div>
+                    <button onClick={() => setSelectedMonth(null)} className="text-[10.5px] px-2 py-1 rounded-full" style={{ color: MUTED, background: PANEL_QUIET }}>✕ Fermer</button>
+                  </GlassCard>
+                );
+              })()}
             </div>
             <div className="flex items-center gap-2 px-1 py-2 text-[11.5px]" style={{ color: FAINT }}><Info size={12} /> Tous les montants de l'app sont exprimés hors taxes (HT)</div>
           </>
@@ -913,14 +1315,17 @@ function DashboardApp() {
 
         {tab === "marketplaces" && (
           <>
+            <PeriodSummaryCard key={`mp-${globalMp}-${datePreset}`} items={summaryMarketplaces} />
             {globalMp === "Toutes" ? (
               <>
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
                   <div>
-                    <Eyebrow hint={t.ca_ht_total_hint}>{t.ca_ht_total_titre}</Eyebrow>
-                    <div className="flex items-baseline gap-3 flex-wrap"><div className="tabular-nums font-bold leading-none" style={{ fontSize: "clamp(32px, 5vw, 48px)" }}>{fmtEUR(totalCaAllMp)}</div><YoyBadge pct={globalYoy} size="big" /></div>
+                    <Eyebrow hint={`${t.ca_ht_total_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{t.ca_ht_total_titre}</Eyebrow>
+                    <div className="flex items-baseline gap-3 flex-wrap"><div className="tabular-nums font-bold leading-none" style={{ fontSize: "clamp(32px, 5vw, 48px)" }}>{fmtEUR(totalCaAllMp)}</div><YoyBadge pct={periodStats.yoy} size="big" /></div>
                   </div>
-                  <div className="text-[12.5px] tabular-nums px-3 py-2 rounded-xl" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: MUTED }}><span style={{ color: GREEN }}>{onTrackCount}</span>/{definedCount} {t.au_rythme}</div>
+                  {datePreset === "annee_courante" && (
+                    <div className="text-[12.5px] tabular-nums px-3 py-2 rounded-xl" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: MUTED }}><span style={{ color: GREEN }}>{onTrackCount}</span>/{definedCount} {t.au_rythme}</div>
+                  )}
                 </div>
                 <div className="mt-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader></div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
@@ -1027,9 +1432,10 @@ function DashboardApp() {
 
         {tab === "marques" && (
           <>
+            <PeriodSummaryCard key={`marques-${globalMp}-${datePreset}`} items={summaryMarques} />
             <div className="mb-5 card-reveal">
               <div className="flex items-center gap-3 mb-2"><BesthermLogo size={16} color={INK} /><span style={{ color: FAINT }}>×</span><ThomsonLogo size={14} /></div>
-              <Eyebrow hint={t.repartition_marque_hint}>{globalMp === "Toutes" ? `${t.repartition_marque} — ${t.toutes_marketplaces_suffix}` : `${t.repartition_marque} — ${globalMp}`}</Eyebrow>
+              <Eyebrow hint={`${t.repartition_marque_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{globalMp === "Toutes" ? `${t.repartition_marque} — ${t.toutes_marketplaces_suffix}` : `${t.repartition_marque} — ${globalMp}`}</Eyebrow>
               <div className="flex items-baseline gap-3 flex-wrap">
                 <span className="tabular-nums font-bold" style={{ fontSize: "clamp(32px, 5vw, 48px)", color: ORANGE_SOFT }}>{bestPct.toFixed(0)}%</span>
                 <span className="text-[14px]" style={{ color: MUTED }}>Bestherm · {(100-bestPct).toFixed(0)}% Thomson</span>
@@ -1106,15 +1512,15 @@ function DashboardApp() {
 
             {/* ===== section — Normes NF / CE ===== */}
             <div className="mt-9">
-              <SectionHeader hint={t.repartition_norme_hint}>{t.repartition_norme}</SectionHeader>
+              <SectionHeader hint={`${t.repartition_norme_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{t.repartition_norme}</SectionHeader>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <GlassCard className="p-4" glow>
-                <Eyebrow>NF — année {priceYear}</Eyebrow>
+                <Eyebrow>NF — {dateRangeLabel}</Eyebrow>
                 <div className="tabular-nums font-bold" style={{ fontSize: "clamp(26px, 4vw, 34px)" }}>{normesTotal.nfPct.toFixed(0)}%</div>
               </GlassCard>
               <GlassCard className="p-4" glow>
-                <Eyebrow>CE — année {priceYear}</Eyebrow>
+                <Eyebrow>CE — {dateRangeLabel}</Eyebrow>
                 <div className="tabular-nums font-bold" style={{ fontSize: "clamp(26px, 4vw, 34px)", color: ORANGE_SOFT }}>{normesTotal.cePct.toFixed(0)}%</div>
               </GlassCard>
             </div>
@@ -1273,6 +1679,7 @@ function DashboardApp() {
 
         {tab === "ads" && (
           <>
+            <PeriodSummaryCard key={`ads-${globalMp}-${datePreset}`} items={summaryAds} />
             {globalMp !== "Toutes" && (GF_TO_ADS[globalMp] || []).length === 0 ? (
               <GlassCard className="p-6 text-center" quiet>
                 <span className="text-[12.5px]" style={{ color: FAINT }}>{lang==="en"?`No distinct ad data for ${globalMp} — this channel has no dedicated line in the marketing budget file`:lang==="zh"?`${globalMp} 暂无独立广告数据 — 该渠道在营销预算文件中没有专属行`:`Pas de données ads distinctes pour ${globalMp} — ce canal n'a pas de ligne dédiée dans le fichier budget marketing`}</span>
@@ -1381,6 +1788,16 @@ function DashboardApp() {
             ))}
           </div>
           <span className="text-[11px] flex items-center gap-1" style={{ color: FAINT }}>{t.tous_montants_ht} <ChevronRight size={11} /></span>
+          <span className="text-[10.5px] flex items-center gap-1.5 px-2 py-1 rounded-full" style={{
+            color: liveConnection.status === "connected" ? GREEN : liveConnection.status === "error" ? RED : FAINT,
+            background: liveConnection.status === "connected" ? `${GREEN}18` : "transparent",
+          }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: liveConnection.status === "connected" ? GREEN : liveConnection.status === "error" ? RED : FAINT }} />
+            {liveConnection.status === "not_configured" && "Données statiques"}
+            {liveConnection.status === "loading" && "Connexion en cours…"}
+            {liveConnection.status === "connected" && `Live · ${liveConnection.data.nb_lignes_ventes} lignes · ${liveConnection.syncedAt.toLocaleTimeString("fr-FR")}`}
+            {liveConnection.status === "error" && `Échec connexion (${liveConnection.error})`}
+          </span>
         </div>
       </footer>
     </div>
