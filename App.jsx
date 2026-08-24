@@ -767,6 +767,16 @@ function sumMonthSnapped(monthlySource, dateFrom, dateTo) {
   return total;
 }
 function sumRangeForMp(mp, dateFrom, dateTo) { return sumMonthSnapped(DATA.gf.monthly_total_by_mp[mp], dateFrom, dateTo); }
+// mois calendaire complet précédant immédiatement une date donnée — gère
+// correctement la bascule d'année (janvier -> décembre N-1)
+function getMonthBefore(dateStr) {
+  const d = new Date(dateStr);
+  const y = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear();
+  const m = d.getMonth() === 0 ? 11 : d.getMonth() - 1;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return { from: `${y}-${pad2(m+1)}-01`, to: `${y}-${pad2(m+1)}-${pad2(lastDay)}`, label: `${MOIS_FR[m]} ${y}` };
+}
+const MOIS_FR = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
 /* ============================================================================ NAV avec indicateur glissant */
 function SlidingNav({ tab, onChange, t }) {
@@ -843,9 +853,6 @@ function DashboardApp() {
     setCatMpFilter(globalMp);
     setPriceMpFilter(globalMp);
     setMapMp(GF_TO_ADS[globalMp]?.[0] || "Toutes");
-    // "Personnalisé" (précision jour) n'existe qu'en vue Toutes marketplaces —
-    // par marketplace, seule la précision mensuelle est disponible
-    if (globalMp !== "Toutes" && datePreset === "personnalise") setDatePreset("annee_courante");
   }, [globalMp]);
 
   const changeTab = (id) => {
@@ -894,7 +901,11 @@ function DashboardApp() {
   const [caAnimated, caPunch] = useCountUp(filteredCaTotal);
   // la synthèse par onglet n'apparaît que si marketplace ET période sont
   // toutes les deux affinées (pas les valeurs par défaut "Toutes" / "Année en cours")
-  const showSummary = globalMp !== "Toutes" && datePreset !== "annee_courante";
+  // "plus smart" : l'un OU l'autre suffit désormais (avant : les deux
+  // étaient obligatoires) — un utilisateur qui affine juste la période, sans
+  // toucher à la marketplace, voit déjà une synthèse utile
+  const showSummary = globalMp !== "Toutes" || datePreset !== "annee_courante";
+  const mpLabel = globalMp === "Toutes" ? t.toutes_mp : globalMp;
   const periodLabelLower = dateRangeLabel.toLowerCase();
   const [pctAnimated] = useCountUp(filteredPct);
 
@@ -1058,24 +1069,53 @@ function DashboardApp() {
   // période/marketplace choisie ; ce qui reste annuel (Ads) le dit
   // explicitement plutôt que de laisser croire à un filtrage qui n'existe pas =====
   const mpRank = useMemo(() => sortedMp.findIndex((m) => m.marketplace === globalMp) + 1, [sortedMp, globalMp]);
+  // comparaison vs le mois calendaire précédant le début de la période choisie —
+  // distincte du comparatif N-1 (même période, année d'avant) déjà dans periodStats ;
+  // s'applique à tous les préréglages, y compris "Personnalisé"
+  const momStats = useMemo(() => {
+    const mb = getMonthBefore(dateRange.from);
+    if (mb.from < DMIN) return null;
+    const ca = globalMp === "Toutes" ? sumMonthSnapped(DATA.monthly_total, mb.from, mb.to) : sumRangeForMp(globalMp, mb.from, mb.to);
+    return { ...mb, ca, pct: ca ? ((filteredCaTotal - ca) / ca) * 100 : null };
+  }, [dateRange.from, globalMp, filteredCaTotal]);
+  const monthBeforeItem = momStats ? [{ title: "Vs mois précédent", text: `${fmtEUR(momStats.ca)} en ${momStats.label}${momStats.pct !== null ? ` (${momStats.pct >= 0 ? "+" : ""}${momStats.pct.toFixed(1)}%)` : ""}.` }] : [];
+  // référence Year-to-date (1er janvier → aujourd'hui), toujours calculée en plus
+  // de la période choisie, quel que soit le préréglage actif
+  const ytdStats = useMemo(() => {
+    const { from, to } = getPresetRange("annee_courante");
+    const ca = globalMp === "Toutes" ? DATA.total_yoy_comparable["2026"] : sumRangeForMp(globalMp, from, to);
+    const pct = filteredObjectif ? (ca / filteredObjectif) * 100 : null;
+    return { ca, pct, from, to };
+  }, [globalMp, filteredObjectif]);
   const summaryApercu = !showSummary ? [] : [
-    { title: "Chiffre d'affaires", text: `${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}" (${periodStats.from} → ${periodStats.to})${periodStats.yoy !== null ? `, soit ${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs la même période l'an dernier` : ", comparatif N-1 indisponible"}.` },
-    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel (${fmtEUR(filteredObjectif)}) déjà réalisé.` : `Aucun objectif annuel défini pour ${globalMp}.` },
+    { title: "Chiffre d'affaires", text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}" (${periodStats.from} → ${periodStats.to})${periodStats.yoy !== null ? `, soit ${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs la même période l'an dernier` : ", comparatif N-1 indisponible"}.` },
+    ...monthBeforeItem,
+    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel (${fmtEUR(filteredObjectif)}) déjà réalisé sur la période choisie.` : `Aucun objectif annuel défini pour ${mpLabel}.` },
+    { title: "Year-to-date", text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} depuis le 1er janvier, soit ${ytdStats.pct.toFixed(1)}% de l'objectif annuel.` : `Repère YTD non disponible sans objectif défini.` },
+    { title: "Panier moyen", text: filteredPanierMoyen !== null ? `${fmtEUR(filteredPanierMoyen)} — année 2026 complète, pas de détail par période disponible.` : "Non disponible." },
     { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% / Thomson ${(100-bestPct).toFixed(0)}% du CA sur cette période.` },
   ];
   const summaryMarketplaces = !showSummary ? [] : [
-    { title: "Chiffre d'affaires", text: `${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}"${periodStats.yoy !== null ? ` (${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs l'an dernier)` : ""}.` },
+    { title: "Chiffre d'affaires", text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}"${periodStats.yoy !== null ? ` (${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs l'an dernier)` : ""}.` },
+    ...monthBeforeItem,
     { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel réalisé sur cette période.` : `Aucun objectif annuel défini.` },
-    { title: "Position", text: mpRank > 0 ? `${mpRank}${mpRank === 1 ? "ère" : "e"} marketplace sur ${sortedMp.length} pour cette période.` : "Rang non calculable." },
+    { title: "Year-to-date", text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} depuis le 1er janvier (${ytdStats.pct.toFixed(1)}% de l'objectif).` : "Repère YTD non disponible sans objectif défini." },
+    globalMp === "Toutes"
+      ? { title: "Marketplace leader", text: sortedMp[0] ? `${sortedMp[0].marketplace}, ${fmtEURk(sortedMp[0].ca)} sur cette période.` : "Non calculable." }
+      : { title: "Position", text: mpRank > 0 ? `${mpRank}${mpRank === 1 ? "ère" : "e"} marketplace sur ${sortedMp.length} pour cette période.` : "Rang non calculable." },
   ];
+  const catMp = DATA.category_by_mp.categories[globalMp]?.[0];
+  const sousCatMp = DATA.category_by_mp.souscategories[globalMp]?.[0];
   const summaryMarques = !showSummary ? [] : [
-    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% (${fmtEURplain(bestherm26)}) / Thomson ${(100-bestPct).toFixed(0)}% (${fmtEURplain(thomson26)}).` },
+    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% (${fmtEURplain(bestherm26)}) / Thomson ${(100-bestPct).toFixed(0)}% (${fmtEURplain(thomson26)}) sur cette période.` },
     { title: "Évolution Bestherm", text: besthermYoy !== null ? `${besthermYoy >= 0 ? "+" : ""}${besthermYoy.toFixed(1)}% vs l'an dernier.` : "Comparatif N-1 non disponible par marketplace." },
+    { title: "Top 5 produits", text: productsSource.length ? `${productsSource.slice(0,5).map((p) => `${p.produit} (${fmtEURk(p.ca)}${p.qte !== null && p.qte !== undefined ? `, ${fmtNum(p.qte)} u.` : ""})`).join(", ")} — année 2026 complète${globalMp !== "Toutes" ? ", quantité non disponible par marketplace" : ""}.` : "Aucune donnée produit disponible." },
     { title: "Normes", text: `${normesTotal.cePct.toFixed(0)}% du CA en CE, ${normesTotal.nfPct.toFixed(0)}% en NF sur cette période.` },
+    { title: "Top catégorie / sous-catégorie", text: catMp ? `${catMp.nom} (${catMp.pct}%) / ${sousCatMp?.nom || "—"} (${sousCatMp?.pct ?? "—"}%) — année 2026 complète, non filtrable par période.` : "Non disponible." },
   ];
   const summaryAds = !showSummary || totalSpend === 0 ? [] : [
     { title: "Performance", text: `ROAS de ${blendedRoas.toFixed(1)}x sur l'année 2026.` },
-    { title: "Investissement", text: `${fmtEUR(totalSpend)} dépensés pour ${fmtEUR(totalAdsCa)} générés.` },
+    { title: "Budget investi", text: `${fmtEUR(totalSpend)} dépensés pour ${fmtEUR(totalAdsCa)} générés — cumul year-to-date 2026 (seule donnée disponible, pas de détail par mois).` },
     { title: "Période", text: "Donnée annuelle 2026 complète — le filtre de date ne s'applique pas à cet onglet." },
   ];
 
@@ -1156,7 +1196,24 @@ function DashboardApp() {
 
       <div className="no-print sticky z-10 backdrop-blur-xl transition-colors duration-300" style={{ top: 57, background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${ORANGE}14, ${AMBER}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "40" : PANEL_BORDER_QUIET}` }}>
         <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2.5 flex flex-col gap-2.5">
-          <div className="flex items-center flex-wrap gap-3">
+          <div className="flex items-center flex-wrap gap-1.5">
+            <CalendarDays size={13} color={FAINT} className="shrink-0" />
+            {DATE_PRESETS.map((p) => (
+              <button key={p.id} onClick={() => setDatePreset(p.id)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
+                style={{ background: datePreset === p.id ? `${ORANGE}22` : "transparent", color: datePreset === p.id ? ORANGE_SOFT : MUTED, border: `1px solid ${datePreset === p.id ? ORANGE_SOFT + "55" : "transparent"}` }}>
+                {p.label}
+              </button>
+            ))}
+            {datePreset === "personnalise" && (
+              <div className="flex items-center gap-1.5 ml-1">
+                <input type="date" value={customFrom} min={DMIN} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
+                <span style={{ color: FAINT }}>→</span>
+                <input type="date" value={customTo} min={customFrom} max={DMAX} onChange={(e) => setCustomTo(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center flex-wrap gap-3 pt-2.5" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
             <div className="flex items-center gap-2 shrink-0">
               <span className="relative flex items-center justify-center w-6 h-6 rounded-full" style={{ background: globalMp !== "Toutes" ? `${ORANGE}22` : PANEL_QUIET }}>
                 <Globe2 size={12} color={globalMp !== "Toutes" ? ORANGE_SOFT : FAINT} />
@@ -1177,26 +1234,6 @@ function DashboardApp() {
               <button onClick={() => setGlobalMp("Toutes")} className="btn-lift text-[11px] flex items-center gap-1 px-2 py-1 rounded-full shrink-0" style={{ color: MUTED, background: PANEL_QUIET }}>
                 <X size={11} /> {t.reset}
               </button>
-            )}
-          </div>
-
-          <div className="flex items-center flex-wrap gap-1.5 pt-2.5" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
-            <CalendarDays size={13} color={FAINT} className="shrink-0" />
-            {DATE_PRESETS.filter((p) => p.id !== "personnalise" || globalMp === "Toutes").map((p) => (
-              <button key={p.id} onClick={() => setDatePreset(p.id)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
-                style={{ background: datePreset === p.id ? `${ORANGE}22` : "transparent", color: datePreset === p.id ? ORANGE_SOFT : MUTED, border: `1px solid ${datePreset === p.id ? ORANGE_SOFT + "55" : "transparent"}` }}>
-                {p.label}
-              </button>
-            ))}
-            {globalMp !== "Toutes" && (
-              <span className="text-[10px] shrink-0" style={{ color: FAINT }}>· sélection libre indisponible par marketplace (précision jour non disponible)</span>
-            )}
-            {datePreset === "personnalise" && (
-              <div className="flex items-center gap-1.5 ml-1">
-                <input type="date" value={customFrom} min={DMIN} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
-                <span style={{ color: FAINT }}>→</span>
-                <input type="date" value={customTo} min={customFrom} max={DMAX} onChange={(e) => setCustomTo(e.target.value)} className="text-[11.5px] rounded-lg px-2 py-1 font-medium tabular-nums" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }} />
-              </div>
             )}
           </div>
         </div>
