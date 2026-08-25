@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useEffect, useRef, useLayoutEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useLayoutEffect, useContext, createContext } from "react";
+import { createPortal } from "react-dom";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, BarChart, Bar, Line
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ChevronRight,
-  Menu, X, Package, Globe2, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles
+  Menu, X, Package, Globe2, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion
 } from "lucide-react";
 
 /* ============================================================================ DONNÉES (réelles, HT) */
@@ -22,6 +23,10 @@ const BG = "#0A0908", PANEL = "rgba(255,255,255,0.035)", PANEL_QUIET = "rgba(255
 const PANEL_BORDER = "rgba(255,255,255,0.09)", PANEL_BORDER_QUIET = "rgba(255,255,255,0.05)";
 const INK = "#F5F1EA", MUTED = "#948C7E", FAINT = "#5E5850";
 const ORANGE = "#FF5A1F", ORANGE_SOFT = "#FF8A50", AMBER = "#FFB020", GREEN = "#34D399", RED = "#F87171";
+// couleur d'accent active — orange Bestherm par défaut (utilisé par tout ce qui
+// est rendu hors du Provider, ex. l'écran de connexion), remplacée par la
+// couleur de la marketplace sélectionnée une fois dans le tableau de bord
+const AccentContext = createContext({ primary: "#FF5A1F", soft: "#FF8A50", text: "#0A0908" });
 const THOMSON_RED = "#D50032";
 const PASSWORD = "Anthony<3";
 // le clavier mobile remplace souvent "<3" par un cœur ❤ à la frappe — on
@@ -36,6 +41,17 @@ const fmtEURplain = (n) => new Intl.NumberFormat("fr-FR", { maximumFractionDigit
 const fmtEURk = (n) => n >= 1000 ? `${(n/1000).toFixed(0)}k€` : `${Math.round(n)}€`;
 const fmtPct = (n) => n === null || n === undefined ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)} %`;
 const fmtNum = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n));
+// garantit qu'une couleur reste lisible en texte sur le fond sombre de l'app —
+// l'éclaircit si besoin plutôt que d'afficher du texte invisible ; la charte
+// couleur de chaque marketplace n'est donc pas toujours respectée à la lettre,
+// délibérément, la lisibilité passe avant
+function ensureReadable(hex, minLuminance = 0.35) {
+  const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b) / 255;
+  if (luminance >= minLuminance) return hex;
+  const mix = (c) => Math.round(c + (255 - c) * 0.6).toString(16).padStart(2, "0");
+  return `#${mix(r)}${mix(g)}${mix(b)}`;
+}
 const DMIN = "2024-01-01", DMAX = "2026-07-18";
 
 /* ============================================================================ PARTICULES D'AMBIANCE (braises) */
@@ -236,7 +252,9 @@ function EntryGate({ onUnlock }) {
 }
 
 /* ============================================================================ MOTION + 3D */
-function TiltCard({ children, className = "", glow = false, quiet = false, style = {}, index = 0 }) {
+function TiltCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, index = 0 }) {
+  const accent = useContext(AccentContext);
+  const effectiveGlow = glowColor || accent.primary;
   const ref = useRef(null);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const onMove = (e) => {
@@ -251,23 +269,26 @@ function TiltCard({ children, className = "", glow = false, quiet = false, style
       style={{
         background: quiet ? PANEL_QUIET : PANEL, border: `1px solid ${quiet ? PANEL_BORDER_QUIET : PANEL_BORDER}`,
         boxShadow: glow
-          ? `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 60px -12px ${ORANGE}33, 0 ${14 + Math.abs(tilt.x)}px 34px -12px rgba(0,0,0,0.55)`
+          ? `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 60px -12px ${effectiveGlow}33, 0 ${14 + Math.abs(tilt.x)}px 34px -12px rgba(0,0,0,0.55)`
           : quiet ? "inset 0 1px 0 rgba(255,255,255,0.02)" : `inset 0 1px 0 rgba(255,255,255,0.05), 0 ${10 + Math.abs(tilt.x)}px 28px -12px rgba(0,0,0,0.5)`,
         transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) translateZ(0)`,
-        transition: tilt.x === 0 && tilt.y === 0 ? "transform 0.5s cubic-bezier(.22,1,.36,1)" : "transform 0.08s linear",
+        transition: tilt.x === 0 && tilt.y === 0 ? "transform 0.5s cubic-bezier(.22,1,.36,1), box-shadow 0.4s ease" : "transform 0.08s linear",
         animationDelay: `${index * 60}ms`, ...style,
       }}>
       {children}
     </div>
   );
 }
-function GlassCard({ children, className = "", glow = false, quiet = false, style = {} }) {
+function GlassCard({ children, className = "", glow = false, glowColor, quiet = false, style = {} }) {
+  const accent = useContext(AccentContext);
+  const effectiveGlow = glowColor || accent.primary;
   return (
     <div className={`relative rounded-2xl backdrop-blur-xl ${className}`}
       style={{ background: quiet ? PANEL_QUIET : PANEL, border: `1px solid ${quiet ? PANEL_BORDER_QUIET : PANEL_BORDER}`,
         boxShadow: glow
-          ? `inset 0 1px 0 rgba(255,255,255,0.05), 0 0 60px -12px ${ORANGE}33, 0 8px 30px -10px rgba(0,0,0,0.5)`
+          ? `inset 0 1px 0 rgba(255,255,255,0.05), 0 0 60px -12px ${effectiveGlow}33, 0 8px 30px -10px rgba(0,0,0,0.5)`
           : quiet ? "inset 0 1px 0 rgba(255,255,255,0.02)" : "inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 30px -10px rgba(0,0,0,0.5)",
+        transition: "box-shadow 0.4s ease",
         ...style }}>
       {children}
     </div>
@@ -291,14 +312,14 @@ function useCountUp(target, duration = 1100, trigger = 0) {
   }, [target, duration, trigger]);
   return [val, punch];
 }
-function HeatGauge({ pct }) {
+function HeatGauge({ pct, color = ORANGE, colorSoft = AMBER }) {
   const clamped = Math.min(pct, 100);
   const r = 84, circumference = 2 * Math.PI * r * (270 / 360);
   const needleAngle = -135 + (clamped / 100) * 270;
   return (
     <svg viewBox="0 0 220 190" style={{ width: 220, maxWidth: "100%" }}>
       <defs>
-        <linearGradient id="heatGrad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor={AMBER} /><stop offset="100%" stopColor={ORANGE} /></linearGradient>
+        <linearGradient id="heatGrad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor={colorSoft} /><stop offset="100%" stopColor={color} /></linearGradient>
         <radialGradient id="dialShade" cx="50%" cy="35%" r="70%"><stop offset="0%" stopColor="rgba(255,255,255,0.07)" /><stop offset="100%" stopColor="rgba(0,0,0,0.25)" /></radialGradient>
         <filter id="glow"><feGaussianBlur stdDeviation="5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         <filter id="dialDepth" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.5" /></filter>
@@ -314,11 +335,12 @@ function HeatGauge({ pct }) {
   );
 }
 function Eyebrow({ children, tone = "primary", hint }) {
+  const accent = useContext(AccentContext);
   return (
     <div className="mb-2">
       <div className="flex items-center gap-1.5">
-        <span className="w-3 h-[1.5px]" style={{ background: tone === "primary" ? ORANGE : FAINT }} />
-        <span className="text-[10px] tracking-[0.16em] uppercase font-semibold" style={{ color: tone === "primary" ? ORANGE_SOFT : MUTED }}>{children}</span>
+        <span className="w-3 h-[1.5px]" style={{ background: tone === "primary" ? accent.primary : FAINT }} />
+        <span className="text-[10px] tracking-[0.16em] uppercase font-semibold" style={{ color: tone === "primary" ? accent.primary : MUTED }}>{children}</span>
       </div>
       {hint && <div className="text-[9.5px] mt-0.5 pl-[18px] opacity-75" style={{ color: FAINT }}>{hint}</div>}
     </div>
@@ -328,10 +350,11 @@ function Eyebrow({ children, tone = "primary", hint }) {
    (plusieurs cartes en dessous), nettement plus affirmé que les Eyebrow internes
    aux cartes, pour que l'œil distingue "nouveau chapitre" de "sous-titre de carte" */
 function SectionHeader({ children, hint }) {
+  const accent = useContext(AccentContext);
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2.5">
-        <span className="w-6 h-[3px] rounded-full" style={{ background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_SOFT})` }} />
+        <span className="w-6 h-[3px] rounded-full transition-colors duration-300" style={{ background: `linear-gradient(90deg, ${accent.primary}, ${accent.primary}bb)` }} />
         <h2 className="text-[14.5px] tracking-[0.02em] font-bold" style={{ color: INK }}>{children}</h2>
       </div>
       {hint && <div className="text-[11.5px] mt-1 pl-[34px]" style={{ color: MUTED }}>{hint}</div>}
@@ -362,22 +385,43 @@ function TypewriterText({ text, speed = 14, onDone }) {
    l'appelant (marketplace+période) fait remonter le composant à zéro et
    relance l'animation à chaque nouveau filtre. */
 function PeriodSummaryCard({ items }) {
+  const accent = useContext(AccentContext);
   const [activeIndex, setActiveIndex] = useState(0);
-  if (!items || items.length === 0) return null;
+  const [closing, setClosing] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  // fermeture automatique 2 minutes après l'apparition de la carte
+  useEffect(() => {
+    const timer = setTimeout(() => setClosing(true), 120000);
+    return () => clearTimeout(timer);
+  }, []);
+  // laisse le temps au fondu de jouer avant de retirer la carte pour de bon
+  useEffect(() => {
+    if (!closing) return;
+    const t = setTimeout(() => setDismissed(true), 280);
+    return () => clearTimeout(t);
+  }, [closing]);
+
+  if (!items || items.length === 0 || dismissed) return null;
   return (
-    <div className="card-reveal relative rounded-2xl mb-5 overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,90,31,0.05), rgba(255,90,31,0.015))", border: `1px solid ${ORANGE_SOFT}2a` }}>
-      <div className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: `linear-gradient(180deg, ${ORANGE}, transparent)` }} />
+    <div className="card-reveal relative rounded-2xl mb-5 overflow-hidden" style={{ background: `linear-gradient(135deg, ${accent.primary}0d, ${accent.primary}03)`, border: `1px solid ${accent.primary}2a`, opacity: closing ? 0 : 1, transform: closing ? "scale(0.98)" : "scale(1)", transition: "opacity 0.28s ease-out, transform 0.28s ease-out, background 0.4s ease, border-color 0.4s ease" }}>
+      <div className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: `linear-gradient(180deg, ${accent.primary}, transparent)` }} />
       <div className="pl-5 pr-4 py-3.5">
-        <div className="flex items-center gap-1.5 mb-2.5">
-          <Sparkles size={11} color={ORANGE_SOFT} />
-          <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: ORANGE_SOFT }}>Synthèse</span>
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={11} color={accent.primary} />
+            <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: accent.primary }}>Synthèse</span>
+          </div>
+          <button onClick={() => setClosing(true)} aria-label="Fermer la synthèse" className="btn-lift -mt-1 -mr-1 p-1 rounded-full" style={{ color: FAINT }}>
+            <X size={12} />
+          </button>
         </div>
         <ul className="space-y-2.5">
           {items.map((item, i) => i > activeIndex ? null : (
             <li key={i} className="flex gap-2">
-              <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full" style={{ background: ORANGE_SOFT }} />
+              <span className="shrink-0 mt-[3px] w-1 h-1 rounded-full" style={{ background: accent.primary }} />
               <div>
-                <span className="text-[11.5px] font-semibold" style={{ color: ORANGE_SOFT }}>{item.title} — </span>
+                <span className="text-[11.5px] font-semibold" style={{ color: accent.primary }}>{item.title} — </span>
                 <span className="text-[12.5px] leading-relaxed" style={{ color: MUTED }}>
                   {i < activeIndex ? item.text : <TypewriterText text={item.text} onDone={() => setActiveIndex((v) => v + 1)} />}
                 </span>
@@ -556,7 +600,7 @@ function useLiveData() {
 
 const I18N = {
   fr: {
-    nav_apercu: "Vue d'ensemble", nav_marketplaces: "Marketplaces", nav_marques: "Marques & Produits", nav_prix: "Suivi Prix", nav_ads: "Campagnes Ads",
+    nav_apercu: "Vue d'ensemble", nav_marketplaces: "Marketplaces", nav_marques: "Marques & Produits", nav_prix: "Suivi Prix", nav_ads: "Campagnes Ads", nav_concurrence: "Concurrence",
     pilotage: "Pilotage", marketplace_label: "Marketplace :", toutes_mp: "Toutes marketplaces", mode_presentation: "Mode présentation", reset: "réinitialiser",
     analyser_periode: "Analyser la période :", vs_an_dernier: "l'an dernier", ht_suffix: "Tous montants HT",
     ca_cumule: "CA HT cumulé YTD", ca_cumule_hint: "Somme du CA HT de toutes les commandes depuis le 1er janvier 2026",
@@ -605,7 +649,7 @@ const I18N = {
     langue: "Langue",
   },
   en: {
-    nav_apercu: "Overview", nav_marketplaces: "Marketplaces", nav_marques: "Brands & Products", nav_prix: "Price Tracking", nav_ads: "Ad Campaigns",
+    nav_apercu: "Overview", nav_marketplaces: "Marketplaces", nav_marques: "Brands & Products", nav_prix: "Price Tracking", nav_ads: "Ad Campaigns", nav_concurrence: "Competition",
     pilotage: "Dashboard", marketplace_label: "Marketplace:", toutes_mp: "All marketplaces", mode_presentation: "Presentation mode", reset: "reset",
     analyser_periode: "Analyze period:", vs_an_dernier: "last year", ht_suffix: "All amounts excl. tax",
     ca_cumule: "Cumulative Revenue YTD", ca_cumule_hint: "Sum of revenue (excl. tax) for all orders since January 1, 2026",
@@ -654,7 +698,7 @@ const I18N = {
     langue: "Language",
   },
   zh: {
-    nav_apercu: "总览", nav_marketplaces: "电商平台", nav_marques: "品牌与产品", nav_prix: "价格追踪", nav_ads: "广告活动",
+    nav_apercu: "总览", nav_marketplaces: "电商平台", nav_marques: "品牌与产品", nav_prix: "价格追踪", nav_ads: "广告活动", nav_concurrence: "竞争分析",
     pilotage: "管理面板", marketplace_label: "电商平台：", toutes_mp: "所有平台", mode_presentation: "演示模式", reset: "重置",
     analyser_periode: "分析时间段：", vs_an_dernier: "同比去年", ht_suffix: "所有金额均为不含税价",
     ca_cumule: "累计营业额（年初至今）", ca_cumule_hint: "2026年1月1日以来所有订单的不含税营业额总和",
@@ -704,6 +748,44 @@ const I18N = {
   },
 };
 
+// ============================================================================
+// CONCURRENCE — veille concurrentielle, collectée manuellement via recherche
+// web. Phase 1 : France uniquement, catégorie Ventilateurs. Chaque source a
+// son propre niveau de confiance et sa méthodologie affichée — jamais de
+// prix, classement ou volume inventé quand la donnée n'a pas pu être
+// vérifiée (ex. Amazon : rang confirmé, prix non extrait de façon fiable).
+// ============================================================================
+const COMPETITION_DATA = {"collecte_date":"2026-08-24","segments":{"Heater":{"sous_categories":{"Radiateur fixe":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel (CA, quantités, ajout panier)","confiance":"haute","produits":[{"rang":1,"produit":"Radiateur fixe inertie sèche céramique 1500W ARIA horizontal blanc","marque":"Bestherm","prix":104.9,"prix_avant":139.9,"remise":25,"note":4.5,"avis":16,"vendeur":"BESTHERM","est_bestherm":true},{"rang":2,"produit":"Radiateur fixe inertie sèche céramique 1000W ARIA horizontal noir","marque":"Bestherm","prix":74.9,"prix_avant":99.9,"remise":25,"note":5.0,"avis":1,"vendeur":"BESTHERM","est_bestherm":true},{"rang":3,"produit":"Radiateur connecté inertie sèche céramique 1000W CDHTD10A-W","marque":"Ciarra","prix":null,"vendeur":"Ciarra","est_bestherm":false},{"produit":"Radiateur électrique mural inertie sèche céramique 1500W CDHT15E","marque":"Ciarra","prix":135.99,"vendeur":"E.Leclerc","est_bestherm":false},{"rang":4,"produit":"Radiateur inertie sèche céramique thermostat interchangeable 1000W OVEO","marque":"Bestherm","prix":null,"vendeur":"BESTHERM","est_bestherm":true}]},"Amazon.fr":{"methodologie":"Badge officiel Best Seller","confiance":"haute","produits":[{"rang":null,"produit":"Radiateur fixe inertie sèche céramique 2000W NESSA CONNECT horizontal blanc (WiFi)","marque":"Bestherm","prix":null,"vendeur":"Bestherm","est_bestherm":true,"note_special":"Best Seller catégorie Heating"},{"rang":null,"produit":"Radiateur fixe inertie sèche céramique 1500W Diane horizontal blanc, détecteur présence","marque":"Bestherm","prix":null,"vendeur":"Bestherm","est_bestherm":true,"note_special":"Best Seller catégorie Electric Heaters"},{"rang":null,"produit":"CBHTD20A-W Radiateur inertie céramique 2000W WiFi","marque":"Ciarra","prix":null,"vendeur":"Ciarra","est_bestherm":false},{"rang":null,"produit":"ReadyWarm 3000 Textile, 2000W, oscillation","marque":"Cecotec","prix":null,"vendeur":"Cecotec","est_bestherm":false}]}},"Radiateur mobile":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel","confiance":"moyenne","note":"Catégorie dominée par du chauffage de chantier professionnel, peu de radiateurs mobiles domestiques classiques identifiés","produits":[{"rang":1,"produit":"Chauffage soufflant TFH 19 E 2000W, chauffage d'appoint mobile","marque":"Trotec","prix":null,"vendeur":"Trotec","est_bestherm":false},{"rang":2,"produit":"Chauffage de chantier électrique TDE 95 V2 400V mobile","marque":"Trotec","prix":null,"vendeur":"Trotec","est_bestherm":false}]}},"Radiateur soufflant":{"Amazon.fr":{"methodologie":"Badge officiel Best Seller","confiance":"haute","produits":[{"rang":1,"produit":"Ceramic Fan Heater 3000W, thermostat, 3 modes","marque":"Dahtec","prix":null,"vendeur":"Dahtec","est_bestherm":false},{"rang":2,"produit":"Electric Heater Fan Blower 2400W SO2330F2","marque":"Rowenta","prix":null,"vendeur":"Rowenta","est_bestherm":false},{"rang":3,"produit":"Mini Excel 2-in-1 Ceramic Fan Heater SO9261F0","marque":"Rowenta","prix":null,"vendeur":"Rowenta","est_bestherm":false},{"rang":4,"produit":"PTC Ceramic Radiator 2000W thermostat + télécommande","marque":"Midea","prix":null,"vendeur":"Midea","est_bestherm":false}]},"Leroy Merlin":{"methodologie":"Tri pertinence — pas de classement officiel isolé sur cette sous-catégorie précise","confiance":"basse","produits":[{"rang":null,"produit":"Radiateur soufflant céramique programmable digital Nexeo 1000/2000W","marque":"Fácula","prix":null,"vendeur":"Fácula","est_bestherm":false}]}},"Sèche-serviette électrique":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel","confiance":"haute","produits":[{"rang":1,"produit":"Sèche-serviette sans fluide avec soufflerie 500W+1000W HESTIA blanc","marque":"Bestherm","prix":null,"vendeur":"BESTHERM","est_bestherm":true},{"rang":2,"produit":"Sèche-serviette sans fluide avec soufflerie 500W+1000W HESTIA noir","marque":"Bestherm","prix":null,"vendeur":"BESTHERM","est_bestherm":true},{"rang":3,"produit":"Sèche-serviette sans fluide avec soufflerie 500+1000W HANAE noir","marque":"Bestherm","prix":null,"vendeur":"BESTHERM","est_bestherm":true},{"rang":4,"produit":"Sèche-serviettes connecté Allure 4 soufflerie 1500W","marque":"Thermor","prix":null,"vendeur":"Thermor","est_bestherm":false},{"rang":5,"produit":"Sèche-serviettes connecté Nefertiti soufflerie 1750W","marque":"Atlantic","prix":null,"vendeur":"Atlantic","est_bestherm":false},{"rang":6,"produit":"Sèche-serviettes électrique connecté WiFi thermostat digital 600W","marque":"S'Afielina","prix":null,"vendeur":"S'Afielina","est_bestherm":false}]}},"Sèche-serviette soufflant":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel","confiance":"haute","produits":[{"rang":1,"produit":"Sèche-serviette sans fluide connecté WiFi soufflerie 500+1000W COSMO blanc","marque":"Thomson","prix":null,"vendeur":"Thomson","est_bestherm":true,"note_special":"Marque sœur HOM'Y"},{"rang":2,"produit":"Sèche-serviette sans fluide connecté WiFi soufflerie 500+1000W COSMO noir","marque":"Thomson","prix":null,"vendeur":"Thomson","est_bestherm":true,"note_special":"Marque sœur HOM'Y"},{"rang":3,"produit":"Sèche-serviette sans fluide avec soufflerie 500W+1000W HESTIA blanc","marque":"Bestherm","prix":null,"vendeur":"BESTHERM","est_bestherm":true},{"rang":4,"produit":"SILK EVO Radiateur soufflant sèche-serviettes surface verre 1000W","marque":"Radialight","prix":null,"vendeur":"Radialight","est_bestherm":false}]}},"Sèche-serviette connecté":{"Leroy Merlin":{"methodologie":"Tri pertinence — pas de classement officiel isolé sur cette sous-catégorie précise","confiance":"moyenne","produits":[{"rang":null,"produit":"Sèche-serviette connecté WiFi soufflerie 500+1000W COSMO","marque":"Thomson","prix":null,"vendeur":"Thomson","est_bestherm":true,"note_special":"Marque sœur HOM'Y"},{"rang":null,"produit":"WARM TOWEL PRO connecté WiFi 500/1500W","marque":"Create","prix":null,"vendeur":"Create","est_bestherm":false},{"rang":null,"produit":"Sèche-serviettes connecté WiFi thermostat digital programmable","marque":"S'Afielina","prix":null,"vendeur":"S'Afielina","est_bestherm":false},{"rang":null,"produit":"Radiateur sèche-serviettes connecté Adelis soufflerie 1500W","marque":"Atlantic","prix":null,"vendeur":"Atlantic","est_bestherm":false}]}}}},"Cooling":{"sous_categories":{"Ventilateur sur pied":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel","confiance":"haute","produits":[{"rang":1,"produit":"Ventilateur de pied 45W blanc 41cm oscillation 75°","marque":"Oceanic","prix":28.14,"vendeur":"Leroy Merlin","est_bestherm":false},{"rang":2,"produit":"Ventilateur sur pied blanc 45W","marque":"Oceanic","prix":26.02,"vendeur":"Leroy Merlin","est_bestherm":false},{"rang":3,"produit":"Ventilateur sur pied SFT 3107WH 3 vitesses 50W","marque":"Sencor","prix":34.18,"vendeur":"Leroy Merlin","est_bestherm":false}]},"ManoMano":{"methodologie":"Top ventes automatique (volume, note, avis)","confiance":"haute","produits":[{"rang":1,"produit":"Ventilateur sur pied 120W 3 vitesses D50cm","marque":"Arebos","prix":69.9,"avis":28,"vendeur":"ManoMano","est_bestherm":false},{"rang":2,"produit":"Ventilateur Essential VU4410 blanc","marque":"Rowenta","prix":100.15,"vendeur":"ManoMano","est_bestherm":false}]},"Amazon.fr":{"methodologie":"Badge officiel Best Seller","confiance":"haute","produits":[{"rang":1,"produit":"EnergySilence 1040 SmartExtreme, moteur DC, 28W","marque":"Cecotec","prix":null,"vendeur":"Cecotec","est_bestherm":false}]}},"Ventilateur de plafond":{"Amazon.fr":{"methodologie":"Badge officiel Best Seller","confiance":"haute","produits":[{"rang":1,"produit":"WinDCALM ABS blanc effet bois + télécommande 40W","marque":"Create","prix":null,"vendeur":"Create","est_bestherm":false}]},"Cdiscount":{"methodologie":"Tri pertinence — pas de badge meilleures ventes officiel identifié","confiance":"moyenne","produits":[{"rang":1,"produit":"Ventilateur de plafond SARA 132cm LED + télécommande","marque":"Thomson","prix":149.99,"prix_avant":208.95,"remise":28,"note":4.8,"avis":54,"vendeur":"Cdiscount","est_bestherm":true,"note_special":"Marque sœur HOM'Y"}]},"Castorama":{"methodologie":"Tri pertinence — rang non extrait de façon fiable","confiance":"basse","produits":[{"rang":null,"produit":"Ventilateur de plafond avec lumière ALMA 7 pales Ø50cm","marque":"Thomson","prix":null,"vendeur":"Castorama","est_bestherm":true,"note_special":"Marque sœur HOM'Y"},{"rang":null,"produit":"Ventilateur de plafond avec lumière SARA 3 pales Ø132cm","marque":"Thomson","prix":null,"vendeur":"Castorama","est_bestherm":true,"note_special":"Marque sœur HOM'Y"},{"rang":null,"produit":"Ventilateur sur pied silencieux Ø36,5cm noir 12 vitesses","marque":"GoodHome","prix":null,"note":4.18,"avis":11,"vendeur":"Castorama","est_bestherm":false}]}},"Climatisation":{"Leroy Merlin":{"methodologie":"Meilleures ventes officiel","confiance":"haute","note":"Aucune présence Bestherm/Thomson identifiée sur cette sous-catégorie — hors du catalogue actuel","produits":[{"rang":1,"produit":"Climatiseur mobile réversible connecté Ph7 1300/2600W 11970/8892BTU","marque":"Qlima","prix":null,"avis":30,"vendeur":"Leroy Merlin","est_bestherm":false},{"rang":2,"produit":"Climatiseur Mobile 9000 BTU/h 2,6kW, contrôle App, Alexa","marque":"Comfee","prix":null,"vendeur":"Leroy Merlin","est_bestherm":false},{"rang":3,"produit":"Climatiseur portable MC Series Pro 12000 BTU, app mobile","marque":"MeacoCool","prix":null,"vendeur":"Leroy Merlin","est_bestherm":false}]}}}}}};
+
+
+// couleurs de marque vérifiées par recherche web (pas de hex deviné) —
+// seules les marketplaces confirmées par plusieurs sources indépendantes
+// figurent ici ; les autres restent sur l'orange Bestherm par défaut
+const MARKETPLACE_COLORS = {
+  "Amazon FR": { primary: "#FF9900", soft: "#232F3E", text: "#232F3E" },
+  "Autre": { primary: "#64748B", soft: "#E2E8F0", text: "#FFFFFF" },
+  "Bol.com": { primary: "#0000A3", soft: "#E6F4FF", text: "#FFFFFF" },
+  "Boulanger": { primary: "#F1650A", soft: "#CAC9F6", text: "#1B1D29" },
+  "Brico Bravo": { primary: "#7436A5", soft: "#F04F8B", text: "#FFFFFF" },
+  "Bricomarché": { primary: "#FE0000", soft: "#965A3A", text: "#FFFFFF" },
+  "But": { primary: "#E3001B", soft: "#38373C", text: "#FFFFFF" },
+  "Carrefour": { primary: "#004E9F", soft: "#E3000D", text: "#FFFFFF" },
+  "Castorama": { primary: "#0078D7", soft: "#FFDD00", text: "#FFFFFF" },
+  "Cdiscount": { primary: "#3732FF", soft: "#FD5272", text: "#FFFFFF" },
+  "Darty": { primary: "#E30613", soft: "#000000", text: "#FFFFFF" },
+  "Leroy Merlin": { primary: "#78BE20", soft: "#000000", text: "#000000" },
+  "ManoMano": { primary: "#29B9AD", soft: "#0C193A", text: "#0C193A" },
+  "Maxeda": { primary: "#AE1C28", soft: "#FEF485", text: "#FFFFFF" },
+  "Non identifié": { primary: "#94A3B8", soft: "#E2E8F0", text: "#111827" },
+  "Site Web": { primary: "#ED780A", soft: "#010101", text: "#010101" },
+  "Worten": { primary: "#EB0000", soft: "#FFFFFF", text: "#FFFFFF" },
+};
+
+// contexte partagé par les composants transverses (SectionHeader, Eyebrow…) —
+// évite de modifier individuellement chacun de leurs dizaines d'usages dans
+// toute l'app ; repli sur l'orange Bestherm par défaut si aucun Provider
+// n'englobe le composant (garde tout ce qui existait avant fonctionnel)
+
 const GF_TO_ADS = {
   "Leroy Merlin": ["LEROY MERLIN FR", "LEROY MERLIN ES", "LEROY MERLIN IT", "LEROY MERLIN PL"],
   "Amazon FR": ["AMAZON FR"], "Site Web": ["SITE WEB"], "ManoMano": ["MANO MANO"],
@@ -716,6 +798,7 @@ const NAV = [
   { id: "marques", labelKey: "nav_marques", icon: Package },
   { id: "prix", labelKey: "nav_prix", icon: Tag },
   { id: "ads", labelKey: "nav_ads", icon: Megaphone },
+  { id: "concurrence", labelKey: "nav_concurrence", icon: Radar },
 ];
 
 function sumRange(dateFrom, dateTo) {
@@ -767,6 +850,21 @@ function sumMonthSnapped(monthlySource, dateFrom, dateTo) {
   return total;
 }
 function sumRangeForMp(mp, dateFrom, dateTo) { return sumMonthSnapped(DATA.gf.monthly_total_by_mp[mp], dateFrom, dateTo); }
+
+// puissance extraite du nom produit (ex. "ARIA 1000W" -> "1000W", "HESTIA 500+1000W" -> "500+1000W")
+// — 84% des 168 produits distincts de price_tracking sont couverts, le reste
+// étant des accessoires légitimement sans puissance (thermostats, attaches, filtres)
+const WATTAGE_RE = /(\d+(?:\+\d+)?W)/;
+function sumQteRange(qte2025, qte2026, dateFrom, dateTo) {
+  let total = 0;
+  const d0 = new Date(dateFrom), d1 = new Date(dateTo);
+  for (let d = new Date(d0.getFullYear(), d0.getMonth(), 1); d <= d1; d.setMonth(d.getMonth() + 1)) {
+    const y = d.getFullYear(), m = d.getMonth();
+    const arr = y === 2025 ? qte2025 : y === 2026 ? qte2026 : null;
+    if (arr && arr[m] != null) total += arr[m];
+  }
+  return total;
+}
 // mois calendaire complet précédant immédiatement une date donnée — gère
 // correctement la bascule d'année (janvier -> décembre N-1)
 function getMonthBefore(dateStr) {
@@ -779,7 +877,91 @@ function getMonthBefore(dateStr) {
 const MOIS_FR = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
 /* ============================================================================ NAV avec indicateur glissant */
+/* MarketplacePicker — remplace le <select> natif par un vrai menu avec pastille
+   de couleur devant chaque marketplace, plus lisible qu'une liste déroulante
+   de navigateur qui ne permet pas ce niveau de personnalisation */
+function MarketplacePicker({ value, onChange, options, toutesLabel }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const wrapRef = useRef(null);
+  const panelRef = useRef(null);
+  const accent = useContext(AccentContext);
+
+  const openPanel = () => {
+    const r = wrapRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    // le panneau est rendu via portail (hors de wrapRef dans le DOM) — il faut
+    // donc vérifier les deux refs séparément pour savoir si le clic est "dehors"
+    const onDocClick = (e) => {
+      const inWrap = wrapRef.current && wrapRef.current.contains(e.target);
+      const inPanel = panelRef.current && panelRef.current.contains(e.target);
+      if (!inWrap && !inPanel) setOpen(false);
+    };
+    const onEsc = (e) => { if (e.key === "Escape") setOpen(false); };
+    const onScrollOrResize = () => {
+      if (wrapRef.current) {
+        const r = wrapRef.current.getBoundingClientRect();
+        setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+      }
+    };
+    // "click" plutôt que "mousedown" : se déclenche après la fin complète du
+    // geste (souris ou tactile), et laisse toujours le onClick d'une option
+    // s'exécuter en premier avant que ce détecteur ne s'exécute à son tour —
+    // élimine le risque de fermeture prématurée sur mobile
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open]);
+
+  const isActive = value !== "Toutes";
+  return (
+    <div ref={wrapRef} className="relative flex-1 min-w-[160px] max-w-[260px]">
+      <button type="button" onClick={() => (open ? setOpen(false) : openPanel())}
+        className="btn-lift w-full flex items-center gap-2 text-[12.5px] font-semibold rounded-xl pl-3 pr-2.5 py-1.5 cursor-pointer transition-colors duration-300"
+        style={{ background: isActive ? `${accent.primary}1f` : PANEL, border: `1px solid ${isActive ? accent.primary + "66" : PANEL_BORDER}`, color: isActive ? accent.primary : INK }}>
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: isActive ? accent.primary : FAINT }} />
+        <span className="flex-1 text-left truncate">{isActive ? value : toutesLabel}</span>
+        <ChevronRight size={12} className="shrink-0 transition-transform duration-200" style={{ transform: open ? "rotate(-90deg)" : "rotate(90deg)", color: isActive ? accent.primary : FAINT }} />
+      </button>
+      {open && createPortal(
+        <div ref={panelRef} className="fixed max-h-[280px] overflow-y-auto rounded-xl backdrop-blur-xl card-reveal"
+          style={{ top: pos.top, left: pos.left, width: pos.width, zIndex: 9999, background: "#16140F", border: `1px solid ${PANEL_BORDER}`, boxShadow: "0 12px 32px -8px rgba(0,0,0,0.6)" }}>
+          <button type="button" onClick={() => { onChange("Toutes"); setOpen(false); }}
+            className="w-full flex items-center gap-2 text-[12px] px-3 py-2 text-left" style={{ background: value === "Toutes" ? PANEL_QUIET : "transparent", color: INK }}>
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: FAINT }} /> {toutesLabel}
+          </button>
+          {options.map((mp) => {
+            const c = MARKETPLACE_COLORS[mp];
+            return (
+              <button key={mp} type="button" onClick={() => { onChange(mp); setOpen(false); }}
+                className="w-full flex items-center gap-2 text-[12px] px-3 py-2 text-left transition-colors duration-150"
+                style={{ background: value === mp ? PANEL_QUIET : "transparent", color: value === mp && c ? c.primary : INK }}
+                onMouseEnter={(e) => { if (value !== mp) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                onMouseLeave={(e) => { if (value !== mp) e.currentTarget.style.background = "transparent"; }}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c ? c.primary : FAINT }} /> {mp}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
 function SlidingNav({ tab, onChange, t }) {
+  const accent = useContext(AccentContext);
   const containerRef = useRef(null);
   const btnRefs = useRef({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -796,13 +978,13 @@ function SlidingNav({ tab, onChange, t }) {
   return (
     <nav ref={containerRef} className="hidden md:flex items-center gap-1 relative">
       <div className="absolute top-0 bottom-0 rounded-full" style={{
-        left: indicator.left, width: indicator.width, background: `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})`,
-        boxShadow: `0 4px 14px -4px ${ORANGE}88`, transition: "left 0.4s cubic-bezier(.22,1,.36,1), width 0.4s cubic-bezier(.22,1,.36,1)", zIndex: 0,
+        left: indicator.left, width: indicator.width, background: `linear-gradient(135deg, ${accent.primary}, ${accent.primary}cc)`,
+        boxShadow: `0 4px 14px -4px ${accent.primary}88`, transition: "left 0.4s cubic-bezier(.22,1,.36,1), width 0.4s cubic-bezier(.22,1,.36,1), background 0.4s ease", zIndex: 0,
       }} />
       {NAV.map((n) => (
         <button key={n.id} ref={(el) => (btnRefs.current[n.id] = el)} onClick={() => onChange(n.id)}
           className="btn-lift relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors duration-200"
-          style={{ color: tab === n.id ? "#0A0908" : MUTED, zIndex: 1 }}>
+          style={{ color: tab === n.id ? accent.text : MUTED, zIndex: 1 }}>
           <n.icon size={14} strokeWidth={2} /> {t[n.labelKey]}
         </button>
       ))}
@@ -839,6 +1021,8 @@ function DashboardApp() {
   }, [globalMp]);
   const [lang, setLang] = useState("fr");
   const [selectedMonth, setSelectedMonth] = useState(null);
+  const [concTab, setConcTab] = useState("synthese");
+  const [concMpFilter, setConcMpFilter] = useState("Toutes");
   const liveConnection = useLiveData();
   const t = I18N[lang];
   const [catMpFilter, setCatMpFilter] = useState("Toutes");
@@ -906,6 +1090,12 @@ function DashboardApp() {
   // toucher à la marketplace, voit déjà une synthèse utile
   const showSummary = globalMp !== "Toutes" || datePreset !== "annee_courante";
   const mpLabel = globalMp === "Toutes" ? t.toutes_mp : globalMp;
+  // couleur d'accent de la barre de filtre — celle de la marketplace si vérifiée,
+  // sinon repli sur l'orange Bestherm habituel (jamais de couleur devinée)
+  const mpAccent = useMemo(() => {
+    const c = MARKETPLACE_COLORS[globalMp] || { primary: ORANGE, soft: ORANGE_SOFT, text: "#0A0908" };
+    return { ...c, soft: ensureReadable(c.soft) };
+  }, [globalMp]);
   const periodLabelLower = dateRangeLabel.toLowerCase();
   const [pctAnimated] = useCountUp(filteredPct);
 
@@ -1119,6 +1309,131 @@ function DashboardApp() {
     { title: "Période", text: "Donnée annuelle 2026 complète — le filtre de date ne s'applique pas à cet onglet." },
   ];
 
+  // ===== Concurrence — veille collectée manuellement, cf. COMPETITION_DATA =====
+  // structure : segments (Heater/Cooling) -> sous-catégories -> marketplaces -> produits
+  const [concSegment, setConcSegment] = useState("Heater");
+  const [concSousCat, setConcSousCat] = useState(null); // null = toutes les sous-catégories du segment
+  const CONF_STYLE = { haute: { icon: ShieldCheck, color: GREEN, label: "Confiance haute" }, moyenne: { icon: ShieldQuestion, color: AMBER, label: "Confiance moyenne" }, basse: { icon: ShieldAlert, color: RED, label: "Confiance basse" } };
+
+  const concSousCatsDuSegment = Object.keys(COMPETITION_DATA.segments[concSegment].sous_categories);
+  // aplati tous les produits du segment (ou d'une seule sous-catégorie si sélectionnée), toutes marketplaces confondues
+  const concAllProducts = useMemo(() => {
+    const rows = [];
+    const scList = concSousCat ? [concSousCat] : concSousCatsDuSegment;
+    scList.forEach((sc) => {
+      const scData = COMPETITION_DATA.segments[concSegment].sous_categories[sc];
+      if (!scData) return;
+      Object.entries(scData).forEach(([mp, mpData]) => {
+        if (concMpFilter !== "Toutes" && mp !== concMpFilter) return;
+        mpData.produits.forEach((p) => rows.push({ ...p, marketplace: mp, sous_categorie: sc, confiance: mpData.confiance }));
+      });
+    });
+    return rows;
+  }, [concSegment, concSousCat, concMpFilter]);
+  // liste des marketplaces réellement présentes dans le segment actif (pour le filtre)
+  const concMarketplacesDuSegment = useMemo(() => {
+    const set = new Set();
+    concSousCatsDuSegment.forEach((sc) => Object.keys(COMPETITION_DATA.segments[concSegment].sous_categories[sc]).forEach((mp) => set.add(mp)));
+    return Array.from(set).sort();
+  }, [concSegment]);
+  const concNbProduits = concAllProducts.length;
+  const concNbAvecPrix = concAllProducts.filter((p) => p.prix != null).length;
+  const concPrixMoyen = concNbAvecPrix ? concAllProducts.filter((p) => p.prix != null).reduce((s,p) => s + p.prix, 0) / concNbAvecPrix : null;
+  const concPrixMin = concNbAvecPrix ? Math.min(...concAllProducts.filter((p) => p.prix != null).map((p) => p.prix)) : null;
+  const concPrixMax = concNbAvecPrix ? Math.max(...concAllProducts.filter((p) => p.prix != null).map((p) => p.prix)) : null;
+  const concPromoCount = concAllProducts.filter((p) => p.remise).length;
+  const concBesthermCount = concAllProducts.filter((p) => p.est_bestherm).length;
+  const concMarquesCount = useMemo(() => {
+    const counts = {};
+    concAllProducts.forEach((p) => { const m = p.marque || "Non identifiée"; counts[m] = (counts[m] || 0) + 1; });
+    return Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  }, [concAllProducts]);
+  // qualité des sources réellement utilisées dans la sélection actuelle (segment + sous-catégorie)
+  const concSourcesQualite = useMemo(() => {
+    const rows = [];
+    const scList = concSousCat ? [concSousCat] : concSousCatsDuSegment;
+    scList.forEach((sc) => {
+      Object.entries(COMPETITION_DATA.segments[concSegment].sous_categories[sc]).forEach(([mp, mpData]) => {
+        rows.push({ sousCategorie: sc, marketplace: mp, ...mpData });
+      });
+    });
+    return rows;
+  }, [concSegment, concSousCat]);
+
+  // ===== export du rapport concurrence — Markdown + CSV, sans dépendance
+  // externe (Blob natif du navigateur), nommés à la date du jour =====
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const triggerDownload = (content, filename, mime) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  const downloadConcReportMd = () => {
+    const scope = `${concSegment}${concSousCat ? ` — ${concSousCat}` : ""}${concMpFilter !== "Toutes" ? ` — ${concMpFilter}` : ""}`;
+    let md = `# Rapport Concurrence — ${scope}\n\nCollecte : ${COMPETITION_DATA.collecte_date} · Généré le ${todayStr}\n\n`;
+    md += `## Synthèse\n\n- Produits suivis : ${concNbProduits}\n- Prix moyen : ${concPrixMoyen !== null ? fmtEUR(concPrixMoyen) : "n/d"}\n- Fourchette : ${concPrixMin !== null ? `${fmtEURplain(concPrixMin)} – ${fmtEURplain(concPrixMax)}` : "n/d"}\n- En promotion : ${concPromoCount}/${concNbProduits}\n- Références Bestherm/Thomson identifiées : ${concBesthermCount}\n\n`;
+    md += `## Produits\n\n`;
+    concAllProducts.forEach((p) => {
+      md += `- **${p.produit}**${p.est_bestherm ? " 🔶 (Bestherm/Thomson)" : ""} — ${p.marque || "marque n/d"} · ${p.marketplace} · ${p.sous_categorie}${p.prix != null ? ` · ${fmtEURplain(p.prix)}` : ""}${p.remise ? ` (-${p.remise}%)` : ""}${p.rang ? ` · rang #${p.rang}` : ""}\n`;
+    });
+    md += `\n## Sources et méthodologie\n\n`;
+    concSourcesQualite.forEach((d) => { md += `- **${d.marketplace}** (${d.sousCategorie}) — confiance ${d.confiance} — ${d.methodologie}\n`; });
+    md += `\n---\n_Veille collectée manuellement par recherche web. Aucun prix, classement ou volume inventé — données manquantes indiquées comme telles._\n`;
+    triggerDownload(md, `concurrence-${concSegment.toLowerCase()}-${todayStr}.md`, "text/markdown;charset=utf-8");
+  };
+  const downloadConcReportCsv = () => {
+    const esc = (v) => v == null ? "" : `"${String(v).replace(/"/g,'""')}"`;
+    const headers = ["rang","produit","marque","marketplace","sous_categorie","prix","prix_avant","remise_pct","note","avis","sponsorise","est_bestherm","confiance"];
+    const lines = [headers.join(",")];
+    concAllProducts.forEach((p) => {
+      lines.push([p.rang ?? "", esc(p.produit), esc(p.marque), esc(p.marketplace), esc(p.sous_categorie), p.prix ?? "", p.prix_avant ?? "", p.remise ?? "", p.note ?? "", p.avis ?? "", p.sponsorise ? "oui" : "non", p.est_bestherm ? "oui" : "non", p.confiance].join(","));
+    });
+    triggerDownload(lines.join("\n"), `concurrence-${concSegment.toLowerCase()}-${todayStr}.csv`, "text/csv;charset=utf-8");
+  };
+
+  // ===== comparatif prix Bestherm/Thomson vs moyenne concurrents — par
+  // sous-catégorie, en excluant explicitement Bestherm/Thomson du calcul de
+  // la moyenne (sinon la comparaison se fausse elle-même) =====
+  // ===== analyse des puissances les plus vendues — filtrable date + marketplace,
+  // à partir de price_tracking (quantité mensuelle réelle par produit×marketplace) =====
+  const wattageAnalysis = useMemo(() => {
+    const { from, to } = dateRange;
+    const buckets = {};
+    let totalAvecPuissance = 0, totalSansPuissance = 0;
+    DATA.price_tracking.forEach(([produit, mp, , , qte2025, qte2026]) => {
+      if (globalMp !== "Toutes" && mp !== globalMp) return;
+      const qte = sumQteRange(qte2025, qte2026, from, to);
+      const match = produit.match(WATTAGE_RE);
+      if (!match) { totalSansPuissance += qte; return; }
+      buckets[match[1]] = (buckets[match[1]] || 0) + qte;
+      totalAvecPuissance += qte;
+    });
+    const rows = Object.entries(buckets)
+      .map(([watt, qte]) => ({ watt, qte, pct: totalAvecPuissance ? (qte / totalAvecPuissance) * 100 : 0 }))
+      .filter((r) => r.qte > 0)
+      .sort((a, b) => b.qte - a.qte);
+    return { rows, totalAvecPuissance, totalSansPuissance, couverturePct: (totalAvecPuissance + totalSansPuissance) ? (totalAvecPuissance / (totalAvecPuissance + totalSansPuissance)) * 100 : 0 };
+  }, [dateRange.from, dateRange.to, globalMp]);
+
+  const concComparatif = useMemo(() => {
+    const bySousCat = {};
+    concAllProducts.forEach((p) => {
+      if (!bySousCat[p.sous_categorie]) bySousCat[p.sous_categorie] = { concurrents: [], bestherm: [] };
+      if (p.prix == null) return;
+      if (p.est_bestherm) bySousCat[p.sous_categorie].bestherm.push(p);
+      else bySousCat[p.sous_categorie].concurrents.push(p);
+    });
+    return Object.entries(bySousCat)
+      .map(([sc, d]) => {
+        const concAvg = d.concurrents.length ? d.concurrents.reduce((s,p)=>s+p.prix,0) / d.concurrents.length : null;
+        return { sousCategorie: sc, concAvg, nbConcurrents: d.concurrents.length, bestherm: d.bestherm.map((p) => ({ ...p, ecartPct: concAvg ? ((p.prix - concAvg) / concAvg) * 100 : null })) };
+      })
+      .filter((d) => d.bestherm.length > 0); // n'affiche que les sous-catégories où on a au moins un prix Bestherm/Thomson à comparer
+  }, [concAllProducts]);
+
   // ===== ads : dépense, budget, restant par marketplace =====
   const adsWithRemaining = useMemo(() => (globalMp === "Toutes" ? DATA.ads : DATA.ads.filter((a) => (GF_TO_ADS[globalMp] || []).includes(a.marketplace)))
     .filter((a) => a.budget_annuel)
@@ -1126,6 +1441,7 @@ function DashboardApp() {
     .sort((a,b) => b.spend - a.spend), [globalMp]);
 
   return (
+    <AccentContext.Provider value={mpAccent}>
     <div style={{ background: BG, color: INK, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }} className="relative overflow-x-hidden">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Quicksand:wght@600;700&family=Archivo+Black&family=Inter:wght@400;500;600;700;800&display=swap');
@@ -1165,7 +1481,7 @@ function DashboardApp() {
 
       <Embers count={10} />
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="orb1 absolute" style={{ top: "-10%", left: "10%", width: 560, height: 420, background: `radial-gradient(ellipse, ${ORANGE}1c, transparent 65%)`, filter: "blur(10px)" }} />
+        <div className="orb1 absolute" style={{ top: "-10%", left: "10%", width: 560, height: 420, background: `radial-gradient(ellipse, ${mpAccent.primary}1c, transparent 65%)`, filter: "blur(10px)", transition: "background 0.6s ease" }} />
         <div className="orb2 absolute" style={{ top: "5%", right: "-5%", width: 480, height: 420, background: `radial-gradient(ellipse, ${AMBER}12, transparent 65%)`, filter: "blur(10px)" }} />
       </div>
       <div className="grain-overlay pointer-events-none fixed inset-0 z-0" />
@@ -1194,8 +1510,8 @@ function DashboardApp() {
         )}
       </header>
 
-      <div className="no-print sticky z-10 backdrop-blur-xl transition-colors duration-300" style={{ top: 57, background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${ORANGE}14, ${AMBER}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "40" : PANEL_BORDER_QUIET}` }}>
-        <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2.5 flex flex-col gap-2.5">
+      <div className="no-print sticky z-[15] backdrop-blur-xl transition-colors duration-300" style={{ top: 57, background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${mpAccent.primary}14, ${mpAccent.soft}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? mpAccent.soft + "40" : PANEL_BORDER_QUIET}` }}>
+        <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2 flex flex-col gap-2">
           <div className="flex items-center flex-wrap gap-1.5">
             <CalendarDays size={13} color={FAINT} className="shrink-0" />
             {DATE_PRESETS.map((p) => (
@@ -1213,23 +1529,11 @@ function DashboardApp() {
             )}
           </div>
 
-          <div className="flex items-center flex-wrap gap-3 pt-2.5" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="relative flex items-center justify-center w-6 h-6 rounded-full" style={{ background: globalMp !== "Toutes" ? `${ORANGE}22` : PANEL_QUIET }}>
-                <Globe2 size={12} color={globalMp !== "Toutes" ? ORANGE_SOFT : FAINT} />
-                {globalMp !== "Toutes" && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: ORANGE, boxShadow: `0 0 6px ${ORANGE}` }} />}
-              </span>
-              {globalMp !== "Toutes" && <span className="text-[10px] uppercase tracking-[0.14em] font-bold hidden sm:inline" style={{ color: ORANGE_SOFT }}>{t.mode_presentation}</span>}
-            </div>
-            <div className="relative flex-1 min-w-[160px] max-w-[260px]">
-              <select value={globalMp} onChange={(e) => setGlobalMp(e.target.value)}
-                className="btn-lift appearance-none w-full text-[12.5px] font-semibold rounded-xl pl-3 pr-8 py-1.5 cursor-pointer"
-                style={{ background: globalMp !== "Toutes" ? `${ORANGE}1f` : PANEL, border: `1px solid ${globalMp !== "Toutes" ? ORANGE_SOFT + "66" : PANEL_BORDER}`, color: globalMp !== "Toutes" ? ORANGE_SOFT : INK, colorScheme: "dark" }}>
-                <option value="Toutes" style={{ background: BG }}>{t.toutes_mp}</option>
-                {Object.keys(DATA.gf.monthly_total_by_mp).sort().map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
-              </select>
-              <ChevronRight size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90" style={{ color: globalMp !== "Toutes" ? ORANGE_SOFT : FAINT }} />
-            </div>
+          <div className="flex items-center flex-wrap gap-2.5 pt-2" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+            {globalMp !== "Toutes" && (
+              <span className="text-[9.5px] uppercase tracking-[0.14em] font-bold hidden sm:inline shrink-0 transition-colors duration-300" style={{ color: mpAccent.primary }}>{t.mode_presentation}</span>
+            )}
+            <MarketplacePicker value={globalMp} onChange={setGlobalMp} options={Object.keys(DATA.gf.monthly_total_by_mp).sort()} toutesLabel={t.toutes_mp} />
             {globalMp !== "Toutes" && (
               <button onClick={() => setGlobalMp("Toutes")} className="btn-lift text-[11px] flex items-center gap-1 px-2 py-1 rounded-full shrink-0" style={{ color: MUTED, background: PANEL_QUIET }}>
                 <X size={11} /> {t.reset}
@@ -1251,17 +1555,17 @@ function DashboardApp() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 mb-3">
-              <TiltCard className="p-5 flex flex-col items-center justify-center" glow index={0}>
-                <HeatGauge pct={pctAnimated} />
+              <TiltCard className="p-5 flex flex-col items-center justify-center" glow glowColor={mpAccent.primary} index={0}>
+                <HeatGauge pct={pctAnimated} color={mpAccent.primary} />
                 <div className="mt-1 text-[11.5px] tabular-nums" style={{ color: MUTED }}>{filteredObjectif ? `${t.objectif_2026} ${fmtEUR(filteredObjectif)}` : t.objectif_non_defini}</div>
                 <div className="text-[10px] mt-1 text-center max-w-[170px]" style={{ color: FAINT }}>{t.part_objectif_hint} {globalMp === "Toutes" ? t.toutes_marketplaces_suffix : globalMp} {t.deja_realisee}</div>
               </TiltCard>
-              <TiltCard className="p-6 flex flex-col justify-center" glow index={1}>
+              <TiltCard className="p-6 flex flex-col justify-center" glow glowColor={mpAccent.primary} index={1}>
                 <div className="flex items-center justify-between">
                   <Eyebrow hint={t.ca_cumule_hint}>{globalMp === "Toutes" ? `${t.ca_cumule} — ${t.toutes_marketplaces_suffix}` : `${t.ca_cumule} — ${globalMp}`}</Eyebrow>
                   <YoyBadge pct={periodStats.yoy} size="big" />
                 </div>
-                <div className={`gradient-text tabular-nums font-bold leading-none ${caPunch ? "punch" : ""}`} style={{ fontSize: "clamp(36px, 6vw, 56px)", backgroundImage: `linear-gradient(135deg, ${INK}, ${ORANGE_SOFT} 130%)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", textShadow: `0 2px 24px ${ORANGE}30` }}>{fmtEUR(caAnimated)}</div>
+                <div className={`gradient-text tabular-nums font-bold leading-none ${caPunch ? "punch" : ""}`} style={{ fontSize: "clamp(36px, 6vw, 56px)", backgroundImage: `linear-gradient(135deg, ${INK}, ${mpAccent.primary} 130%)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", textShadow: `0 2px 24px ${mpAccent.primary}30`, transition: "background-image 0.4s ease" }}>{fmtEUR(caAnimated)}</div>
                 <div className="text-[12px] mt-2" style={{ color: FAINT }}>{globalMp === "Toutes" ? `vs ${fmtEURplain(DATA.total_yoy_comparable["2025"])} — 2025 (1 janv → 18 juil)` : "vs 2025 (1 janv → 18 juil)"}</div>
               </TiltCard>
             </div>
@@ -1323,7 +1627,7 @@ function DashboardApp() {
                 const prev = DATA.monthly_total[prevYear]?.[monthIndex];
                 const caPct = (cur && prev) ? ((cur - prev) / prev) * 100 : null;
                 return (
-                  <GlassCard className="p-4 mt-3 flex items-center justify-between flex-wrap gap-3" glow>
+                  <GlassCard className="p-4 mt-3 flex items-center justify-between flex-wrap gap-3" glow glowColor={mpAccent.primary}>
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>{moisLabels[monthIndex]} {year}</div>
                       <div className="tabular-nums text-[20px] font-bold mt-0.5">{cur ? fmtEUR(cur) : "—"}</div>
@@ -1367,8 +1671,8 @@ function DashboardApp() {
                 <div className="mt-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader></div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
                   {top3Mp.map((m, i) => (
-                    <TiltCard key={m.marketplace} className="p-4" glow={i === 0} index={i}>
-                      <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-semibold">{m.marketplace}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${ORANGE}22`, color: ORANGE_SOFT }}>#{i+1}</span></div>
+                    <TiltCard key={m.marketplace} className="p-4" glow={i === 0} glowColor={mpAccent.primary} index={i}>
+                      <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-semibold">{m.marketplace}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                       <div className="tabular-nums text-[22px] font-bold">{fmtEURk(m.ca)}</div>
                       <div className="flex items-center justify-between mt-1.5">
                         {m.objectif_fiable ? <span className="text-[11.5px]" style={{ color: m.pct_objectif > 40 ? GREEN : AMBER }}>{fmtPct(m.pct_objectif).replace('+','')} {t.de_word} {fmtEURk(m.objectif)}</span> : <span className="text-[11px]" style={{ color: FAINT }}>{t.objectif_non_defini}</span>}
@@ -1397,7 +1701,7 @@ function DashboardApp() {
                   const m = DATA.mp_vs_objectif.find((x) => x.marketplace === globalMp);
                   if (!m) return <GlassCard className="p-5" quiet><span className="text-[12px]" style={{ color: FAINT }}>{t.aucune_donnee_mp}</span></GlassCard>;
                   return (
-                    <TiltCard className="p-6" glow>
+                    <TiltCard className="p-6" glow glowColor={mpAccent.primary}>
                       <div className="tabular-nums font-bold" style={{ fontSize: "clamp(32px, 5vw, 44px)" }}>{fmtEUR(m.ca)}</div>
                       <div className="flex items-center gap-3 mt-3 flex-wrap">
                         {m.objectif_fiable ? <span className="text-[13px]" style={{ color: m.pct_objectif > 40 ? GREEN : AMBER }}>{fmtPct(m.pct_objectif).replace('+','')} {t.de_word} ({fmtEUR(m.objectif)})</span> : <span className="text-[12px]" style={{ color: FAINT }}>{t.objectif_non_defini}</span>}
@@ -1421,7 +1725,7 @@ function DashboardApp() {
                   {mapMpList.map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
                 </select>
               ) : (
-                <span className="text-[11.5px] font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ color: ORANGE_SOFT, background: `${ORANGE}18` }}><Lock size={11} /> {mapMp}</span>
+                <span className="text-[11.5px] font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ color: mpAccent.primary, background: `${mpAccent.primary}18` }}><Lock size={11} /> {mapMp}</span>
               )}
               <span className="text-[10.5px] ml-auto" style={{ color: FAINT }}>{t.detail_mensuel_indispo}</span>
             </GlassCard>
@@ -1482,6 +1786,31 @@ function DashboardApp() {
               {globalMp === "Toutes" && <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: FAINT }}><Info size={11} /> {t.thomson_hint}</div>}
             </div>
 
+            <SectionHeader hint={`Quantité vendue par puissance, filtrable date + marketplace comme le reste de l'app · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel}`}>Puissances les plus vendues</SectionHeader>
+            <GlassCard className="p-5 mb-5 card-reveal" style={{ animationDelay: "80ms" }}>
+              {wattageAnalysis.rows.length === 0 ? (
+                <span className="text-[12px]" style={{ color: FAINT }}>Aucune donnée de quantité sur cette sélection</span>
+              ) : (
+                <>
+                  <div className="space-y-2.5">
+                    {wattageAnalysis.rows.map((r, i) => (
+                      <div key={r.watt} className="flex items-center gap-3">
+                        <span className="tabular-nums text-[12.5px] font-semibold w-20 shrink-0">{r.watt}</span>
+                        <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(2, r.pct)}%`, background: `linear-gradient(90deg, ${mpAccent.primary}99, ${mpAccent.primary})` }} />
+                        </div>
+                        <span className="tabular-nums text-[11.5px] w-14 text-right shrink-0" style={{ color: mpAccent.primary }}>{r.pct.toFixed(1)}%</span>
+                        <span className="tabular-nums text-[10.5px] w-20 text-right shrink-0" style={{ color: FAINT }}>{fmtNum(r.qte)} u.</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-4 pt-3 text-[10.5px]" style={{ color: FAINT, borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                    <Info size={11} /> {wattageAnalysis.couverturePct.toFixed(0)}% des unités vendues sur cette sélection ont une puissance identifiable dans leur nom produit — le reste (accessoires, thermostats, pièces détachées) n'a pas de puissance propre et n'entre pas dans ce ratio.
+                  </div>
+                </>
+              )}
+            </GlassCard>
+
             <GlassCard className="p-5 mb-5 card-reveal" style={{ animationDelay: "100ms" }}>
               <div className="flex items-center justify-between mb-1">
                 <Eyebrow tone="quiet" hint={t.ca_mensuel_marque_hint}>{t.ca_mensuel_marque}</Eyebrow>
@@ -1504,8 +1833,8 @@ function DashboardApp() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               {top3Prod.map((p, i) => (
-                <TiltCard key={p.produit} className="p-4" glow={i === 0} index={i}>
-                  <div className="flex items-center justify-between mb-2"><span className="text-[12.5px] font-semibold truncate">{p.produit}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded shrink-0 ml-1" style={{ background: `${ORANGE}22`, color: ORANGE_SOFT }}>#{i+1}</span></div>
+                <TiltCard key={p.produit} className="p-4" glow={i === 0} glowColor={mpAccent.primary} index={i}>
+                  <div className="flex items-center justify-between mb-2"><span className="text-[12.5px] font-semibold truncate">{p.produit}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded shrink-0 ml-1" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                   <div className="tabular-nums text-[20px] font-bold">{fmtEURk(p.ca)}</div>
                   <div className="flex items-center justify-between mt-1.5"><span className="text-[11.5px]" style={{ color: MUTED }}>{p.qte !== null ? `${fmtNum(p.qte)} ${t.unites_vendues}` : t.qte_nd_mp}</span><YoyBadge pct={p.yoy_pct} naLabel={t.nd} /></div>
                 </TiltCard>
@@ -1552,13 +1881,13 @@ function DashboardApp() {
               <SectionHeader hint={`${t.repartition_norme_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{t.repartition_norme}</SectionHeader>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              <GlassCard className="p-4" glow>
+              <GlassCard className="p-4" glow glowColor={mpAccent.primary}>
                 <Eyebrow>NF — {dateRangeLabel}</Eyebrow>
                 <div className="tabular-nums font-bold" style={{ fontSize: "clamp(26px, 4vw, 34px)" }}>{normesTotal.nfPct.toFixed(0)}%</div>
               </GlassCard>
-              <GlassCard className="p-4" glow>
+              <GlassCard className="p-4" glow glowColor={mpAccent.primary}>
                 <Eyebrow>CE — {dateRangeLabel}</Eyebrow>
-                <div className="tabular-nums font-bold" style={{ fontSize: "clamp(26px, 4vw, 34px)", color: ORANGE_SOFT }}>{normesTotal.cePct.toFixed(0)}%</div>
+                <div className="tabular-nums font-bold" style={{ fontSize: "clamp(26px, 4vw, 34px)", color: mpAccent.primary }}>{normesTotal.cePct.toFixed(0)}%</div>
               </GlassCard>
             </div>
             <GlassCard className="p-4 mb-4">
@@ -1664,7 +1993,7 @@ function DashboardApp() {
               <div className="flex gap-1.5 rounded-full p-0.5" style={{ background: "rgba(255,255,255,0.03)" }}>
                 {[{ id: "prix", label: t.prix_mode }, { id: "qte", label: t.qte_mode }].map((m) => (
                   <button key={m.id} onClick={() => setPriceMode(m.id)} className="text-[11px] font-medium px-3 py-1 rounded-full"
-                    style={{ background: priceMode === m.id ? ORANGE : "transparent", color: priceMode === m.id ? "#0A0908" : FAINT }}>
+                    style={{ background: priceMode === m.id ? mpAccent.primary : "transparent", color: priceMode === m.id ? mpAccent.text : FAINT }}>
                     {m.label}
                   </button>
                 ))}
@@ -1724,9 +2053,9 @@ function DashboardApp() {
             ) : (
             <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-              <TiltCard className="p-5" glow index={0}><Eyebrow hint={t.depense_totale_hint}>{t.depense_totale}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalSpend)}</div></TiltCard>
-              <TiltCard className="p-5" glow index={1}><Eyebrow hint={t.ca_genere_ht_hint}>{t.ca_genere_ht}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalAdsCa)}</div></TiltCard>
-              <TiltCard className="p-5" glow index={2}><Eyebrow hint={t.roas_pondere_hint}>{t.roas_pondere}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)", color: ORANGE_SOFT }}>{blendedRoas.toFixed(1)}x</div></TiltCard>
+              <TiltCard className="p-5" glow glowColor={mpAccent.primary} index={0}><Eyebrow hint={t.depense_totale_hint}>{t.depense_totale}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalSpend)}</div></TiltCard>
+              <TiltCard className="p-5" glow glowColor={mpAccent.primary} index={1}><Eyebrow hint={t.ca_genere_ht_hint}>{t.ca_genere_ht}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalAdsCa)}</div></TiltCard>
+              <TiltCard className="p-5" glow glowColor={mpAccent.primary} index={2}><Eyebrow hint={t.roas_pondere_hint}>{t.roas_pondere}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)", color: mpAccent.primary }}>{blendedRoas.toFixed(1)}x</div></TiltCard>
             </div>
 
             {/* ===== section — Budget / Consommé / Restant, très visuel ===== */}
@@ -1763,7 +2092,7 @@ function DashboardApp() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {top3Ads.map((a, i) => (
-                <TiltCard key={a.marketplace} className="p-4" glow={i === 0} index={i}>
+                <TiltCard key={a.marketplace} className="p-4" glow={i === 0} glowColor={mpAccent.primary} index={i}>
                   <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-semibold">{a.marketplace}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${ORANGE}22`, color: ORANGE_SOFT }}>#{i+1}</span></div>
                   <div className="tabular-nums text-[20px] font-bold">{fmtEURk(a.ca_genere)}</div>
                   <div className="flex items-center justify-between mt-1.5">
@@ -1808,6 +2137,246 @@ function DashboardApp() {
             )}
           </>
         )}
+        {tab === "concurrence" && (
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <SectionHeader hint="Veille collectée manuellement par recherche web — France. Aucun prix, classement ou volume inventé.">Concurrence</SectionHeader>
+            </div>
+
+            {/* bloc de filtres unique — segment, sous-catégorie, marketplace regroupés,
+                comme sur l'onglet Prix, plutôt qu'en rangées séparées */}
+            <GlassCard className="p-4 mb-5" quiet>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {Object.keys(COMPETITION_DATA.segments).map((seg) => (
+                  <button key={seg} onClick={() => { setConcSegment(seg); setConcSousCat(null); setConcMpFilter("Toutes"); }}
+                    className="btn-lift text-[13px] font-bold py-2.5 rounded-xl"
+                    style={{ background: concSegment === seg ? "linear-gradient(135deg, #4A9EFF, #6FB4FF)" : PANEL_QUIET, color: concSegment === seg ? "#0A0908" : MUTED, border: `1px solid ${concSegment === seg ? "transparent" : PANEL_BORDER_QUIET}` }}>
+                    {seg === "Heater" ? "🔥 Heater" : "❄️ Cooling"}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center flex-wrap gap-1.5 pt-3 mb-3" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                <button onClick={() => setConcSousCat(null)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
+                  style={{ background: concSousCat === null ? `${ORANGE}22` : "transparent", color: concSousCat === null ? ORANGE_SOFT : MUTED, border: `1px solid ${concSousCat === null ? ORANGE_SOFT + "55" : PANEL_BORDER_QUIET}` }}>
+                  Toutes sous-catégories
+                </button>
+                {concSousCatsDuSegment.map((sc) => (
+                  <button key={sc} onClick={() => setConcSousCat(sc)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
+                    style={{ background: concSousCat === sc ? `${ORANGE}22` : "transparent", color: concSousCat === sc ? ORANGE_SOFT : MUTED, border: `1px solid ${concSousCat === sc ? ORANGE_SOFT + "55" : PANEL_BORDER_QUIET}` }}>
+                    {sc}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>Marketplace :</span>
+                <select value={concMpFilter} onChange={(e) => setConcMpFilter(e.target.value)}
+                  className="text-[12px] rounded-lg px-2.5 py-1.5 font-medium" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }}>
+                  <option value="Toutes" style={{ background: BG }}>Toutes</option>
+                  {concMarketplacesDuSegment.map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
+                </select>
+                {concBesthermCount > 0 && (
+                  <span className="text-[10.5px] font-semibold px-2.5 py-1 rounded-full ml-auto shrink-0" style={{ background: `${ORANGE}18`, color: ORANGE_SOFT }}>
+                    {concBesthermCount} Bestherm/Thomson
+                  </span>
+                )}
+              </div>
+            </GlassCard>
+
+            {/* repère de fraîcheur + comment mettre à jour — informatif, pas un faux bouton
+                qui prétendrait déclencher une action qu'il ne peut pas accomplir */}
+            <div className="flex items-center gap-1.5 mb-5 text-[11px] flex-wrap" style={{ color: FAINT }}>
+              <CalendarDays size={12} /> Dernière collecte : {COMPETITION_DATA.collecte_date}
+              <span className="mx-1">·</span>
+              <Info size={11} /> Pour actualiser : demande-le directement dans la conversation avec Claude
+            </div>
+
+            {/* sous-navigation interne à l'onglet */}
+            <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+              {[{ id: "synthese", label: "Synthèse" }, { id: "produits", label: "Top produits" }, { id: "prix", label: "Prix" }, { id: "comparatif", label: "Comparatif" }].map((s) => (
+                <button key={s.id} onClick={() => setConcTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full"
+                  style={{ background: concTab === s.id ? "linear-gradient(135deg, #4A9EFF, #6FB4FF)" : "transparent", color: concTab === s.id ? "#0A0908" : MUTED }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {concTab === "synthese" && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  <TiltCard className="p-4" quiet index={0}>
+                    <Eyebrow tone="quiet" hint="Sélection actuelle (segment/sous-catégorie/marketplace)">Produits suivis</Eyebrow>
+                    <div className="tabular-nums text-[22px] font-bold">{concNbProduits}</div>
+                  </TiltCard>
+
+                  <TiltCard className="p-4" quiet index={1}>
+                    <Eyebrow tone="quiet" hint="Sur les produits où le prix a pu être vérifié">Prix moyen</Eyebrow>
+                    <div className="tabular-nums text-[22px] font-bold">{concPrixMoyen !== null ? fmtEUR(concPrixMoyen) : "—"}</div>
+                  </TiltCard>
+                  <TiltCard className="p-4" quiet index={2}>
+                    <Eyebrow tone="quiet" hint="Du moins cher au plus cher, prix vérifiés uniquement">Fourchette prix</Eyebrow>
+                    <div className="tabular-nums text-[15px] font-bold">{concPrixMin !== null ? `${fmtEURplain(concPrixMin)} – ${fmtEURplain(concPrixMax)}` : "—"}</div>
+                  </TiltCard>
+                  <TiltCard className="p-4" quiet index={3}>
+                    <Eyebrow tone="quiet" hint="Produits affichant une remise vs prix de référence">En promotion</Eyebrow>
+                    <div className="tabular-nums text-[22px] font-bold">{concPromoCount}<span className="text-[13px] font-normal" style={{ color: FAINT }}> / {concNbProduits}</span></div>
+                  </TiltCard>
+                </div>
+
+                <SectionHeader hint="Fiabilité de la collecte par sous-catégorie et marketplace — méthodologie et limites propres à chaque source">Sources et qualité</SectionHeader>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+                  {concSourcesQualite.map((d, i) => {
+                    const conf = CONF_STYLE[d.confiance];
+                    const ConfIcon = conf.icon;
+                    return (
+                      <StaggerRow key={`${d.sousCategorie}-${d.marketplace}`} index={i} className="rounded-2xl backdrop-blur-xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                        <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                          <span className="text-[13px] font-semibold">{d.marketplace}</span>
+                          <span className="flex items-center gap-1 text-[10.5px] font-medium shrink-0" style={{ color: conf.color }}><ConfIcon size={12} /> {conf.label}</span>
+                        </div>
+                        <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: FAINT }}>{d.sousCategorie}</div>
+                        <div className="text-[11px] mb-1" style={{ color: MUTED }}>{d.methodologie}</div>
+                        {d.note && <div className="flex items-center gap-1 text-[10.5px]" style={{ color: FAINT }}><Info size={10} /> {d.note}</div>}
+                        <div className="text-[10.5px] mt-1.5" style={{ color: FAINT }}>{d.produits.length} produit{d.produits.length>1?"s":""} collecté{d.produits.length>1?"s":""}</div>
+                      </StaggerRow>
+                    );
+                  })}
+                </div>
+
+                <SectionHeader hint="Marques les plus présentes dans la collecte, toutes marketplaces confondues (nombre d'apparitions, pas de part de marché réelle)">Marques les plus visibles</SectionHeader>
+                <GlassCard className="p-1.5">
+                  {concMarquesCount.slice(0, 10).map(([marque, count], i) => (
+                    <div key={marque} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < Math.min(9, concMarquesCount.length-1) ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
+                      <span className="text-[12px] w-40 shrink-0 truncate">{marque}</span>
+                      <div className="flex-1 h-3 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                        <div className="h-full rounded-full" style={{ width: `${Math.max(4, (count/concMarquesCount[0][1])*100)}%`, background: "linear-gradient(90deg, #4A9EFF, #6FB4FF)" }} />
+                      </div>
+                      <span className="text-[11px] tabular-nums w-20 text-right shrink-0" style={{ color: FAINT }}>{count} apparition{count>1?"s":""}</span>
+                    </div>
+                  ))}
+                </GlassCard>
+              </>
+            )}
+
+            {concTab === "produits" && (
+              <>
+                <GlassCard className="p-1.5">
+                  {concAllProducts.length === 0 && <div className="p-4 text-center text-[12px]" style={{ color: FAINT }}>Aucun produit pour cette sélection</div>}
+                  {concAllProducts.map((p, i) => {
+                    const conf = CONF_STYLE[p.confiance];
+                    const ConfIcon = conf.icon;
+                    return (
+                      <StaggerRow key={i} index={i} className="flex items-center gap-3 px-3 py-2.5 flex-wrap relative" style={{ borderBottom: i < concAllProducts.length-1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none", borderLeft: p.est_bestherm ? `2px solid ${ORANGE}` : "2px solid transparent", paddingLeft: p.est_bestherm ? "10px" : "12px" }}>
+                        <span className="text-[10px] font-mono w-6 shrink-0" style={{ color: FAINT }}>{p.rang ? `#${p.rang}` : "—"}</span>
+                        <div className="flex-1 min-w-[140px]">
+                          <div className="text-[12px] truncate">
+                            {p.produit}
+                            {p.est_bestherm && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${ORANGE}22`, color: ORANGE_SOFT }}>{p.note_special || "Bestherm/Thomson"}</span>}
+                            {p.sponsorise && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: PANEL_QUIET, color: FAINT }}>Sponsorisé</span>}
+                          </div>
+                          <div className="text-[10.5px] truncate" style={{ color: FAINT }}>{p.marque || "Marque non identifiée"} · {p.marketplace} · {p.sous_categorie}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {p.prix != null ? (
+                            <>
+                              <div className="text-[12px] font-semibold tabular-nums" style={{ color: "#6FB4FF" }}>{fmtEURplain(p.prix)}</div>
+                              {p.remise && <div className="text-[10px] tabular-nums" style={{ color: GREEN }}>-{p.remise}% vs {fmtEURplain(p.prix_avant)}</div>}
+                            </>
+                          ) : <span className="text-[11px]" style={{ color: FAINT }}>Prix n/d</span>}
+                        </div>
+                        <ConfIcon size={13} color={conf.color} className="shrink-0" />
+                      </StaggerRow>
+                    );
+                  })}
+                </GlassCard>
+              </>
+            )}
+
+            {concTab === "prix" && (
+              <>
+                <SectionHeader hint="Prix vérifiés uniquement — les produits sans prix extrait de façon fiable n'apparaissent pas ici">Comparatif prix par marketplace</SectionHeader>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {concMarketplacesDuSegment.filter((mp) => concMpFilter === "Toutes" || mp === concMpFilter).map((mp, i) => {
+                    const prods = concAllProducts.filter((p) => p.marketplace === mp && p.prix != null);
+                    if (!prods.length) return (
+                      <StaggerRow key={mp} index={i} className="rounded-2xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                        <span className="text-[13px] font-semibold">{mp}</span>
+                        <div className="text-[11px] mt-1" style={{ color: FAINT }}>Aucun prix vérifié sur cette sélection</div>
+                      </StaggerRow>
+                    );
+                    const avg = prods.reduce((s,p)=>s+p.prix,0)/prods.length;
+                    return (
+                      <StaggerRow key={mp} index={i} className="rounded-2xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[13px] font-semibold">{mp}</span>
+                          <span className="text-[15px] font-bold tabular-nums" style={{ color: "#6FB4FF" }}>{fmtEURplain(avg)} <span className="text-[10px] font-normal" style={{ color: FAINT }}>moy.</span></span>
+                        </div>
+                        <div className="space-y-1">
+                          {prods.sort((a,b)=>a.prix-b.prix).map((p,j) => (
+                            <div key={j} className="flex items-center gap-2 text-[11px]">
+                              <span className="flex-1 truncate" style={{ color: p.est_bestherm ? ORANGE_SOFT : MUTED }}>{p.produit}</span>
+                              <span className="tabular-nums shrink-0" style={{ color: FAINT }}>{fmtEURplain(p.prix)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </StaggerRow>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {concTab === "comparatif" && (
+              <>
+                <SectionHeader hint="Prix Bestherm/Thomson comparés à la moyenne des concurrents (Bestherm/Thomson exclus du calcul de cette moyenne) — uniquement où un vrai prix concurrent a pu être vérifié">Bestherm/Thomson vs marché</SectionHeader>
+                {concComparatif.length === 0 ? (
+                  <GlassCard className="p-5 text-center" quiet>
+                    <span className="text-[12.5px]" style={{ color: FAINT }}>Pas encore de prix concurrent vérifié dans la même sous-catégorie qu'un produit Bestherm/Thomson, sur cette sélection — comparaison impossible pour l'instant plutôt qu'approximative.</span>
+                  </GlassCard>
+                ) : (
+                  <div className="space-y-4">
+                    {concComparatif.map((d, i) => (
+                      <StaggerRow key={d.sousCategorie} index={i} className="rounded-2xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                        <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
+                          <span className="text-[13px] font-semibold">{d.sousCategorie}</span>
+                          <span className="text-[11px]" style={{ color: FAINT }}>Moyenne concurrents ({d.nbConcurrents}) : {fmtEURplain(d.concAvg)}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {d.bestherm.map((p, j) => (
+                            <div key={j} className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-[12px] flex-1 min-w-[140px] truncate" style={{ color: ORANGE_SOFT }}>{p.produit}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="tabular-nums text-[13px] font-semibold">{fmtEURplain(p.prix)}</span>
+                                {p.ecartPct !== null && (
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: p.ecartPct < 0 ? `${GREEN}18` : `${RED}18`, color: p.ecartPct < 0 ? GREEN : RED }}>
+                                    {p.ecartPct >= 0 ? "+" : ""}{p.ecartPct.toFixed(0)}% vs marché
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </StaggerRow>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* export du rapport — toujours visible, quel que soit le sous-onglet actif */}
+            <div className="flex items-center gap-2 mt-8 pt-5 flex-wrap" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+              <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>Exporter :</span>
+              <button onClick={downloadConcReportMd} className="btn-lift text-[11.5px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: "#6FB4FF" }}>
+                <ExternalLink size={11} /> Rapport (Markdown)
+              </button>
+              <button onClick={downloadConcReportCsv} className="btn-lift text-[11.5px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: "#6FB4FF" }}>
+                <ExternalLink size={11} /> Données (CSV)
+              </button>
+              <span className="text-[10px] w-full sm:w-auto sm:ml-1" style={{ color: FAINT }}>Nommé à la date du jour · reflète la sélection en cours (segment/sous-catégorie/marketplace)</span>
+            </div>
+          </>
+        )}
       </main>
 
       <footer className="no-print relative z-10 max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-10 flex items-center justify-between flex-wrap gap-3">
@@ -1838,6 +2407,7 @@ function DashboardApp() {
         </div>
       </footer>
     </div>
+    </AccentContext.Provider>
   );
 }
 
