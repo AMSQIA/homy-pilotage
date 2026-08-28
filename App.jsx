@@ -449,7 +449,15 @@ function PeriodSummaryCard({ items }) {
 function YoyBadge({ pct, size = "normal", naLabel = "non comparable" }) {
   if (pct === null || pct === undefined) return <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: FAINT }}><Minus size={11} /> {naLabel}</span>;
   const up = pct >= 0, Icon = up ? TrendingUp : TrendingDown, color = up ? GREEN : RED;
-  return <span className="inline-flex items-center gap-1 tabular-nums font-semibold" style={{ color, fontSize: size === "big" ? 15 : 12 }}><Icon size={size === "big" ? 15 : 12} /> {fmtPct(pct)}</span>;
+  // au-delà de +150%, la variation vient presque toujours d'une base de comparaison
+  // très faible plutôt que d'une vraie explosion — on le signale plutôt que de
+  // laisser un chiffre spectaculaire sans contexte induire en erreur
+  const baseFaible = pct > 150;
+  return (
+    <span className="inline-flex items-center gap-1 tabular-nums font-semibold" style={{ color, fontSize: size === "big" ? 15 : 12 }} title={baseFaible ? "Variation très forte — vérifier la valeur absolue N-1, souvent une base de comparaison faible plutôt qu'une vraie tendance" : undefined}>
+      <Icon size={size === "big" ? 15 : 12} /> {fmtPct(pct)}{baseFaible && <span style={{ color: AMBER, fontSize: "0.85em" }}>*</span>}
+    </span>
+  );
 }
 /* ligne de liste avec entrée en cascade (rejoue à chaque montage, donc à chaque changement d'onglet) */
 function StaggerRow({ children, index, style = {}, className = "" }) {
@@ -814,6 +822,10 @@ const ANTICIPATION = {"growth_rate": 0.6552, "projection_sept_dec": [1947718, 23
 const PAYS_MONTHLY = [["France","Leroy Merlin",2025,1,486364.42],["France","Leroy Merlin",2025,2,396033.23],["France","Leroy Merlin",2025,3,189642.33],["France","Leroy Merlin",2025,4,195436.58],["France","Leroy Merlin",2025,5,107311.67],["France","Leroy Merlin",2025,6,111043.17],["France","Leroy Merlin",2025,7,189496.08],["France","Leroy Merlin",2025,8,145208.08],["France","Leroy Merlin",2025,9,461927.83],["France","Leroy Merlin",2025,10,658703.68],["France","Leroy Merlin",2025,11,876527.33],["France","Leroy Merlin",2025,12,337682.68],["France","Leroy Merlin",2026,1,569915.18],["France","Leroy Merlin",2026,2,320946.38],["France","Leroy Merlin",2026,3,225650.58],["France","Leroy Merlin",2026,4,230760.78],["France","Leroy Merlin",2026,5,188336.67],["France","Leroy Merlin",2026,6,283670.37],["France","Leroy Merlin",2026,7,437028.04],["France","Leroy Merlin",2026,8,130087.33],["France","Amazon FR",2025,1,166787.05],["France","Amazon FR",2025,2,137241.63],["France","Amazon FR",2025,3,93725.08],["France","Amazon FR",2025,4,67364.31],["France","Amazon FR",2025,5,71196.17],["France","Amazon FR",2025,6,72111.31],["France","Amazon FR",2025,7,100955.09],["France","Amazon FR",2025,8,114594.64],["France","Amazon FR",2025,9,228178.64],["France","Amazon FR",2025,10,259368.52],["France","Amazon FR",2025,11,394390.56],["France","Amazon FR",2025,12,195880.29],["France","Amazon FR",2026,1,291571.58],["France","Amazon FR",2026,2,200696.5],["France","Amazon FR",2026,3,118063.53],["France","Amazon FR",2026,4,143250.92],["France","Amazon FR",2026,5,116893.02],["France","Amazon FR",2026,6,119131.5],["France","Amazon FR",2026,7,86498.83],["France","Amazon FR",2026,8,41163.47],["France","Autre",2025,1,40134.89],["France","Autre",2025,2,37476.42],["France","Autre",2025,3,18365.17],["France","Autre",2025,4,3739.27],["France","Autre",2025,5,3798.75],["France","Autre",2025,6,11071.25],["France","Autre",2025,7,61732.28],["France","Autre",2025,8,30983.11],["France","Autre",2025,9,36725.51],["France","Autre",2025,10,74241.88],["France","Autre",2025,11,268173.84],["France","Autre",2025,12,101242.58],["France","Autre",2026,1,12217.61],["France","Autre",2026,2,5122.31],["France","Autre",2026,3,3735.13],["France","Autre",2026,4,4706.0],["France","Autre",2026,5,4186.93],["France","Autre",2026,6,4218.58],["France","Autre",2026,7,5529.41],["France","Autre",2026,8,3686.25],["France","Darty",2025,1,8180.33],["France","Darty",2025,2,5298.17],["France","Darty",2025,3,8763.83],["France","Darty",2025,4,2337.25],["France","Darty",2025,5,1805.33],["France","Darty",2025,6,4720.75],["France","Darty",2025,7,10997.17],["France","Darty",2025,8,17661.67],["France","Darty",2025,9,12449.75],["France","Darty",2025,10,12843.83],["France","Darty",2025,11,40089.58],["France","Darty",2025,12,12240.03],["France","Darty",2026,1,11977.17],["France","Darty",2026,2,4287.74],["France","Darty",2026,3,3199.82],["France","Darty",2026,4,3854.82],["France","Darty",2026,5,5144.0],["France","Darty",2026,6,1765.17],["France","Darty",2026,7,6637.08],["France","Darty",2026,8,732.67],["France","Cdiscount",2025,1,59193.77],["France","Cdiscount",2025,2,45962.17],["France","Cdiscount",2025,3,15363.42],["France","Cdiscount",2025,4,3730.67],["France","Cdiscount",2025,5,10181.43],["France","Cdiscount",2025,6,10487.23],["France","Cdiscount",2025,7,17120.16],["France","Cdiscount",2025,8,23447.58],["France","Cdiscount",2025,9,64491.87],["France","Cdiscount",2025,10,63007.42],["France","Cdiscount",2025,11,136284.12],["France","Cdiscount",2025,12,84042.91],["France","Cdiscount",2026,1,65532.75],["France","Cdiscount",2026,2,39715.19],["France","Cdiscount",2026,3,24584.52],["France","Cdiscount",2026,4,20521.58],["France","Cdiscount",2026,5,27685.41],["France","Cdiscount",2026,6,53374.71],["France","Cdiscount",2026,7,43605.05],["France","Cdiscount",2026,8,58129.08],["France","ManoMano",2025,1,215523.45],["France","ManoMano",2025,2,100404.94],["France","ManoMano",2025,3,66909.23],["France","ManoMano",2025,4,39833.01],["France","ManoMano",2025,5,54836.65],["France","ManoMano",2025,6,36354.23],["France","ManoMano",2025,7,72281.98],["France","ManoMano",2025,8,55776.87],["France","ManoMano",2025,9,113078.71],["France","ManoMano",2025,10,104532.92],["France","ManoMano",2025,11,237163.85],["France","ManoMano",2025,12,65849.21],["France","ManoMano",2026,1,120645.04],["France","ManoMano",2026,2,61122.92],["France","ManoMano",2026,3,60337.21],["France","ManoMano",2026,4,46577.58],["France","ManoMano",2026,5,77136.08],["France","ManoMano",2026,6,62698.18],["France","ManoMano",2026,7,86462.17],["France","ManoMano",2026,8,26287.18],["France","Site Web",2025,3,7304.87],["France","Site Web",2025,4,7269.73],["France","Site Web",2025,5,922.87],["France","Site Web",2025,6,21015.3],["France","Site Web",2025,7,7292.0],["France","Site Web",2025,8,11262.42],["France","Site Web",2025,9,115748.6],["France","Site Web",2025,10,62311.08],["France","Site Web",2025,11,216.5],["France","Site Web",2026,1,87086.25],["France","Site Web",2026,2,39991.35],["France","Site Web",2026,3,38235.82],["France","Site Web",2026,4,56581.17],["France","Site Web",2026,5,46662.17],["France","Site Web",2026,6,77413.42],["France","Site Web",2026,7,120835.99],["France","Site Web",2026,8,83990.42],["France","Castorama",2025,6,6171.33],["France","Castorama",2025,7,28505.25],["France","Castorama",2025,8,27603.0],["France","Castorama",2025,9,53521.57],["France","Castorama",2025,10,42766.83],["France","Castorama",2025,11,98652.75],["France","Castorama",2025,12,51883.34],["France","Castorama",2026,1,48116.33],["France","Castorama",2026,2,28727.06],["France","Castorama",2026,3,23963.83],["France","Castorama",2026,4,20846.58],["France","Castorama",2026,5,31078.08],["France","Castorama",2026,6,20771.95],["France","Castorama",2026,7,23816.67],["France","Castorama",2026,8,8680.42],["France","Boulanger",2026,1,8484.42],["France","Boulanger",2026,2,4728.92],["France","Boulanger",2026,3,5030.25],["France","Boulanger",2026,4,4159.08],["France","Boulanger",2026,5,1694.42],["France","Boulanger",2026,6,5214.33],["France","Boulanger",2026,7,12070.17],["France","Boulanger",2026,8,23479.17],["France","Bricomarché",2026,1,2312.92],["France","Bricomarché",2026,2,2171.08],["France","Bricomarché",2026,3,8188.64],["France","Bricomarché",2026,4,5377.75],["France","Bricomarché",2026,5,716.25],["France","Bricomarché",2026,6,9878.75],["France","Bricomarché",2026,7,5094.83],["France","Bricomarché",2026,8,1682.08],["France","Maxeda",2026,1,174.92],["France","Maxeda",2026,2,60.74],["France","Maxeda",2026,3,158.25],["France","Maxeda",2026,7,133.25],["France","But",2026,1,836.58],["Espagne","Leroy Merlin",2025,1,10024.75],["Espagne","Leroy Merlin",2025,2,2148.42],["Espagne","Leroy Merlin",2025,3,1440.75],["Espagne","Leroy Merlin",2025,4,2173.83],["Espagne","Leroy Merlin",2025,5,1432.42],["Espagne","Leroy Merlin",2025,6,882.83],["Espagne","Leroy Merlin",2025,7,1957.08],["Espagne","Leroy Merlin",2025,8,1528.0],["Espagne","Leroy Merlin",2025,9,7531.75],["Espagne","Leroy Merlin",2025,10,11765.67],["Espagne","Leroy Merlin",2025,11,33835.25],["Espagne","Leroy Merlin",2025,12,14426.18],["Espagne","Leroy Merlin",2026,1,26817.42],["Espagne","Leroy Merlin",2026,2,20368.87],["Espagne","Leroy Merlin",2026,3,16067.63],["Espagne","Leroy Merlin",2026,4,12469.24],["Espagne","Leroy Merlin",2026,5,6510.1],["Espagne","Leroy Merlin",2026,6,8277.98],["Espagne","Leroy Merlin",2026,7,7287.08],["Espagne","Leroy Merlin",2026,8,1852.83],["Espagne","Autre",2025,1,258.17],["Espagne","Autre",2025,9,595.42],["Espagne","Autre",2025,10,358.08],["Espagne","Autre",2025,11,1606.75],["Espagne","Autre",2025,12,4182.0],["Espagne","Autre",2026,1,965.92],["Espagne","Autre",2026,2,932.75],["Espagne","Autre",2026,3,1003.42],["Espagne","Autre",2026,6,274.75],["Espagne","Site Web",2025,8,99.92],["Espagne","Site Web",2025,9,599.58],["Espagne","Site Web",2025,10,508.08],["Espagne","Site Web",2026,1,333.17],["Espagne","Site Web",2026,2,233.17],["Espagne","Site Web",2026,3,1016.08],["Espagne","Site Web",2026,5,1140.92],["Espagne","Site Web",2026,6,857.83],["Espagne","Site Web",2026,7,495.33],["Espagne","Site Web",2026,8,3125.17],["Espagne","Amazon FR",2025,11,428.28],["Espagne","Amazon FR",2026,1,2711.1],["Espagne","Amazon FR",2026,2,3616.97],["Espagne","Amazon FR",2026,3,4093.54],["Espagne","Amazon FR",2026,4,4214.75],["Espagne","Amazon FR",2026,5,1562.15],["Espagne","Amazon FR",2026,6,2525.27],["Espagne","Amazon FR",2026,7,957.79],["Espagne","Amazon FR",2026,8,803.42],["Espagne","ManoMano",2026,1,931.49],["Espagne","ManoMano",2026,2,283.08],["Espagne","ManoMano",2026,3,1002.4],["Espagne","ManoMano",2026,5,670.17],["Portugal","Amazon FR",2025,1,298.71],["Portugal","Amazon FR",2025,7,759.04],["Portugal","Amazon FR",2025,9,716.95],["Portugal","Amazon FR",2026,1,610.67],["Portugal","Amazon FR",2026,2,141.5],["Portugal","Amazon FR",2026,3,1618.53],["Portugal","Amazon FR",2026,4,236.75],["Portugal","Amazon FR",2026,5,66.58],["Portugal","Amazon FR",2026,6,1074.29],["Portugal","Amazon FR",2026,7,171.5],["Portugal","Amazon FR",2026,8,553.53],["Portugal","Leroy Merlin",2025,1,905.92],["Portugal","Leroy Merlin",2025,2,1428.92],["Portugal","Leroy Merlin",2025,3,433.17],["Portugal","Leroy Merlin",2025,4,74.92],["Portugal","Leroy Merlin",2025,6,807.83],["Portugal","Leroy Merlin",2025,7,832.75],["Portugal","Leroy Merlin",2025,8,433.08],["Portugal","Leroy Merlin",2025,9,6783.42],["Portugal","Leroy Merlin",2025,10,4229.58],["Portugal","Leroy Merlin",2025,11,16607.92],["Portugal","Leroy Merlin",2025,12,11564.28],["Portugal","Leroy Merlin",2026,1,7944.69],["Portugal","Leroy Merlin",2026,2,7616.72],["Portugal","Leroy Merlin",2026,3,5538.28],["Portugal","Leroy Merlin",2026,4,2343.66],["Portugal","Leroy Merlin",2026,5,499.67],["Portugal","Leroy Merlin",2026,6,907.67],["Portugal","Leroy Merlin",2026,7,2056.75],["Portugal","Leroy Merlin",2026,8,1640.5],["Portugal","Autre",2025,7,124.83],["Portugal","Autre",2025,9,1016.08],["Portugal","Autre",2025,10,541.42],["Portugal","Autre",2025,11,331.67],["Portugal","Autre",2025,12,1927.25],["Portugal","Site Web",2025,9,1078.42],["Portugal","Site Web",2025,10,3928.5],["Portugal","Site Web",2026,1,266.5],["Portugal","Site Web",2026,2,566.33],["Portugal","Site Web",2026,6,699.42],["Portugal","Site Web",2026,8,374.75],["Portugal","Worten",2026,2,957.58],["Portugal","Worten",2026,3,229.0],["Portugal","Worten",2026,5,124.92],["Portugal","Worten",2026,7,74.92],["Monaco","Amazon FR",2025,1,324.75],["Monaco","Darty",2025,11,203.92],["Monaco","ManoMano",2025,12,516.42],["Suisse","Amazon FR",2025,1,266.5],["Suisse","Amazon FR",2026,1,682.68],["Suisse","Amazon FR",2026,2,375.8],["Suisse","Amazon FR",2026,3,337.58],["Suisse","Amazon FR",2026,5,404.85],["Suisse","Amazon FR",2026,6,179.87],["Suisse","Amazon FR",2026,8,149.98],["Belgique","Amazon FR",2025,1,4447.5],["Belgique","Amazon FR",2025,2,6236.72],["Belgique","Amazon FR",2025,3,2112.06],["Belgique","Amazon FR",2025,4,1182.49],["Belgique","Amazon FR",2025,5,970.2],["Belgique","Amazon FR",2025,6,2180.35],["Belgique","Amazon FR",2025,7,1944.84],["Belgique","Amazon FR",2025,8,1829.33],["Belgique","Amazon FR",2025,9,9263.41],["Belgique","Amazon FR",2025,10,12693.22],["Belgique","Amazon FR",2025,11,16176.88],["Belgique","Amazon FR",2025,12,10351.02],["Belgique","Amazon FR",2026,1,23023.81],["Belgique","Amazon FR",2026,2,8683.72],["Belgique","Amazon FR",2026,3,13232.09],["Belgique","Amazon FR",2026,4,4879.78],["Belgique","Amazon FR",2026,5,7345.56],["Belgique","Amazon FR",2026,6,8674.66],["Belgique","Amazon FR",2026,7,3573.25],["Belgique","Amazon FR",2026,8,2586.52],["Belgique","Autre",2025,1,1520.13],["Belgique","Autre",2025,2,3324.53],["Belgique","Autre",2025,3,62.43],["Belgique","Autre",2025,7,2335.08],["Belgique","Autre",2025,8,1911.33],["Belgique","Autre",2025,9,3144.78],["Belgique","Autre",2025,10,11283.38],["Belgique","Autre",2025,11,11658.17],["Belgique","Autre",2025,12,5132.85],["Belgique","Autre",2026,1,541.17],["Belgique","Autre",2026,2,283.17],["Belgique","Autre",2026,6,116.58],["Belgique","Site Web",2025,3,319.3],["Belgique","Site Web",2025,6,1289.67],["Belgique","Site Web",2025,9,6627.52],["Belgique","Site Web",2025,10,2174.11],["Belgique","Site Web",2025,11,166.58],["Belgique","Site Web",2026,1,2015.0],["Belgique","Site Web",2026,2,566.42],["Belgique","Site Web",2026,3,658.0],["Belgique","Site Web",2026,4,1494.5],["Belgique","Site Web",2026,5,791.08],["Belgique","Site Web",2026,6,553.5],["Belgique","Site Web",2026,7,1203.0],["Belgique","Site Web",2026,8,1750.08],["Belgique","Leroy Merlin",2025,5,507.5],["Belgique","Cdiscount",2025,6,5341.92],["Belgique","Cdiscount",2025,7,8691.83],["Belgique","Cdiscount",2025,8,10387.75],["Belgique","Cdiscount",2025,9,24443.33],["Belgique","Cdiscount",2025,10,40829.83],["Belgique","Cdiscount",2025,11,70600.33],["Belgique","Cdiscount",2025,12,22112.83],["Belgique","Castorama",2025,7,399.75],["Belgique","ManoMano",2025,11,316.42],["Belgique","ManoMano",2026,1,174.92],["Belgique","ManoMano",2026,7,512.0],["Belgique","ManoMano",2026,8,99.92],["Belgique","Maxeda",2026,1,39618.33],["Belgique","Maxeda",2026,2,14121.17],["Belgique","Maxeda",2026,3,7198.58],["Belgique","Maxeda",2026,4,7511.76],["Belgique","Maxeda",2026,5,4026.58],["Belgique","Maxeda",2026,6,11471.17],["Belgique","Maxeda",2026,7,10805.92],["Belgique","Maxeda",2026,8,1974.08],["Belgique","Bol.com",2026,1,7821.63],["Belgique","Bol.com",2026,2,1057.58],["Belgique","Bol.com",2026,3,1881.58],["Belgique","Bol.com",2026,4,1602.83],["Belgique","Bol.com",2026,5,533.0],["Belgique","Bol.com",2026,6,1464.08],["Italie","Leroy Merlin",2025,1,1476.25],["Italie","Leroy Merlin",2025,2,899.33],["Italie","Leroy Merlin",2025,3,566.25],["Italie","Leroy Merlin",2025,4,1090.75],["Italie","Leroy Merlin",2025,5,982.67],["Italie","Leroy Merlin",2025,6,383.08],["Italie","Leroy Merlin",2025,7,133.25],["Italie","Leroy Merlin",2025,8,141.58],["Italie","Leroy Merlin",2025,9,1557.58],["Italie","Leroy Merlin",2025,10,3243.25],["Italie","Leroy Merlin",2025,11,11779.58],["Italie","Leroy Merlin",2025,12,4959.67],["Italie","Leroy Merlin",2026,1,8519.39],["Italie","Leroy Merlin",2026,2,7030.08],["Italie","Leroy Merlin",2026,3,5062.28],["Italie","Leroy Merlin",2026,4,10868.47],["Italie","Leroy Merlin",2026,5,3673.32],["Italie","Leroy Merlin",2026,6,3331.08],["Italie","Leroy Merlin",2026,7,4235.17],["Italie","Leroy Merlin",2026,8,666.17],["Italie","Amazon FR",2025,2,211.64],["Italie","Amazon FR",2026,1,2328.21],["Italie","Amazon FR",2026,2,2742.32],["Italie","Amazon FR",2026,3,1448.53],["Italie","Amazon FR",2026,4,2232.42],["Italie","Amazon FR",2026,5,1227.42],["Italie","Amazon FR",2026,6,1676.25],["Italie","Amazon FR",2026,7,1274.65],["Italie","Amazon FR",2026,8,418.75],["Italie","Site Web",2025,7,599.67],["Italie","Site Web",2025,9,74.92],["Italie","Site Web",2025,10,158.25],["Italie","Site Web",2025,11,191.58],["Italie","Site Web",2026,1,49.92],["Italie","Site Web",2026,2,149.92],["Italie","Site Web",2026,4,137.25],["Italie","Site Web",2026,7,1074.33],["Italie","Site Web",2026,8,1153.25],["Italie","Autre",2025,11,1564.83],["Italie","Autre",2025,12,389.08],["Italie","Autre",2026,1,58.24],["Italie","Brico Bravo",2026,1,1897.58],["Italie","Brico Bravo",2026,2,932.33],["Italie","Brico Bravo",2026,3,973.75],["Italie","Brico Bravo",2026,6,233.17],["Italie","Brico Bravo",2026,7,462.08],["Italie","ManoMano",2026,1,540.5],["Italie","ManoMano",2026,2,83.25],["Italie","ManoMano",2026,3,1269.42],["Italie","ManoMano",2026,5,332.33],["Royaume-Uni","Autre",2025,1,543.33],["Royaume-Uni","Autre",2025,12,16249.93],["Royaume-Uni","Autre",2026,1,38850.0],["Royaume-Uni","Autre",2026,2,20073.0],["Royaume-Uni","Autre",2026,4,16107.5],["Royaume-Uni","Autre",2026,7,21705.0],["Luxembourg","Amazon FR",2025,1,430.27],["Luxembourg","Amazon FR",2026,1,201.25],["Luxembourg","Amazon FR",2026,2,145.77],["Luxembourg","Amazon FR",2026,5,753.12],["Luxembourg","Amazon FR",2026,8,145.77],["Luxembourg","Cdiscount",2025,11,224.75],["Luxembourg","Maxeda",2026,1,82.91],["Luxembourg","Site Web",2026,7,108.25],["Pays-Bas","Amazon FR",2025,2,319.05],["Pays-Bas","Amazon FR",2025,4,377.95],["Pays-Bas","Cdiscount",2025,6,166.58],["Pays-Bas","Cdiscount",2025,7,1174.08],["Pays-Bas","Cdiscount",2025,8,795.17],["Pays-Bas","Cdiscount",2025,9,2806.17],["Pays-Bas","Cdiscount",2025,10,4690.67],["Pays-Bas","Cdiscount",2025,11,6315.0],["Pays-Bas","Cdiscount",2025,12,1432.42],["Pays-Bas","Autre",2025,9,806.22],["Pays-Bas","Autre",2025,10,840.92],["Pays-Bas","Autre",2025,11,1028.25],["Pays-Bas","Autre",2025,12,341.5],["Pays-Bas","Autre",2026,1,58.25],["Pays-Bas","Bol.com",2026,1,1795.32],["Pays-Bas","Bol.com",2026,2,174.75],["Pays-Bas","Bol.com",2026,3,324.67],["Pays-Bas","Bol.com",2026,4,254.0],["Pays-Bas","Bol.com",2026,5,791.83],["Pays-Bas","Bol.com",2026,6,1024.42],["Pays-Bas","Maxeda",2026,1,2356.33],["Pays-Bas","Maxeda",2026,2,1197.67],["Pays-Bas","Maxeda",2026,3,872.75],["Pays-Bas","Maxeda",2026,4,415.5],["Pays-Bas","Maxeda",2026,5,366.33],["Pays-Bas","Maxeda",2026,8,183.25],["Autriche","Autre",2025,11,604.17],["Autriche","Autre",2026,7,54.54],["Pologne","Leroy Merlin",2025,12,266.33],["Pologne","Leroy Merlin",2026,1,976.67],["Pologne","Leroy Merlin",2026,2,929.17],["Pologne","Leroy Merlin",2026,3,427.5],["Pologne","Leroy Merlin",2026,4,369.17],["Pologne","Leroy Merlin",2026,5,190.0],["Pologne","Leroy Merlin",2026,6,383.0],["Pologne","Leroy Merlin",2026,7,533.0],["Allemagne","Site Web",2026,1,116.58],["Allemagne","Site Web",2026,2,366.33],["Allemagne","Site Web",2026,8,108.25],["Allemagne","ManoMano",2026,2,137.42],["Allemagne","Autre",2026,7,1632.33],["Allemagne","Autre",2026,8,3905.67],["Irlande","Amazon FR",2026,3,216.5],["Grèce","Amazon FR",2026,4,180.75],["Bulgarie","Amazon FR",2026,7,249.83],["Lettonie","Amazon FR",2026,8,142.76]];
 const PAYS_OBJECTIF = {"France":12800000.0,"Royaume-Uni":700000.0,"Belgique":560000.0,"Pays-Bas":90000.0,"Allemagne":240000.0,"Espagne":310000.0,"Portugal":135000.0,"Pologne":65000.0,"Italie":180000.0};
 
+// BASKET_PAIRS — paires de produits réellement achetés ensemble (même numéro
+// de commande), 2025+2026, triées par fréquence. [produitA, produitB, nb_fois].
+const BASKET_PAIRS = [["ARIA 1000W","ARIA 1500W",2123],["ARIA 1000W","ARIA 2000W",1290],["ARIA 1500W","ARIA 2000W",1000],["NESSA CONNECT 1000W","NESSA CONNECT 1500W",376],["NESSA CONNECT 1000W","NESSA CONNECT 2000W",352],["NESSA CONNECT 1500W","NESSA CONNECT 2000W",305],["ARIA 1000W","ARIA BLANC 500W",283],["ILLO 1000W","ILLO 1500W",231],["ALBA 1000W","ALBA 1500W",213],["FREYA 1000W","FREYA 1500W",203],["LESSO 1000W","LESSO 1500W",202],["ARIA 1000W","HESTIA BLANC 500W",200],["TANIN 1000W","TANIN 1500W",199],["ILLO 1000W","ILLO 2000W",175],["NEMESIS 1000W","NEMESIS 1500W",171],["MOTU 1000W","MOTU 1500W",166],["ILLO 1500W","ILLO 2000W",157],["ARIA 1500W","ARIA BLANC 500W",157],["NEMESIS 1000W","NEMESIS 2000W",156],["ARIA 1000W NOIR","ARIA 1500W NOIR",154],["LESSO 1000W","LESSO 2000W",150],["MOTU 1500W","MOTU 2000W",147],["MOTU 1000W","MOTU 2000W",146],["FREYA 1500W","FREYA 2000W",145],["ARIA 1000W NOIR","ARIA 2000W NOIR",145],["TANIN 1000W","TANIN 2000W",139],["LESSO 1500W","LESSO 2000W",138],["MOLY BLANC 1000W","MOLY BLANC 1500W",137],["ARIA 1500W","HESTIA BLANC 500W",136],["ATLAS 1500W","ATLAS 2000W",135],["ALBA 1500W","ALBA 2000W",132],["FREYA 1000W","FREYA 2000W",126],["ALBA 1000W","ALBA 2000W",126],["OVEO 1000W","OVEO 1500W",114],["ARIA 1500W NOIR","ARIA 2000W NOIR",111],["TANIN 1500W","TANIN 2000W",111],["ARIA 2000W","HESTIA BLANC 500W",103],["MOLY BLANC 1000W","MOLY BLANC 2000W",97],["ATLAS 1000W","ATLAS 1500W",96],["BIA 1000W","BIA 1500W",94],["DIANE 1000W","DIANE 1500W",93],["NEMESIS 1500W","NEMESIS 2000W",90],["MILLA BLANC 1000W","MILLA BLANC 1500W",90],["ARIA 1000W","ARIA 1000W NOIR",89],["MOLY BLANC 1500W","MOLY BLANC 2000W",89],["ARIA 1500W","ARIA VERTICAL 1500W",85],["OVEO 1000W","OVEO 2000W",84],["MILLA BLANC 1000W","MILLA BLANC 2000W",76],["ARIA 1000W","ARIA VERTICAL 1500W",76],["MILLA BLANC 1500W","MILLA BLANC 2000W",76],["ALMEA 1000W","ALMEA 1500W",75],["ALMEA 1500W","ALMEA 2000W",75],["OVEO 1500W","OVEO 2000W",74],["ARIA 2000W","ARIA BLANC 500W",73],["ARIA 1000W","HESTIA 500+1000W",67],["DIANE 1000W","DIANE 2000W",63],["BIA 1000W","BIA 2000W",62],["ARIA 1500W","HESTIA 500+1000W",60],["ARIA 1000W NOIR","ARIA NOIR 500W",60],["ATLAS 1000W","ATLAS 2000W",57]];
+
 const MARKETPLACE_COLORS = {
   "Amazon FR": { primary: "#FF9900", soft: "#232F3E", text: "#232F3E" },
   "Autre": { primary: "#64748B", soft: "#E2E8F0", text: "#FFFFFF" },
@@ -1047,6 +1059,23 @@ function DashboardApp() {
   const filteredCaTotal = periodStats.current;
   const filteredObjectif = globalMp === "Toutes" ? DATA.kpi.objectif_annuel_total : (mpObjectifRow?.objectif ?? null);
   const filteredPct = filteredObjectif ? (filteredCaTotal / filteredObjectif) * 100 : 0;
+
+  // ===== rythme réel vs objectif — compare le % d'objectif atteint au vrai poids
+  // saisonnier écoulé (indice Supply, sur jours exacts), pas une simple règle de
+  // 3 sur le nombre de mois. Remplace l'ancien seuil fixe à 33%, qui n'avait de
+  // sens que pour "Année en cours" précisément à mi-année. =====
+  const seasonalPace = useMemo(() => {
+    if (!filteredObjectif || datePreset !== "annee_courante") return null;
+    const to = new Date(dateRange.to);
+    const monthIdx = to.getMonth(), dayOfMonth = to.getDate();
+    const daysInMonth = new Date(to.getFullYear(), monthIdx + 1, 0).getDate();
+    const totalWeight = SEASONALITY_INDEX.reduce((a, b) => a + b, 0);
+    const elapsedWeight = SEASONALITY_INDEX.slice(0, monthIdx).reduce((a, b) => a + b, 0) + SEASONALITY_INDEX[monthIdx] * (dayOfMonth / daysInMonth);
+    const pctPoidsEcoule = (elapsedWeight / totalWeight) * 100;
+    const ecart = filteredPct - pctPoidsEcoule;
+    return { pctPoidsEcoule, ecart, statut: ecart > 2 ? "avance" : ecart < -2 ? "retard" : "pile" };
+  }, [filteredObjectif, filteredPct, datePreset, dateRange.to]);
+
   // pas de détail mensuel disponible pour panier moyen / quantité / meilleure vente —
   // ces 3 restent sur l'année complète quel que soit le filtre de date (voir libellés à l'écran)
   const filteredPanierMoyen = globalMp === "Toutes" ? DATA.kpi.panier_moyen_2026 : (DATA.gf.panier_moyen_mp[globalMp] ?? null);
@@ -1180,8 +1209,6 @@ function DashboardApp() {
   const top3Mp = sortedMp.slice(0, 3), restMp = sortedMp.slice(3);
   const maxMpCa = Math.max(...sortedMp.map((m) => m.ca), 1);
   const totalCaAllMp = sortedMp.reduce((s, m) => s + m.ca, 0);
-  const onTrackCount = sortedMp.filter((m) => m.objectif_fiable && m.pct_objectif >= 33).length;
-  const definedCount = sortedMp.filter((m) => m.objectif_fiable).length;
 
   const bestVsN1Pct = globalMp === "Toutes" ? ((DATA.best_seller_2026.ca - DATA.best_seller_2025.ca) / DATA.best_seller_2025.ca) * 100 : null;
   const filteredBrandData = globalMp === "Toutes" ? DATA.monthly_by_brand.Bestherm["2026"].map((v,i) => [v, DATA.monthly_by_brand.Thomson["2026"][i]]) : null;
@@ -1299,6 +1326,7 @@ function DashboardApp() {
   // structure : segments (Heater/Cooling) -> sous-catégories -> marketplaces -> produits
   const [concSegment, setConcSegment] = useState("Heater");
   const [topFlopSort, setTopFlopSort] = useState("ca"); // "ca" | "qte"
+  const [marquesTab, setMarquesTab] = useState("marque");
   const [wattageCat, setWattageCat] = useState("Toutes");
   const [concSousCat, setConcSousCat] = useState(null); // null = toutes les sous-catégories du segment
   const CONF_STYLE = { haute: { icon: ShieldCheck, color: GREEN, label: "Confiance haute" }, moyenne: { icon: ShieldQuestion, color: AMBER, label: "Confiance moyenne" }, basse: { icon: ShieldAlert, color: RED, label: "Confiance basse" } };
@@ -1414,7 +1442,62 @@ function DashboardApp() {
     return { top: sorted.slice(0, 5), flop: sorted.slice(-5).reverse(), nbProduits: list.length };
   }, [dateRange.from, dateRange.to, globalMp, topFlopSort]);
 
+  // ===== Cycle de vie produit — compare juin-août 2026 à la même période 2025
+  // (pas les mois qui précèdent immédiatement, sinon la comparaison capte la
+  // saisonnalité elle-même plutôt qu'une vraie tendance — un produit qui recule
+  // de l'été au pic de novembre "décline" toujours mécaniquement, ce n'est pas
+  // le signal recherché). Respecte le filtre marketplace global. =====
+  const lifecycleData = useMemo(() => {
+    const caByProduit = {}; // index -> {c25:[12], c26:[12]}
+    SKU_MONTHLY.forEach(([pi, mi, an, mo, ca, qte]) => {
+      if (SKU_DESTOCKAGE[pi]) return;
+      if (globalMp !== "Toutes" && SKU_MPS[mi] !== globalMp) return;
+      if (!caByProduit[pi]) caByProduit[pi] = { c25: Array(12).fill(0), c26: Array(12).fill(0) };
+      caByProduit[pi][an === 2025 ? "c25" : "c26"][mo - 1] += ca;
+    });
+    const buckets = { lancement: [], croissance: [], mature: [], declin: [] };
+    Object.entries(caByProduit).forEach(([piStr, s]) => {
+      const pi = Number(piStr);
+      const produit = SKU_PRODUIT[pi];
+      if (!WATTAGE_RE.test(produit)) return; // exclut accessoires
+      const recent = s.c26[5] + s.c26[6] + s.c26[7]; // juin-juil-août 2026
+      const sameLastYear = s.c25[5] + s.c25[6] + s.c25[7];
+      const totalMoisActifs = [...s.c25, ...s.c26].filter((v) => v > 0).length;
+      if (recent <= 0) return;
+      let stage, variation = null;
+      if (totalMoisActifs <= 4 || sameLastYear === 0) stage = "lancement";
+      else {
+        variation = ((recent - sameLastYear) / sameLastYear) * 100;
+        stage = variation > 20 ? "croissance" : variation < -20 ? "declin" : "mature";
+      }
+      buckets[stage].push({ produit, ca: recent, variation });
+    });
+    Object.keys(buckets).forEach((k) => buckets[k].sort((a, b) => b.ca - a.ca));
+    return buckets;
+  }, [globalMp]);
+
   const wattageCats = useMemo(() => Array.from(new Set(Object.values(PRODUCT_TO_CATEGORY))).sort(), []);
+
+  // ===== Panier — paires réellement achetées ensemble (BASKET_PAIRS), avec
+  // détection des paires croisées radiateur x sèche-serviette via le catalogue
+  // déjà en place. Donnée globale (pas filtrable par marketplace/date — le
+  // numéro de commande ne porte pas ces deux dimensions dans l'extraction). =====
+  const familleParProduit = useMemo(() => {
+    const map = {};
+    SKU_PRODUIT.forEach((p, i) => { map[p] = SKU_FAMILLE[i]; });
+    return map;
+  }, []);
+  const basketDisplay = useMemo(() => {
+    const isRad = (f) => f === "Fixe heater" || f === "Mobile";
+    const isSav = (f) => f === "Sèche-serviettes";
+    return BASKET_PAIRS.map(([a, b, n]) => {
+      const fa = familleParProduit[a], fb = familleParProduit[b];
+      const croise = (isRad(fa) && isSav(fb)) || (isRad(fb) && isSav(fa));
+      return { a, b, n, croise };
+    });
+  }, [familleParProduit]);
+  const basketCroises = basketDisplay.filter((p) => p.croise).slice(0, 6);
+  const basketTop = basketDisplay.slice(0, 8);
 
   // ===== Radar produit idéal — profil pondéré par CA réel des références qui
   // se vendent sur la marketplace sélectionnée. Prix régulier = CA/qté hors
@@ -1483,6 +1566,21 @@ function DashboardApp() {
   const peakMonth = seasonalityRows.reduce((max, r) => r.index > max.index ? r : max, seasonalityRows[0]);
   const troughMonth = seasonalityRows.reduce((min, r) => r.index < min.index ? r : min, seasonalityRows[0]);
   const anticipationTotal = ANTICIPATION.projection_sept_dec.reduce((a,b) => a+b, 0);
+
+  // ===== anticipation éclatée par marketplace — même méthode que l'anticipation
+  // globale (CA réel du même mois N-1 x croissance récente juin-août), calculée
+  // séparément pour chaque marketplace plutôt qu'une seule masse agrégée =====
+  const anticipationByMp = useMemo(() => {
+    const mps = Object.keys(DATA.gf.monthly_total_by_mp).sort();
+    return mps.map((mp) => {
+      const m26 = DATA.gf.monthly_total_by_mp[mp]["2026"] || Array(12).fill(0);
+      const m25 = DATA.gf.monthly_total_by_mp[mp]["2025"] || Array(12).fill(0);
+      const growthMonths = [5, 6, 7].filter((i) => m25[i] > 0).map((i) => (m26[i] - m25[i]) / m25[i]);
+      const avgGrowth = growthMonths.length ? growthMonths.reduce((a, b) => a + b, 0) / growthMonths.length : 0;
+      const projection = [8, 9, 10, 11].map((i) => m25[i] * (1 + avgGrowth));
+      return { mp, avgGrowth, total: projection.reduce((a, b) => a + b, 0), base2025: [8,9,10,11].reduce((s,i)=>s+m25[i],0) };
+    }).filter((r) => r.base2025 > 0).sort((a, b) => b.total - a.total);
+  }, []);
 
   const wattageAnalysis = useMemo(() => {
     const { from, to } = dateRange;
@@ -1811,8 +1909,16 @@ function DashboardApp() {
                     </div>
                     <div className="flex items-baseline gap-3 flex-wrap"><div className="tabular-nums font-bold leading-none" style={{ fontSize: "clamp(32px, 5vw, 48px)" }}>{fmtEUR(totalCaAllMp)}</div><YoyBadge pct={periodStats.yoy} size="big" /></div>
                   </div>
-                  {datePreset === "annee_courante" && (
-                    <div className="text-[12.5px] tabular-nums px-3 py-2 rounded-xl" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: MUTED }}><span style={{ color: GREEN }}>{onTrackCount}</span>/{definedCount} {t.au_rythme}</div>
+                  {seasonalPace && (
+                    <div className="text-[12.5px] px-3 py-2 rounded-xl" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: MUTED }}>
+                      <div className="tabular-nums">
+                        <span style={{ color: seasonalPace.statut === "avance" ? GREEN : seasonalPace.statut === "retard" ? RED : AMBER }}>
+                          {seasonalPace.statut === "avance" ? "▲" : seasonalPace.statut === "retard" ? "▼" : "●"} {seasonalPace.ecart >= 0 ? "+" : ""}{seasonalPace.ecart.toFixed(1)} pt
+                        </span>
+                        {" "}vs rythme saisonnier
+                      </div>
+                      <div className="text-[10px] mt-0.5" style={{ color: FAINT }}>{seasonalPace.pctPoidsEcoule.toFixed(1)}% du poids annuel type déjà écoulé</div>
+                    </div>
                   )}
                 </div>
                 <div className="mt-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader></div>
@@ -1830,15 +1936,20 @@ function DashboardApp() {
                 </div>
                 <Eyebrow tone="quiet" hint={t.autres_mp_hint}>{t.autres_mp}</Eyebrow>
                 <GlassCard className="p-1.5" quiet>
-                  {restMp.map((m, i) => (
-                    <StaggerRow key={m.marketplace} index={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: i < restMp.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
-                      <span className="text-[12.5px] w-28 shrink-0 truncate" style={{ color: MUTED }}>{m.marketplace}</span>
+                  {restMp.map((m, i) => {
+                    const alerteDeclin = m.yoy_pct !== null && m.yoy_pct < -10;
+                    const alerteObjectif = !alerteDeclin && m.objectif_fiable && m.yoy_pct !== null && m.yoy_pct > 100 && m.pct_objectif < 30;
+                    const alerte = alerteDeclin || alerteObjectif;
+                    const alerteColor = alerteDeclin ? RED : AMBER;
+                    return (
+                    <StaggerRow key={m.marketplace} index={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: i < restMp.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none", borderLeft: alerte ? `2px solid ${alerteColor}` : "2px solid transparent", paddingLeft: alerte ? "10px" : "12px", background: alerte ? `${alerteColor}0a` : "transparent" }}>
+                      <span className="text-[12.5px] w-28 shrink-0 truncate flex items-center gap-1" style={{ color: MUTED }} title={alerteObjectif ? "Forte croissance mais objectif peu atteint — objectif potentiellement à recalibrer" : undefined}>{alerte && <AlertTriangle size={11} color={alerteColor} />}{m.marketplace}</span>
                       <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (m.ca / maxMpCa) * 100)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} /></div>
                       <span className="text-[11.5px] tabular-nums w-16 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(m.ca)}</span>
                       <span className="text-[11px] tabular-nums w-12 text-right shrink-0" style={{ color: m.objectif_fiable ? FAINT : "#4A453E" }}>{m.objectif_fiable ? fmtPct(m.pct_objectif).replace('+','') : t.nd}</span>
                       <span className="w-16 text-right shrink-0"><YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} /></span>
                     </StaggerRow>
-                  ))}
+                  );})}
                 </GlassCard>
               </>
             ) : (
@@ -1878,18 +1989,20 @@ function DashboardApp() {
             ) : (
               <GlassCard className="p-4 mb-2" quiet>
                 <div className="space-y-2.5">
-                  {internationalData.rows.map((c, i) => (
+                  {internationalData.rows.map((c, i) => {
+                    const alerte = c.pctObjectif !== null && c.pctObjectif < 20;
+                    return (
                     <div key={c.pays} className="flex items-center gap-3">
-                      <span className="text-[11.5px] font-medium w-24 shrink-0 truncate" style={{ color: INK }}>{c.pays}</span>
+                      <span className="text-[11.5px] font-medium w-24 shrink-0 truncate flex items-center gap-1" style={{ color: INK }}>{alerte && <AlertTriangle size={10} color={RED} />}{c.pays}</span>
                       <div className="flex-1 h-5 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
                         <div className="h-full rounded-full transition-all duration-700 flex items-center justify-end pr-2" style={{ width: `${Math.max(3, (c.ca/internationalData.maxCa)*100)}%`, background: `linear-gradient(90deg, ${mpAccent.primary}99, ${mpAccent.primary})` }}>
                           {(c.ca/internationalData.maxCa) > 0.28 && <span className="tabular-nums text-[10.5px] font-semibold" style={{ color: mpAccent.text }}>{fmtEURk(c.ca)}</span>}
                         </div>
                       </div>
                       {(c.ca/internationalData.maxCa) <= 0.28 && <span className="tabular-nums text-[11px] font-semibold w-16 text-right shrink-0" style={{ color: mpAccent.primary }}>{fmtEURk(c.ca)}</span>}
-                      <span className="tabular-nums text-[10.5px] w-14 text-right shrink-0" style={{ color: c.pctObjectif === null ? FAINT : c.pctObjectif >= 40 ? GREEN : AMBER }}>{c.pctObjectif !== null ? `${c.pctObjectif.toFixed(0)}% obj.` : "—"}</span>
+                      <span className="tabular-nums text-[10.5px] w-14 text-right shrink-0 font-semibold" style={{ color: c.pctObjectif === null ? FAINT : alerte ? RED : c.pctObjectif >= 40 ? GREEN : AMBER }}>{c.pctObjectif !== null ? `${c.pctObjectif.toFixed(0)}% obj.` : "—"}</span>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </GlassCard>
             )}
@@ -1919,6 +2032,22 @@ function DashboardApp() {
         {tab === "marques" && (
           <>
             <PeriodSummaryCard key={`marques-${globalMp}-${datePreset}`} items={summaryMarques} />
+
+            <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit flex-wrap" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+              {[
+                { id: "marque", label: "Marque" }, { id: "produits", label: "Produits" },
+                { id: "radar", label: "Produit idéal" }, { id: "classification", label: "Normes & Catégories" },
+                { id: "puissances", label: "Puissances" },
+              ].map((s) => (
+                <button key={s.id} onClick={() => setMarquesTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full whitespace-nowrap"
+                  style={{ background: marquesTab === s.id ? mpAccent.primary : "transparent", color: marquesTab === s.id ? mpAccent.text : MUTED }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {marquesTab === "marque" && (
+            <>
             <ZoneLabel first>Marque</ZoneLabel>
             <div className="mb-5 card-reveal">
               <div className="flex items-center gap-3 mb-2"><BesthermLogo size={16} color={INK} /><span style={{ color: FAINT }}>×</span><ThomsonLogo size={14} /></div>
@@ -1948,9 +2077,13 @@ function DashboardApp() {
               </ResponsiveContainer>
               <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: FAINT }}><Info size={11} /> {t.marque_reconstituee} {DATA.brand_coverage_pct["2026"]}%</div>
             </GlassCard>
+            </>
+            )}
 
-            <div className="mt-9">
-              <ZoneLabel>Produits</ZoneLabel>
+            {marquesTab === "produits" && (
+            <>
+            <div>
+              <ZoneLabel first>Produits</ZoneLabel>
             </div>
 
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -1988,6 +2121,34 @@ function DashboardApp() {
             </div>
             <div className="flex items-center gap-1.5 mb-6 text-[10.5px]" style={{ color: FAINT }}>
               <Info size={11} /> {topFlopData.nbProduits} produits distincts vendus sur cette sélection · données issues des lignes de commande réelles, mise à jour du 25/08/2026 (jusqu'au 15 août)
+            </div>
+
+            <SectionHeader hint="Compare juin-août 2026 à la même période 2025 (pas les mois précédents, pour ne pas confondre saisonnalité et vraie tendance) — respecte le filtre marketplace">Cycle de vie produit</SectionHeader>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              {[
+                { key: "lancement", label: "Lancement", color: "#4A9EFF", desc: "Pas de vente comparable l'an dernier" },
+                { key: "croissance", label: "Croissance", color: GREEN, desc: "+20% ou plus vs même période 2025" },
+                { key: "mature", label: "Mature", color: AMBER, desc: "Stable, entre -20% et +20%" },
+                { key: "declin", label: "Déclin", color: RED, desc: "-20% ou moins vs même période 2025" },
+              ].map(({ key, label, color, desc }) => {
+                const items = lifecycleData[key] || [];
+                return (
+                  <GlassCard key={key} className="p-4" quiet>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                      <span className="text-[12px] font-semibold">{label}</span>
+                    </div>
+                    <div className="tabular-nums text-[22px] font-bold" style={{ color }}>{items.length}</div>
+                    <div className="text-[10px] mb-2" style={{ color: FAINT }}>{desc}</div>
+                    {items.slice(0, 3).map((it) => (
+                      <div key={it.produit} className="text-[10.5px] truncate flex items-center justify-between gap-1" style={{ color: MUTED }}>
+                        <span className="truncate">{it.produit}</span>
+                        {it.variation !== null && <span className="shrink-0 tabular-nums" style={{ color }}>{it.variation >= 0 ? "+" : ""}{it.variation.toFixed(0)}%</span>}
+                      </div>
+                    ))}
+                  </GlassCard>
+                );
+              })}
             </div>
 
             <div className="mt-9">
@@ -2038,9 +2199,40 @@ function DashboardApp() {
               </div>
             </GlassCard>
 
+            <SectionHeader hint="Produits réellement achetés ensemble (même numéro de commande), 2025+2026 — donnée globale, pas encore filtrable par marketplace ou période">Souvent achetés ensemble</SectionHeader>
+            {basketCroises.length > 0 && (
+              <>
+                <Eyebrow tone="quiet" hint="Radiateur + sèche-serviette dans la même commande — signal de rénovation salle de bain complète">Ventes croisées radiateur × sèche-serviette</Eyebrow>
+                <GlassCard className="p-1.5 mb-4">
+                  {basketCroises.map((p, i) => (
+                    <div key={`${p.a}-${p.b}`} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < basketCroises.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
+                      <span className="text-[11.5px] flex-1 truncate" style={{ color: MUTED }}>{p.a} <span style={{ color: FAINT }}>+</span> {p.b}</span>
+                      <span className="tabular-nums text-[11px] font-semibold shrink-0" style={{ color: mpAccent.primary }}>{p.n}x</span>
+                    </div>
+                  ))}
+                </GlassCard>
+              </>
+            )}
+            <Eyebrow tone="quiet" hint="Toutes paires confondues, y compris même gamme à puissances différentes">Toutes paires — top 8</Eyebrow>
+            <GlassCard className="p-1.5 mb-3">
+              {basketTop.map((p, i) => (
+                <div key={`${p.a}-${p.b}`} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < basketTop.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
+                  <span className="text-[11.5px] flex-1 truncate" style={{ color: MUTED }}>{p.a} <span style={{ color: FAINT }}>+</span> {p.b}</span>
+                  <span className="tabular-nums text-[11px] font-semibold shrink-0" style={{ color: FAINT }}>{p.n}x</span>
+                </div>
+              ))}
+            </GlassCard>
+            <div className="flex items-center gap-1.5 mb-6 text-[10.5px]" style={{ color: FAINT }}>
+              <Info size={11} /> Donnée globale (2025+2026), pas encore filtrable par marketplace ou période — les paires viennent des numéros de commande réels.
+            </div>
+            </>
+            )}
+
+            {marquesTab === "classification" && (
+            <>
             {/* ===== section — Normes NF / CE ===== */}
-            <div className="mt-9">
-              <ZoneLabel>Normes</ZoneLabel>
+            <div>
+              <ZoneLabel first>Normes</ZoneLabel>
               <SectionHeader hint={`${t.repartition_norme_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{t.repartition_norme}</SectionHeader>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -2076,10 +2268,12 @@ function DashboardApp() {
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: AMBER }} /> CE</span>
               </div>
             </GlassCard>
+            </>
+            )}
 
-            {radarProfiles && (
+            {marquesTab === "radar" && radarProfiles && (
               <>
-                <ZoneLabel>Produit idéal — {globalMp}</ZoneLabel>
+                <ZoneLabel first>Produit idéal — {globalMp}</ZoneLabel>
                 <div className="flex items-center gap-1.5 mb-4 text-[10.5px]" style={{ color: FAINT }}>
                   <Info size={11} /> Profil pondéré par le CA réel des références vendues sur cette marketplace (déstockage exclu du profil) — pas une invention, un reflet de ce qui se vend vraiment.
                 </div>
@@ -2128,6 +2322,11 @@ function DashboardApp() {
                             <div className="tabular-nums text-[16px] font-bold" style={{ color: AMBER }}>{p.prixPromo !== null ? fmtEURplain(p.prixPromo) : "—"}</div>
                           </div>
                         </div>
+                        {p.prixRegulier !== null && p.prixPromo !== null && p.prixPromo > p.prixRegulier && (
+                          <div className="flex items-center gap-1.5 mt-2 text-[10.5px] px-2.5 py-1.5 rounded-lg" style={{ background: `${AMBER}12`, color: AMBER }}>
+                            <AlertTriangle size={11} /> Prix promo plus élevé que le régulier — le déstockage semble concerner des modèles premium, pas du petit stock à écouler.
+                          </div>
+                        )}
                       </GlassCard>
                     );
                   })}
@@ -2138,6 +2337,8 @@ function DashboardApp() {
               </>
             )}
 
+            {marquesTab === "classification" && (
+            <>
             {/* ===== section — Répartition catégories / sous-catégories, filtrable par marketplace ===== */}
             <div className="flex items-center justify-between mb-2 mt-9 flex-wrap gap-2">
               <ZoneLabel>Catégories</ZoneLabel>
@@ -2183,8 +2384,12 @@ function DashboardApp() {
                 ))}
               </div>
             </GlassCard>
+            </>
+            )}
 
-            <ZoneLabel>Puissances</ZoneLabel>
+            {marquesTab === "puissances" && (
+            <>
+            <ZoneLabel first>Puissances</ZoneLabel>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
               <SectionHeader hint={`Quantité vendue par puissance, filtrable date + marketplace comme le reste de l'app · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel}`}>Puissances les plus vendues</SectionHeader>
               <select value={wattageCat} onChange={(e) => setWattageCat(e.target.value)}
@@ -2216,6 +2421,8 @@ function DashboardApp() {
                 </>
               )}
             </GlassCard>
+            </>
+            )}
           </>
         )}
 
@@ -2750,6 +2957,20 @@ function DashboardApp() {
             <div className="flex items-center gap-1.5 mb-6 px-1 text-[10.5px]" style={{ color: FAINT }}>
               <Info size={11} /> Total anticipé sept-déc : {fmtEUR(anticipationTotal)} · méthode : CA réel du même mois 2025 × taux de croissance récent (juin-août 2026 vs 2025, +{(ANTICIPATION.growth_rate*100).toFixed(0)}%) — une estimation explicite, pas une boîte noire. À affiner si tu as un budget ou une tendance plus récente à intégrer.
             </div>
+
+            <SectionHeader hint="Même méthode que l'anticipation globale, calculée séparément par marketplace — la répartition attendue du pic n'est pas forcément celle du poids actuel">Anticipation par marketplace</SectionHeader>
+            <GlassCard className="p-1.5 mb-6">
+              {anticipationByMp.map((r, i) => (
+                <StaggerRow key={r.mp} index={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: i < anticipationByMp.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
+                  <span className="text-[12px] w-28 shrink-0 truncate" style={{ color: INK }}>{r.mp}</span>
+                  <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(2, (r.total/anticipationByMp[0].total)*100)}%`, background: mpAccent.primary }} />
+                  </div>
+                  <span className="tabular-nums text-[12px] font-semibold w-20 text-right shrink-0">{fmtEURk(r.total)}</span>
+                  <span className="tabular-nums text-[10.5px] w-14 text-right shrink-0" style={{ color: r.avgGrowth >= 0 ? GREEN : RED }}>{r.avgGrowth >= 0 ? "+" : ""}{(r.avgGrowth*100).toFixed(0)}%</span>
+                </StaggerRow>
+              ))}
+            </GlassCard>
 
             <ZoneLabel>Ce qui manque pour aller plus loin</ZoneLabel>
             <GlassCard className="p-5" quiet>
