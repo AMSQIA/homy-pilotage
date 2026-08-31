@@ -153,6 +153,11 @@ function EntryGate({ onUnlock }) {
   const [error, setError] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [show, setShow] = useState(false);
+  // EntryGate précède le montage de DashboardApp : "lang" n'existe pas encore
+  // à ce stade (même contrainte qu'ErrorBoundary) — détection autonome via le
+  // navigateur pour cet écran précis, indépendante du sélecteur de langue in-app.
+  const browserLang = (typeof navigator !== "undefined" && navigator.language || "fr").slice(0, 2);
+  const et = I18N[browserLang] && I18N[browserLang].entry_acces_restreint ? I18N[browserLang] : I18N.fr;
 
   useEffect(() => {
     const t = setTimeout(() => setShow(true), 40);
@@ -227,12 +232,12 @@ function EntryGate({ onUnlock }) {
             </div>
 
             <div className={`float-up flex flex-col items-center gap-3 ${error ? "shake" : ""}`} style={{ animationDelay: "620ms" }}>
-              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em]" style={{ color: FAINT }}><Lock size={12} /> Accès restreint</div>
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em]" style={{ color: FAINT }}><Lock size={12} /> {et.entry_acces_restreint}</div>
               <input
                 type="password" value={pwd}
                 onChange={(e) => setPwd(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}
-                autoFocus placeholder="Clé d'entrée"
+                autoFocus placeholder={et.entry_placeholder}
                 className="text-center text-[14px] tabular-nums rounded-xl px-4 py-2.5 outline-none"
                 style={{ background: PANEL, border: `1px solid ${error ? RED : PANEL_BORDER}`, color: INK, width: 220, colorScheme: "dark" }}
               />
@@ -241,9 +246,9 @@ function EntryGate({ onUnlock }) {
                 className="btn-lift text-[12px] font-semibold px-5 py-2 rounded-full"
                 style={{ background: `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})`, color: "#0A0908" }}
               >
-                {unlocking ? "..." : "Entrer"}
+                {unlocking ? "..." : et.entry_entrer}
               </button>
-              {error && <span className="text-[11px]" style={{ color: RED }}>Clé incorrecte</span>}
+              {error && <span className="text-[11px]" style={{ color: RED }}>{et.entry_erreur}</span>}
             </div>
           </>
         )}
@@ -253,10 +258,12 @@ function EntryGate({ onUnlock }) {
 }
 
 /* ============================================================================ MOTION + 3D */
-function TiltCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, index = 0 }) {
+function TiltCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, index = 0, scrollReveal = false }) {
   const accent = useContext(AccentContext);
   const effectiveGlow = glowColor || accent.primary;
   const ref = useRef(null);
+  const [revealRef, isVisible] = useScrollReveal();
+  const setRefs = (node) => { ref.current = node; revealRef.current = node; };
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const onMove = (e) => {
     const r = ref.current.getBoundingClientRect();
@@ -265,8 +272,8 @@ function TiltCard({ children, className = "", glow = false, glowColor, quiet = f
   };
   const onLeave = () => setTilt({ x: 0, y: 0 });
   return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave}
-      className={`relative rounded-2xl backdrop-blur-xl tilt-card card-reveal ${className}`}
+    <div ref={scrollReveal ? setRefs : ref} onMouseMove={onMove} onMouseLeave={onLeave}
+      className={`relative rounded-2xl backdrop-blur-xl tilt-card ${scrollReveal ? `scroll-reveal ${isVisible ? "is-visible" : ""}` : "card-reveal"} ${className}`}
       style={{
         background: quiet ? PANEL_QUIET : PANEL, border: `1px solid ${quiet ? PANEL_BORDER_QUIET : PANEL_BORDER}`,
         boxShadow: glow
@@ -274,17 +281,18 @@ function TiltCard({ children, className = "", glow = false, glowColor, quiet = f
           : quiet ? "inset 0 1px 0 rgba(255,255,255,0.02)" : `inset 0 1px 0 rgba(255,255,255,0.05), 0 ${10 + Math.abs(tilt.x)}px 28px -12px rgba(0,0,0,0.5)`,
         transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) translateZ(0)`,
         transition: tilt.x === 0 && tilt.y === 0 ? "transform 0.5s cubic-bezier(.22,1,.36,1), box-shadow 0.4s ease" : "transform 0.08s linear",
-        animationDelay: `${index * 60}ms`, ...style,
+        animationDelay: scrollReveal ? undefined : `${index * 60}ms`, ...style,
       }}>
       {children}
     </div>
   );
 }
-function GlassCard({ children, className = "", glow = false, glowColor, quiet = false, style = {} }) {
+function GlassCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, scrollReveal = false }) {
   const accent = useContext(AccentContext);
   const effectiveGlow = glowColor || accent.primary;
+  const [revealRef, isVisible] = useScrollReveal();
   return (
-    <div className={`relative rounded-2xl backdrop-blur-xl ${className}`}
+    <div ref={scrollReveal ? revealRef : undefined} className={`relative rounded-2xl backdrop-blur-xl ${scrollReveal ? `scroll-reveal ${isVisible ? "is-visible" : ""}` : ""} ${className}`}
       style={{ background: quiet ? PANEL_QUIET : PANEL, border: `1px solid ${quiet ? PANEL_BORDER_QUIET : PANEL_BORDER}`,
         boxShadow: glow
           ? `inset 0 1px 0 rgba(255,255,255,0.05), 0 0 60px -12px ${effectiveGlow}33, 0 8px 30px -10px rgba(0,0,0,0.5)`
@@ -313,7 +321,44 @@ function useCountUp(target, duration = 1100, trigger = 0) {
   }, [target, duration, trigger]);
   return [val, punch];
 }
-function HeatGauge({ pct, color = ORANGE, colorSoft = AMBER }) {
+// useScrollReveal — détecte quand un élément entre dans le champ de vision et ne
+// se déclenche qu'une seule fois (pas de ré-animation en remontant/redescendant).
+// Repli sûr : si IntersectionObserver n'existe pas (environnement inhabituel),
+// l'élément reste visible immédiatement plutôt que de rester caché.
+function useScrollReveal() {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, visible];
+}
+// MiniRing — anneau de progression compact, pour intégration inline (pas un
+// remplacement de HeatGauge, qui reste utilisé pour l'affichage détaillé ailleurs)
+function MiniRing({ pct, color = ORANGE, size = 64 }) {
+  const clamped = Math.max(0, Math.min(pct, 100));
+  const r = (size - 8) / 2, circumference = 2 * Math.PI * r;
+  const [animPct, setAnimPct] = useState(0);
+  useEffect(() => { const id = requestAnimationFrame(() => setAnimPct(clamped)); return () => cancelAnimationFrame(id); }, [clamped]);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: "rotate(-90deg)" }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={5} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={5} strokeLinecap="round"
+        strokeDasharray={circumference} strokeDashoffset={circumference * (1 - animPct / 100)}
+        style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)" }} />
+      <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.2} fontWeight="700" fill={INK} style={{ transform: "rotate(90deg)", transformOrigin: "center" }}>{Math.round(clamped)}%</text>
+    </svg>
+  );
+}
+function HeatGauge({ pct, color = ORANGE, colorSoft = AMBER, label = "OBJECTIF 2026" }) {
   const clamped = Math.min(pct, 100);
   const r = 84, circumference = 2 * Math.PI * r * (270 / 360);
   const needleAngle = -135 + (clamped / 100) * 270;
@@ -331,7 +376,7 @@ function HeatGauge({ pct, color = ORANGE, colorSoft = AMBER }) {
         strokeDasharray={`${(clamped/100)*circumference} ${circumference}`} style={{ transition: "stroke-dasharray 1.1s cubic-bezier(.22,1,.36,1)" }} />
       <circle cx={110 + 68 * Math.sin((needleAngle * Math.PI) / 180)} cy={112 - 68 * Math.cos((needleAngle * Math.PI) / 180)} r="4" fill={INK} style={{ transition: "cx 1.1s cubic-bezier(.22,1,.36,1), cy 1.1s cubic-bezier(.22,1,.36,1)" }} />
       <text x="110" y="104" textAnchor="middle" fontSize="36" fontWeight="700" fill={INK} fontFamily="'Inter', sans-serif" letterSpacing="-0.02em">{clamped.toFixed(0)}%</text>
-      <text x="110" y="123" textAnchor="middle" fontSize="10.5" fill={MUTED} letterSpacing="1.5">OBJECTIF 2026</text>
+      <text x="110" y="123" textAnchor="middle" fontSize="10.5" fill={MUTED} letterSpacing="1.5">{label}</text>
     </svg>
   );
 }
@@ -397,7 +442,7 @@ function TypewriterText({ text, speed = 14, onDone }) {
    l'autre, comme si elle était rédigée en direct — la clé passée par
    l'appelant (marketplace+période) fait remonter le composant à zéro et
    relance l'animation à chaque nouveau filtre. */
-function PeriodSummaryCard({ items }) {
+function PeriodSummaryCard({ items, t = I18N.fr }) {
   const accent = useContext(AccentContext);
   const [activeIndex, setActiveIndex] = useState(0);
   const [closing, setClosing] = useState(false);
@@ -423,9 +468,9 @@ function PeriodSummaryCard({ items }) {
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-1.5">
             <Sparkles size={11} color={accent.primary} />
-            <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: accent.primary }}>Synthèse</span>
+            <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: accent.primary }}>{t.summary_synthese}</span>
           </div>
-          <button onClick={() => setClosing(true)} aria-label="Fermer la synthèse" className="btn-lift -mt-1 -mr-1 p-1 rounded-full" style={{ color: FAINT }}>
+          <button onClick={() => setClosing(true)} aria-label={t.summary_fermer} className="btn-lift -mt-1 -mr-1 p-1 rounded-full" style={{ color: FAINT }}>
             <X size={12} />
           </button>
         </div>
@@ -446,15 +491,16 @@ function PeriodSummaryCard({ items }) {
     </div>
   );
 }
-function YoyBadge({ pct, size = "normal", naLabel = "non comparable" }) {
+function YoyBadge({ pct, size = "normal", naLabel = "non comparable", lang = "fr" }) {
   if (pct === null || pct === undefined) return <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: FAINT }}><Minus size={11} /> {naLabel}</span>;
   const up = pct >= 0, Icon = up ? TrendingUp : TrendingDown, color = up ? GREEN : RED;
   // au-delà de +150%, la variation vient presque toujours d'une base de comparaison
   // très faible plutôt que d'une vraie explosion — on le signale plutôt que de
   // laisser un chiffre spectaculaire sans contexte induire en erreur
   const baseFaible = pct > 150;
+  const tt = I18N[lang] || I18N.fr;
   return (
-    <span className="inline-flex items-center gap-1 tabular-nums font-semibold" style={{ color, fontSize: size === "big" ? 15 : 12 }} title={baseFaible ? "Variation très forte — vérifier la valeur absolue N-1, souvent une base de comparaison faible plutôt qu'une vraie tendance" : undefined}>
+    <span className="inline-flex items-center gap-1 tabular-nums font-semibold" style={{ color, fontSize: size === "big" ? 15 : 12 }} title={baseFaible ? tt.yoy_variation_forte : undefined}>
       <Icon size={size === "big" ? 15 : 12} /> {fmtPct(pct)}{baseFaible && <span style={{ color: AMBER, fontSize: "0.85em" }}>*</span>}
     </span>
   );
@@ -634,6 +680,10 @@ const I18N = {
     tendance_titre: "Tendance CA HT — une courbe par année", tendance_hint: "Un graphique par année, même échelle verticale pour comparer honnêtement les courbes",
     ca_ht_total_titre: "CA HT total — toutes marketplaces, à date", ca_ht_total_hint: "Somme du CA HT 2026 de toutes les marketplaces suivies",
     au_rythme: "au rythme attendu", top3: "Top 3", top3_hint: "Les 3 marketplaces au CA HT cumulé 2026 le plus élevé", de_word: "de", nouveau: "nouveau",
+    est_fin_annee: "Estimation fin d'année", objectif_non_defini_mp: "Objectif annuel non défini pour cette marketplace", legende_reel: "Réel", legende_anticipe: "Anticipé", reparti_saisonnier: "réparti selon le motif saisonnier réel, pas 1/12 uniforme",
+    repartition_pays_titre: "Répartition par pays", repartition_pays_hint: "Vraies commandes par pays — pas une estimation ads. 2024 exclu (pas de détail pays cette année-là)", aucune_donnee_pays: "Aucune donnée pays sur cette sélection — vérifie que la période inclut 2025 ou 2026.", pub_par_pays: "Publicité par pays", depense_ads: "dépense ads", conc_titre: "Concurrence", conc_hint: "Veille collectée manuellement par recherche web — France. Aucun prix, classement ou volume inventé.", conc_position_heater: "Position Heater — ", conc_position_cooling: "Position Cooling — ", conc_radiateurs: "Radiateurs — ", conc_secheserviettes: "Sèche-serviettes — ", conc_produits_suivis: "Produits suivis", conc_produits_suivis_hint: "Sélection actuelle (segment/sous-catégorie/marketplace)", conc_prix_moyen: "Prix moyen", conc_prix_moyen_hint: "Sur les produits où le prix a pu être vérifié", conc_fourchette_prix: "Fourchette prix", conc_fourchette_prix_hint: "Du moins cher au plus cher, prix vérifiés uniquement", conc_en_promo: "En promotion", conc_en_promo_hint: "Produits affichant une remise vs prix de référence", conc_sources_qualite: "Sources et qualité", conc_sources_qualite_hint: "Fiabilité de la collecte par sous-catégorie et marketplace — méthodologie et limites propres à chaque source", conc_marques_visibles: "Marques les plus visibles", conc_marques_visibles_hint: "Marques les plus présentes dans la collecte, toutes marketplaces confondues (nombre d'apparitions, pas de part de marché réelle)", conc_aucun_produit: "Aucun produit pour cette sélection", conc_sponsorise: "Sponsorisé", conc_prix_nd: "Prix n/d", conc_comparatif_prix_mp: "Comparatif prix par marketplace", conc_comparatif_prix_mp_hint: "Prix vérifiés uniquement — les produits sans prix extrait de façon fiable n'apparaissent pas ici", conc_aucun_prix_verifie: "Aucun prix vérifié sur cette sélection", conc_moy: "moy.", conc_vs_marche: "Bestherm/Thomson vs marché", conc_vs_marche_hint: "Prix Bestherm/Thomson comparés à la moyenne des concurrents (Bestherm/Thomson exclus du calcul de cette moyenne) — uniquement où un vrai prix concurrent a pu être vérifié", conc_pas_de_comparaison: "Pas encore de prix concurrent vérifié dans la même sous-catégorie qu'un produit Bestherm/Thomson, sur cette sélection — comparaison impossible pour l'instant plutôt qu'approximative.", conc_exporter: "Exporter :", conc_nomme_date: "Nommé à la date du jour · reflète la sélection en cours (segment/sous-catégorie/marketplace)", zone_marque: "Marque", zone_produits_titre: "Produits", zone_normes: "Normes", zone_puissances: "Puissances", subnav_produit_ideal: "Produit idéal", subnav_normes_cat: "Normes & Catégories", topflop_titre: "Tops & Flops", topflop_hint: "Filtrable date + marketplace comme le reste de l'app · accessoires et pièces détachées exclus", top5_hint: "Meilleures performances sur la sélection actuelle", flop5_hint: "Performances les plus faibles sur la sélection actuelle, hors accessoires", aucune_donnee: "Aucune donnée", cycle_vie_titre: "Cycle de vie produit", cycle_vie_hint: "Compare juin-août 2026 à la même période 2025 (pas les mois précédents, pour ne pas confondre saisonnalité et vraie tendance) — respecte le filtre marketplace", panier_titre: "Souvent achetés ensemble", panier_hint: "Produits réellement achetés ensemble (même numéro de commande), 2025+2026 — donnée globale, pas encore filtrable par marketplace ou période", panier_croise_hint: "Radiateur + sèche-serviette dans la même commande — signal de rénovation salle de bain complète", panier_croise_titre: "Ventes croisées radiateur × sèche-serviette", panier_toutes_hint: "Toutes paires confondues, y compris même gamme à puissances différentes", panier_toutes_titre: "Toutes paires — top 8", prix_regulier_ideal: "Prix régulier idéal", prix_promo_ideal: "Prix promo idéal*", toutes_categories: "Toutes catégories", aucune_donnee_qte: "Aucune donnée de quantité sur cette sélection", puissances_vendues_titre: "Puissances les plus vendues", puissances_vendues_hint: "Quantité vendue par puissance, filtrable date + marketplace comme le reste de l'app", supply_titre: "Supply", supply_hint: "Construit uniquement sur des données réellement disponibles — classification ABC (2026), historique de ventes (2024-2026). Aucune donnée stock, transport ou fournisseur n'existe dans les fichiers fournis.", zone_abc: "Classification ABC — 2026", sku_classes: "SKU classés", zone_saison: "Saisonnalité — indice 2024-2025", preset_mois_courant: "Mois en cours", preset_mois_precedent: "Mois précédent", preset_annee_courante: "Année en cours", preset_annee_passee: "Année passée", preset_personnalise: "Personnalisé", yoy_variation_forte: "Variation très forte — vérifier la valeur absolue N-1, souvent une base de comparaison faible plutôt qu'une vraie tendance",
+    sum_ca_titre: "Chiffre d'affaires", sum_vs_mois_prec: "Vs mois précédent", sum_objectif_titre: "Objectif", sum_ytd_titre: "Year-to-date", sum_panier_moyen_titre: "Panier moyen", sum_repartition_marque_titre: "Répartition marque", sum_mp_leader: "Marketplace leader", sum_position: "Position", sum_evolution_bestherm: "Évolution Bestherm", sum_top5_produits: "Top 5 produits", sum_normes_titre: "Normes", sum_top_cat: "Top catégorie / sous-catégorie", sum_performance: "Performance", sum_budget_investi: "Budget investi", sum_periode_titre: "Période",
+sum_en: "en", sum_sur: "sur", sum_soit_lower: "soit", sum_vs_meme_periode_an_dernier: "vs la même période l'an dernier", sum_comparatif_n1_indispo: "comparatif N-1 indisponible", sum_objectif_annuel_realise: "de l'objectif annuel", sum_deja_realise_periode: "déjà réalisé sur la période choisie.", sum_aucun_objectif_pour: "Aucun objectif annuel défini pour", sum_depuis_1er_janvier: "depuis le 1er janvier, soit", sum_objectif_annuel_point: "de l'objectif annuel.", sum_ytd_non_dispo: "Repère YTD non disponible sans objectif défini.", sum_annee_complete_pas_detail: "année 2026 complète, pas de détail par période disponible.", sum_non_disponible: "Non disponible.", sum_du_ca_periode: "du CA sur cette période.", sum_realise_cette_periode: "de l'objectif annuel réalisé sur cette période.", sum_aucun_objectif_point: "Aucun objectif annuel défini.", sum_depuis_1er_janvier_parenthese: "depuis le 1er janvier", sum_de_objectif_parenthese: "de l'objectif).", sum_sur_cette_periode_point: "sur cette période.", sum_non_calculable: "Non calculable.", sum_ere: "ère", sum_e: "e", sum_mp_sur: "marketplace sur", sum_pour_cette_periode: "pour cette période.", sum_rang_non_calculable: "Rang non calculable.", sum_vs_an_dernier_point: "vs l'an dernier.", sum_comparatif_n1_mp_indispo: "Comparatif N-1 non disponible par marketplace.", sum_qte_non_dispo_mp: "quantité non disponible par marketplace", sum_annee_complete: "année 2026 complète", sum_aucune_donnee_produit: "Aucune donnée produit disponible.", sum_du_ca_ce: "du CA en CE,", sum_en_nf_periode: "en NF sur cette période.", sum_annee_complete_non_filtrable: "année 2026 complète, non filtrable par période.", sum_roas_de: "ROAS de", sum_sur_annee_2026: "sur l'année 2026.", sum_depenses_pour: "dépensés pour", sum_generes_cumul: "générés — cumul year-to-date 2026 (seule donnée disponible, pas de détail par mois).", sum_donnee_annuelle_complete: "Donnée annuelle 2026 complète — le filtre de date ne s'applique pas à cet onglet.", conc_top_produits: "Top produits", conc_comparatif: "Comparatif", non_identifiee: "Non identifiée", marque_non_identifiee: "Marque non identifiée", lifecycle_croissance_desc: "+20% ou plus vs même période 2025", lifecycle_declin_desc: "-20% ou moins vs même période 2025", lifecycle_declin_lbl: "Déclin", donnees_statiques: "Données statiques", forte_croissance_objectif_bas: "Forte croissance mais objectif peu atteint — objectif potentiellement à recalibrer", lifecycle_lancement_lbl: "Lancement", lifecycle_lancement_desc: "Pas de vente comparable l'an dernier", lifecycle_croissance_lbl: "Croissance", lifecycle_mature_lbl: "Mature", lifecycle_mature_desc: "Stable, entre -20% et +20%", mois_dec_court: "Déc", mois_sep_court: "Sep", mois_oct_court: "Oct", mois_nov_court: "Nov", zone_anticipation: "Anticipation — septembre à décembre 2026", anticipation_mp_titre: "Anticipation par marketplace", anticipation_mp_hint: "Même méthode que l'anticipation globale, calculée séparément par marketplace — la répartition attendue du pic n'est pas forcément celle du poids actuel", zone_manquant: "Ce qui manque pour aller plus loin", manque_stock_titre: "Stocks & approvisionnement", manque_stock_texte: "Couverture, point de commande, stock de sécurité, rupture, surstock — nécessite un export stock (disponible/réservé/bloqué) qui n'existe pas encore dans les fichiers fournis.", manque_transport_titre: "Transport & livraison", manque_transport_texte: "Coûts transporteur, délais, taux de retard/casse — nécessite un export transporteur (aucune donnée de ce type reçue).", radar_radiateurs: "Radiateurs", radar_secheserviettes: "Sèche-serviettes", axe_ceramique: "Céramique", axe_fonte: "Fonte", axe_film: "Film", axe_wifi: "WiFi", axe_vertical: "Vertical", axe_plinthe: "Plinthe", axe_soufflerie: "Soufflerie", entry_acces_restreint: "Accès restreint", entry_placeholder: "Clé d'entrée", entry_entrer: "Entrer", entry_erreur: "Clé incorrecte", gauge_objectif: "OBJECTIF 2026", summary_synthese: "Synthèse", summary_fermer: "Fermer la synthèse", zone_international: "International", est_soit: "Soit", est_a: "à", est_de_objectif_annuel: "de l'objectif annuel", pub_par_pays_hint: "Distinct de la répartition ci-dessus : ceci mesure la performance des campagnes publicitaires par pays, pas le total des ventes réelles", conf_haute: "Confiance haute", conf_moyenne: "Confiance moyenne", conf_basse: "Confiance basse", conc_ref_identifiees_sur: "référence(s) Bestherm/Thomson identifiée(s) sur", conc_produits_recenses: "produits recensés.", conc_aucune_ref_heater: "Aucune référence Bestherm/Thomson identifiée dans la collecte actuelle.", conc_ref_sur: "référence(s) Bestherm/Thomson sur", conc_produits_point: "produits.", conc_aucune_ref_cooling: "Aucune référence Bestherm/Thomson — marché non adressé sur cette marketplace pour l'instant.", conc_reference_sing: "référence", conc_reference_plur: "références", conc_produit_sing: "produit", conc_produit_plur: "produits", conc_collecte_sing: "collecté", conc_collecte_plur: "collectés",
     autres_mp: "Autres marketplaces", autres_mp_hint: "Triées par CA HT décroissant", vue_detaillee: "Vue détaillée limitée à la marketplace sélectionnée en haut de page",
     aucune_donnee_mp: "Aucune donnée pour cette marketplace",
     repartition_geo: "Répartition géographique", repartition_geo_hint: "CA HT généré par les campagnes publicitaires, par pays — pas le CA total des ventes, qui n'a pas de détail pays fiable dans nos exports",
@@ -683,6 +733,10 @@ const I18N = {
     tendance_titre: "Revenue Trend — One Curve per Year", tendance_hint: "One chart per year, same vertical scale, for a fair comparison of the curves",
     ca_ht_total_titre: "Total Revenue — all marketplaces, to date", ca_ht_total_hint: "Sum of 2026 revenue for all tracked marketplaces",
     au_rythme: "on track", top3: "Top 3", top3_hint: "The 3 marketplaces with the highest cumulative revenue in 2026", de_word: "of", nouveau: "new",
+    est_fin_annee: "Year-end estimate", objectif_non_defini_mp: "No annual target set for this marketplace", legende_reel: "Actual", legende_anticipe: "Forecast", reparti_saisonnier: "distributed by real seasonal pattern, not a flat 1/12",
+    repartition_pays_titre: "Breakdown by country", repartition_pays_hint: "Real orders by country — not an ads estimate. 2024 excluded (no country detail that year)", aucune_donnee_pays: "No country data for this selection — check that the period includes 2025 or 2026.", pub_par_pays: "Ads spend by country", depense_ads: "ads spend", conc_titre: "Competition", conc_hint: "Manually collected via web research — France. No invented price, rank or volume.", conc_position_heater: "Heater position — ", conc_position_cooling: "Cooling position — ", conc_radiateurs: "Radiators — ", conc_secheserviettes: "Towel warmers — ", conc_produits_suivis: "Tracked products", conc_produits_suivis_hint: "Current selection (segment/subcategory/marketplace)", conc_prix_moyen: "Average price", conc_prix_moyen_hint: "On products where the price could be verified", conc_fourchette_prix: "Price range", conc_fourchette_prix_hint: "Cheapest to most expensive, verified prices only", conc_en_promo: "On promotion", conc_en_promo_hint: "Products showing a discount vs reference price", conc_sources_qualite: "Sources & data quality", conc_sources_qualite_hint: "Collection reliability by subcategory and marketplace — methodology and limits specific to each source", conc_marques_visibles: "Most visible brands", conc_marques_visibles_hint: "Brands most present in the collection, all marketplaces combined (number of appearances, not real market share)", conc_aucun_produit: "No products for this selection", conc_sponsorise: "Sponsored", conc_prix_nd: "Price n/a", conc_comparatif_prix_mp: "Price comparison by marketplace", conc_comparatif_prix_mp_hint: "Verified prices only — products without a reliably extracted price don't appear here", conc_aucun_prix_verifie: "No verified price for this selection", conc_moy: "avg.", conc_vs_marche: "Bestherm/Thomson vs market", conc_vs_marche_hint: "Bestherm/Thomson prices compared to the competitor average (Bestherm/Thomson excluded from that average) — only where a real competitor price could be verified", conc_pas_de_comparaison: "No verified competitor price yet in the same subcategory as a Bestherm/Thomson product, for this selection — no comparison rather than an approximate one.", conc_exporter: "Export:", conc_nomme_date: "Named after today's date · reflects the current selection (segment/subcategory/marketplace)", zone_marque: "Brand", zone_produits_titre: "Products", zone_normes: "Standards", zone_puissances: "Wattage", subnav_produit_ideal: "Ideal product", subnav_normes_cat: "Standards & Categories", topflop_titre: "Tops & Flops", topflop_hint: "Filterable by date + marketplace like the rest of the app · accessories and spare parts excluded", top5_hint: "Best performers for the current selection", flop5_hint: "Weakest performers for the current selection, accessories excluded", aucune_donnee: "No data", cycle_vie_titre: "Product lifecycle", cycle_vie_hint: "Compares June-Aug 2026 to the same period in 2025 (not the preceding months, to avoid confusing seasonality with a real trend) — respects the marketplace filter", panier_titre: "Frequently bought together", panier_hint: "Products genuinely bought together (same order number), 2025+2026 — global data, not yet filterable by marketplace or period", panier_croise_hint: "Radiator + towel warmer in the same order — a bathroom renovation signal", panier_croise_titre: "Cross-sell: radiators × towel warmers", panier_toutes_hint: "All pairs combined, including same range at different wattages", panier_toutes_titre: "All pairs — top 8", prix_regulier_ideal: "Ideal regular price", prix_promo_ideal: "Ideal promo price*", toutes_categories: "All categories", aucune_donnee_qte: "No quantity data for this selection", puissances_vendues_titre: "Best-selling wattages", puissances_vendues_hint: "Quantity sold by wattage, filterable by date + marketplace like the rest of the app", supply_titre: "Supply", supply_hint: "Built only on genuinely available data — ABC classification (2026), sales history (2024-2026). No stock, transport or supplier data exists in the files provided.", zone_abc: "ABC classification — 2026", sku_classes: "Classified SKUs", zone_saison: "Seasonality — 2024-2025 index", preset_mois_courant: "Current month", preset_mois_precedent: "Previous month", preset_annee_courante: "Current year", preset_annee_passee: "Previous year", preset_personnalise: "Custom", yoy_variation_forte: "Very large change — check the absolute N-1 value, often a low comparison base rather than a real trend",
+    sum_ca_titre: "Revenue", sum_vs_mois_prec: "Vs previous month", sum_objectif_titre: "Target", sum_ytd_titre: "Year-to-date", sum_panier_moyen_titre: "Average order value", sum_repartition_marque_titre: "Brand split", sum_mp_leader: "Leading marketplace", sum_position: "Position", sum_evolution_bestherm: "Bestherm trend", sum_top5_produits: "Top 5 products", sum_normes_titre: "Standards", sum_top_cat: "Top category / subcategory", sum_performance: "Performance", sum_budget_investi: "Budget spent", sum_periode_titre: "Period",
+sum_en: "in", sum_sur: "for", sum_soit_lower: "i.e.", sum_vs_meme_periode_an_dernier: "vs the same period last year", sum_comparatif_n1_indispo: "N-1 comparison unavailable", sum_objectif_annuel_realise: "of the annual target", sum_deja_realise_periode: "already reached for the chosen period.", sum_aucun_objectif_pour: "No annual target set for", sum_depuis_1er_janvier: "since January 1st, i.e.", sum_objectif_annuel_point: "of the annual target.", sum_ytd_non_dispo: "YTD marker unavailable without a defined target.", sum_annee_complete_pas_detail: "full 2026, no detail available by period.", sum_non_disponible: "Not available.", sum_du_ca_periode: "of revenue for this period.", sum_realise_cette_periode: "of the annual target reached for this period.", sum_aucun_objectif_point: "No annual target defined.", sum_depuis_1er_janvier_parenthese: "since January 1st", sum_de_objectif_parenthese: "of target).", sum_sur_cette_periode_point: "for this period.", sum_non_calculable: "Not calculable.", sum_ere: "", sum_e: "", sum_mp_sur: "marketplace out of", sum_pour_cette_periode: "for this period.", sum_rang_non_calculable: "Rank not calculable.", sum_vs_an_dernier_point: "vs last year.", sum_comparatif_n1_mp_indispo: "N-1 comparison unavailable by marketplace.", sum_qte_non_dispo_mp: "quantity unavailable by marketplace", sum_annee_complete: "full 2026", sum_aucune_donnee_produit: "No product data available.", sum_du_ca_ce: "of revenue under CE,", sum_en_nf_periode: "under NF for this period.", sum_annee_complete_non_filtrable: "full 2026, not filterable by period.", sum_roas_de: "ROAS of", sum_sur_annee_2026: "for 2026.", sum_depenses_pour: "spent for", sum_generes_cumul: "generated — 2026 year-to-date total (only data available, no monthly detail).", sum_donnee_annuelle_complete: "Full 2026 data — the date filter doesn't apply to this tab.", conc_top_produits: "Top products", conc_comparatif: "Comparison", non_identifiee: "Unidentified", marque_non_identifiee: "Unidentified brand", lifecycle_croissance_desc: "+20% or more vs same period 2025", lifecycle_declin_desc: "-20% or less vs same period 2025", lifecycle_declin_lbl: "Decline", donnees_statiques: "Static data", forte_croissance_objectif_bas: "Strong growth but low target achievement — target potentially needs recalibrating", lifecycle_lancement_lbl: "Launch", lifecycle_lancement_desc: "No comparable sale last year", lifecycle_croissance_lbl: "Growth", lifecycle_mature_lbl: "Mature", lifecycle_mature_desc: "Stable, between -20% and +20%", mois_dec_court: "Dec", mois_sep_court: "Sep", mois_oct_court: "Oct", mois_nov_court: "Nov", zone_anticipation: "Forecast — September to December 2026", anticipation_mp_titre: "Forecast by marketplace", anticipation_mp_hint: "Same method as the overall forecast, computed separately per marketplace — the expected peak split isn't necessarily the current one", zone_manquant: "What's missing to go further", manque_stock_titre: "Stock & replenishment", manque_stock_texte: "Coverage, reorder point, safety stock, stockouts, overstock — requires a stock export (available/reserved/blocked) that doesn't exist yet in the files provided.", manque_transport_titre: "Shipping & delivery", manque_transport_texte: "Carrier costs, lead times, delay/damage rates — requires a carrier export (no such data received).", radar_radiateurs: "Radiators", radar_secheserviettes: "Towel warmers", axe_ceramique: "Ceramic", axe_fonte: "Cast iron", axe_film: "Film", axe_wifi: "WiFi", axe_vertical: "Vertical", axe_plinthe: "Baseboard", axe_soufflerie: "Fan-assist", entry_acces_restreint: "Restricted access", entry_placeholder: "Access key", entry_entrer: "Enter", entry_erreur: "Incorrect key", gauge_objectif: "2026 TARGET", summary_synthese: "Summary", summary_fermer: "Close summary", zone_international: "International", est_soit: "That's", est_a: "to", est_de_objectif_annuel: "of the annual target", pub_par_pays_hint: "Distinct from the breakdown above: this measures ad campaign performance by country, not total real sales", conf_haute: "High confidence", conf_moyenne: "Medium confidence", conf_basse: "Low confidence", conc_ref_identifiees_sur: "Bestherm/Thomson reference(s) identified out of", conc_produits_recenses: "products tracked.", conc_aucune_ref_heater: "No Bestherm/Thomson reference identified in the current collection.", conc_ref_sur: "Bestherm/Thomson reference(s) out of", conc_produits_point: "products.", conc_aucune_ref_cooling: "No Bestherm/Thomson reference — market not yet addressed on this marketplace.", conc_reference_sing: "reference", conc_reference_plur: "references", conc_produit_sing: "product", conc_produit_plur: "products", conc_collecte_sing: "collected", conc_collecte_plur: "collected",
     autres_mp: "Other Marketplaces", autres_mp_hint: "Sorted by revenue, descending", vue_detaillee: "Detailed view limited to the marketplace selected at the top of the page",
     aucune_donnee_mp: "No data for this marketplace",
     repartition_geo: "Geographic Breakdown", repartition_geo_hint: "Revenue generated by ad campaigns, by country — not total sales revenue, which has no reliable country detail in our exports",
@@ -732,6 +786,10 @@ const I18N = {
     tendance_titre: "营业额趋势 — 按年度分列", tendance_hint: "每年一张图，纵轴比例相同，便于公平比较各年曲线",
     ca_ht_total_titre: "不含税总营业额 — 所有平台，截至目前", ca_ht_total_hint: "所有跟踪平台2026年营业额总和",
     au_rythme: "符合预期进度", top3: "前三名", top3_hint: "2026年累计营业额最高的3个平台", de_word: "占", nouveau: "新",
+    est_fin_annee: "年底预估", objectif_non_defini_mp: "该平台未设定年度目标", legende_reel: "实际", legende_anticipe: "预测", reparti_saisonnier: "按真实季节性模式分配，非均匀的1/12",
+    repartition_pays_titre: "按国家分布", repartition_pays_hint: "真实订单数据，非广告估算 · 不含2024年（该年无国家明细）", aucune_donnee_pays: "此筛选条件下无国家数据 — 请确认时间范围包含2025或2026年", pub_par_pays: "按国家广告支出", depense_ads: "广告支出", conc_titre: "竞争分析", conc_hint: "通过网络调研人工收集 — 法国。不虚构任何价格、排名或销量。", conc_position_heater: "取暖器地位 — ", conc_position_cooling: "制冷产品地位 — ", conc_radiateurs: "散热器 — ", conc_secheserviettes: "毛巾架 — ", conc_produits_suivis: "已追踪产品", conc_produits_suivis_hint: "当前筛选（细分/子类别/平台）", conc_prix_moyen: "平均价格", conc_prix_moyen_hint: "仅统计价格已核实的产品", conc_fourchette_prix: "价格区间", conc_fourchette_prix_hint: "从最低到最高，仅核实价格", conc_en_promo: "促销中", conc_en_promo_hint: "相对参考价有折扣的产品", conc_sources_qualite: "数据来源与质量", conc_sources_qualite_hint: "按子类别和平台划分的采集可靠性 — 每个来源的方法与局限性", conc_marques_visibles: "最常见品牌", conc_marques_visibles_hint: "采集数据中出现最多的品牌，涵盖所有平台（出现次数，非真实市场份额）", conc_aucun_produit: "此筛选条件下无产品", conc_sponsorise: "推广", conc_prix_nd: "价格未知", conc_comparatif_prix_mp: "按平台价格对比", conc_comparatif_prix_mp_hint: "仅核实价格 — 未能可靠提取价格的产品不在此显示", conc_aucun_prix_verifie: "此筛选条件下无核实价格", conc_moy: "均", conc_vs_marche: "Bestherm/Thomson 对比市场", conc_vs_marche_hint: "Bestherm/Thomson价格与竞品平均价对比（该平均价不含Bestherm/Thomson）— 仅限已核实竞品真实价格的情况", conc_pas_de_comparaison: "此筛选条件下，与Bestherm/Thomson产品同子类别尚无已核实的竞品价格 — 暂不比较，而非给出近似值。", conc_exporter: "导出：", conc_nomme_date: "以当天日期命名 · 反映当前筛选（细分/子类别/平台）", zone_marque: "品牌", zone_produits_titre: "产品", zone_normes: "认证标准", zone_puissances: "功率", subnav_produit_ideal: "理想产品", subnav_normes_cat: "认证与品类", topflop_titre: "排行榜", topflop_hint: "可按日期+平台筛选，与应用其余部分一致 · 不含配件与零件", top5_hint: "当前筛选下表现最好的产品", flop5_hint: "当前筛选下表现最弱的产品（不含配件）", aucune_donnee: "暂无数据", cycle_vie_titre: "产品生命周期", cycle_vie_hint: "对比2026年6-8月与2025年同期（非紧邻月份，以避免将季节性误判为真实趋势）— 遵循平台筛选", panier_titre: "常一起购买", panier_hint: "同一订单号下真实一起购买的产品，2025+2026年 — 全局数据，暂不支持按平台或时间筛选", panier_croise_hint: "同一订单中的散热器+毛巾架 — 卫浴翻新信号", panier_croise_titre: "交叉销售：散热器×毛巾架", panier_toutes_hint: "包含所有组合，含同系列不同功率", panier_toutes_titre: "所有组合 — 前8名", prix_regulier_ideal: "理想常规价", prix_promo_ideal: "理想促销价*", toutes_categories: "所有品类", aucune_donnee_qte: "此筛选条件下无数量数据", puissances_vendues_titre: "最畅销功率", puissances_vendues_hint: "按功率统计的销售数量，可按日期+平台筛选，与应用其余部分一致", supply_titre: "供应链", supply_hint: "仅基于真实可用数据构建 — ABC分类（2026年）、销售历史（2024-2026年）。所提供文件中不存在库存、物流或供应商数据。", zone_abc: "ABC分类 — 2026年", sku_classes: "已分类SKU", zone_saison: "季节性 — 2024-2025年指数", preset_mois_courant: "本月", preset_mois_precedent: "上月", preset_annee_courante: "今年", preset_annee_passee: "去年", preset_personnalise: "自定义", yoy_variation_forte: "变化幅度极大 — 请核实去年同期绝对值，通常是基数过低而非真实趋势",
+    sum_ca_titre: "营业额", sum_vs_mois_prec: "对比上月", sum_objectif_titre: "目标", sum_ytd_titre: "年初至今", sum_panier_moyen_titre: "平均客单价", sum_repartition_marque_titre: "品牌分布", sum_mp_leader: "领先平台", sum_position: "排名", sum_evolution_bestherm: "Bestherm趋势", sum_top5_produits: "热销产品前5", sum_normes_titre: "认证标准", sum_top_cat: "热门品类/子品类", sum_performance: "效果表现", sum_budget_investi: "已投入预算", sum_periode_titre: "周期",
+sum_en: "于", sum_sur: "，共", sum_soit_lower: "即", sum_vs_meme_periode_an_dernier: "对比去年同期", sum_comparatif_n1_indispo: "去年同期数据不可用", sum_objectif_annuel_realise: "年度目标", sum_deja_realise_periode: "已在所选周期内达成。", sum_aucun_objectif_pour: "未为以下对象设定年度目标：", sum_depuis_1er_janvier: "自1月1日起，即", sum_objectif_annuel_point: "年度目标。", sum_ytd_non_dispo: "未设定目标，无法显示年初至今指标。", sum_annee_complete_pas_detail: "完整2026年数据，暂无按周期细分。", sum_non_disponible: "暂无数据。", sum_du_ca_periode: "本周期营业额。", sum_realise_cette_periode: "本周期已达成的年度目标。", sum_aucun_objectif_point: "未设定年度目标。", sum_depuis_1er_janvier_parenthese: "自1月1日起", sum_de_objectif_parenthese: "目标）。", sum_sur_cette_periode_point: "本周期。", sum_non_calculable: "无法计算。", sum_ere: "", sum_e: "", sum_mp_sur: "平台，共", sum_pour_cette_periode: "（本周期）。", sum_rang_non_calculable: "排名无法计算。", sum_vs_an_dernier_point: "对比去年。", sum_comparatif_n1_mp_indispo: "按平台的去年同期数据不可用。", sum_qte_non_dispo_mp: "按平台的数量数据不可用", sum_annee_complete: "完整2026年", sum_aucune_donnee_produit: "暂无产品数据。", sum_du_ca_ce: "营业额为CE认证，", sum_en_nf_periode: "为NF认证（本周期）。", sum_annee_complete_non_filtrable: "完整2026年数据，不可按周期筛选。", sum_roas_de: "ROAS为", sum_sur_annee_2026: "（2026年）。", sum_depenses_pour: "已花费，带来", sum_generes_cumul: "营业额 — 2026年初至今累计（唯一可用数据，无月度细分）。", sum_donnee_annuelle_complete: "完整2026年年度数据 — 日期筛选不适用于此标签页。", conc_top_produits: "热销产品", conc_comparatif: "对比", non_identifiee: "未识别", marque_non_identifiee: "未识别品牌", lifecycle_croissance_desc: "对比2025年同期+20%或以上", lifecycle_declin_desc: "对比2025年同期-20%或以下", lifecycle_declin_lbl: "下滑", donnees_statiques: "静态数据", forte_croissance_objectif_bas: "增长强劲但目标达成率低 — 目标可能需要重新校准", lifecycle_lancement_lbl: "新品期", lifecycle_lancement_desc: "去年同期无可比销售", lifecycle_croissance_lbl: "增长期", lifecycle_mature_lbl: "成熟期", lifecycle_mature_desc: "稳定，介于-20%至+20%之间", mois_dec_court: "12月", mois_sep_court: "9月", mois_oct_court: "10月", mois_nov_court: "11月", zone_anticipation: "预测 — 2026年9月至12月", anticipation_mp_titre: "按平台预测", anticipation_mp_hint: "与总体预测同一方法，按平台单独计算 — 预期高峰的分布未必与当前分布相同", zone_manquant: "进一步分析所缺内容", manque_stock_titre: "库存与补货", manque_stock_texte: "覆盖率、再订货点、安全库存、缺货、超储 — 需要库存导出数据（可用/预留/锁定），目前所提供文件中尚不存在。", manque_transport_titre: "物流与配送", manque_transport_texte: "承运商成本、时效、延误/破损率 — 需要承运商数据导出（未收到此类数据）。", radar_radiateurs: "散热器", radar_secheserviettes: "毛巾架", axe_ceramique: "陶瓷", axe_fonte: "铸铁", axe_film: "发热膜", axe_wifi: "WiFi", axe_vertical: "立式", axe_plinthe: "踢脚线", axe_soufflerie: "带风扇", entry_acces_restreint: "访问受限", entry_placeholder: "访问密钥", entry_entrer: "进入", entry_erreur: "密钥错误", gauge_objectif: "2026年目标", summary_synthese: "摘要", summary_fermer: "关闭摘要", zone_international: "国际", est_soit: "即", est_a: "至", est_de_objectif_annuel: "年度目标", pub_par_pays_hint: "与上方分布不同：此处衡量广告投放表现，非真实销售总额", conf_haute: "高可信度", conf_moyenne: "中等可信度", conf_basse: "低可信度", conc_ref_identifiees_sur: "个Bestherm/Thomson参考产品，已识别，共", conc_produits_recenses: "个已统计产品。", conc_aucune_ref_heater: "当前采集数据中未识别到Bestherm/Thomson产品。", conc_ref_sur: "个Bestherm/Thomson参考产品，共", conc_produits_point: "个产品。", conc_aucune_ref_cooling: "未发现Bestherm/Thomson产品 — 该平台暂未布局此市场。", conc_reference_sing: "个产品", conc_reference_plur: "个产品", conc_produit_sing: "个产品", conc_produit_plur: "个产品", conc_collecte_sing: "已采集", conc_collecte_plur: "已采集",
     autres_mp: "其他平台", autres_mp_hint: "按营业额降序排列", vue_detaillee: "仅显示页面顶部所选平台的详细信息",
     aucune_donnee_mp: "该平台暂无数据",
     repartition_geo: "地理分布", repartition_geo_hint: "广告活动产生的营业额，按国家分列 — 并非总销售额，销售数据中没有可靠的国家明细",
@@ -766,6 +824,11 @@ const I18N = {
     tous_montants_ht: "所有金额均为不含税价 · 2024–2026年真实数据",
     erreur_titre: "出现了一些问题", erreur_msg: "应用程序遇到意外错误，刷新页面通常可以解决此问题。", recharger: "刷新页面",
     langue: "语言",
+  },
+  es: {
+    nav_apercu: "Resumen", nav_marketplaces: "Marketplaces", nav_marques: "Marcas y Productos", nav_prix: "Seguimiento de Precios", nav_ads: "Campañas Ads", nav_concurrence: "Competencia", nav_supply: "Supply", pilotage: "Panel de control", marketplace_label: "Marketplace:", toutes_mp: "Todas las marketplaces", mode_presentation: "Modo presentación", reset: "reiniciar", analyser_periode: "Analizar el período:", vs_an_dernier: "el año pasado", ht_suffix: "Todos los importes sin IVA", ca_cumule: "Facturación HT acumulada YTD", ca_cumule_hint: "Suma de la facturación HT de todos los pedidos desde el 1 de enero de 2026", toutes_marketplaces_suffix: "todas las marketplaces", objectif_2026: "de", objectif_non_defini: "objetivo no definido", part_objectif_hint: "Parte del objetivo", deja_realisee: "ya alcanzado, desde el 1 de enero de 2026", panier_moyen: "Ticket medio HT", panier_moyen_hint: "Facturación HT total ÷ número de pedidos, 2026", unites_vendues: "unidades vendidas", meilleure_vente: "Mejor venta 2026", meilleure_vente_hint: "Producto con mayor facturación HT acumulada desde enero", vs_meilleure_n1: "Vs mejor venta N-1", vs_meilleure_n1_hint: "Mismo producto, facturación HT comparada con la misma ventana 2025", en_2025: "en 2025", non_comparable: "no comparable", indispo_par_mp: "no disponible por marketplace", detail_non_conserve: "detalle por marketplace no conservado para 2025", tendance_titre: "Tendencia de facturación HT — una curva por año", tendance_hint: "Un gráfico por año, misma escala vertical para comparar las curvas honestamente", ca_ht_total_titre: "Facturación HT total — todas las marketplaces, a la fecha", ca_ht_total_hint: "Suma de la facturación HT 2026 de todas las marketplaces monitorizadas", au_rythme: "según lo previsto", top3: "Top 3", top3_hint: "Las 3 marketplaces con mayor facturación HT acumulada 2026", de_word: "de", nouveau: "nuevo", est_fin_annee: "Previsión fin de año", objectif_non_defini_mp: "Objetivo anual no definido para esta marketplace", legende_reel: "Real", legende_anticipe: "Previsto", reparti_saisonnier: "repartido según el patrón estacional real, no un 1/12 uniforme", repartition_pays_titre: "Reparto por país", repartition_pays_hint: "Pedidos reales por país — no una estimación de ads. 2024 excluido (sin detalle de país ese año)", aucune_donnee_pays: "Sin datos de país para esta selección — verifica que el período incluya 2025 o 2026.", pub_par_pays: "Publicidad por país", depense_ads: "gasto en ads", conc_titre: "Competencia", conc_hint: "Datos recopilados manualmente mediante búsqueda web — Francia. Ningún precio, ranking o volumen inventado.", conc_position_heater: "Posición Heater — ", conc_position_cooling: "Posición Cooling — ", conc_radiateurs: "Radiadores — ", conc_secheserviettes: "Toalleros — ", conc_produits_suivis: "Productos monitorizados", conc_produits_suivis_hint: "Selección actual (segmento/subcategoría/marketplace)", conc_prix_moyen: "Precio medio", conc_prix_moyen_hint: "Sobre los productos cuyo precio pudo verificarse", conc_fourchette_prix: "Rango de precios", conc_fourchette_prix_hint: "Del más barato al más caro, solo precios verificados", conc_en_promo: "En promoción", conc_en_promo_hint: "Productos que muestran un descuento vs precio de referencia", conc_sources_qualite: "Fuentes y calidad", conc_sources_qualite_hint: "Fiabilidad de la recopilación por subcategoría y marketplace — metodología y límites propios de cada fuente", conc_marques_visibles: "Marcas más visibles", conc_marques_visibles_hint: "Marcas más presentes en la recopilación, todas las marketplaces combinadas (número de apariciones, no cuota de mercado real)", conc_aucun_produit: "Ningún producto para esta selección", conc_sponsorise: "Patrocinado", conc_prix_nd: "Precio n/d", conc_comparatif_prix_mp: "Comparativa de precios por marketplace", conc_comparatif_prix_mp_hint: "Solo precios verificados — los productos sin un precio extraído de forma fiable no aparecen aquí", conc_aucun_prix_verifie: "Ningún precio verificado para esta selección", conc_moy: "prom.", conc_vs_marche: "Bestherm/Thomson vs mercado", conc_vs_marche_hint: "Precios Bestherm/Thomson comparados con la media de los competidores (Bestherm/Thomson excluidos del cálculo de esa media) — solo donde se pudo verificar un precio real de la competencia", conc_pas_de_comparaison: "Aún no hay precio de competidor verificado en la misma subcategoría que un producto Bestherm/Thomson, para esta selección — comparación imposible por ahora en lugar de aproximada.", conc_exporter: "Exportar:", conc_nomme_date: "Nombrado con la fecha del día · refleja la selección actual (segmento/subcategoría/marketplace)", zone_marque: "Marca", zone_produits_titre: "Productos", zone_normes: "Normas", zone_puissances: "Potencias", subnav_produit_ideal: "Producto ideal", subnav_normes_cat: "Normas y Categorías", topflop_titre: "Tops y Flops", topflop_hint: "Filtrable por fecha + marketplace como el resto de la app · accesorios y piezas de repuesto excluidos", top5_hint: "Mejores resultados en la selección actual", flop5_hint: "Peores resultados en la selección actual, accesorios excluidos", aucune_donnee: "Sin datos", cycle_vie_titre: "Ciclo de vida del producto", cycle_vie_hint: "Compara junio-agosto 2026 con el mismo período de 2025 (no los meses anteriores, para no confundir estacionalidad con tendencia real) — respeta el filtro de marketplace", panier_titre: "Comprados frecuentemente juntos", panier_hint: "Productos realmente comprados juntos (mismo número de pedido), 2025+2026 — dato global, aún no filtrable por marketplace o período", panier_croise_hint: "Radiador + toallero en el mismo pedido — señal de reforma completa de baño", panier_croise_titre: "Ventas cruzadas radiador × toallero", panier_toutes_hint: "Todos los pares combinados, incluida la misma gama en distintas potencias", panier_toutes_titre: "Todos los pares — top 8", prix_regulier_ideal: "Precio regular ideal", prix_promo_ideal: "Precio promo ideal*", toutes_categories: "Todas las categorías", aucune_donnee_qte: "Sin datos de cantidad para esta selección", puissances_vendues_titre: "Potencias más vendidas", puissances_vendues_hint: "Cantidad vendida por potencia, filtrable por fecha + marketplace como el resto de la app", supply_titre: "Supply", supply_hint: "Construido solo con datos realmente disponibles — clasificación ABC (2026), histórico de ventas (2024-2026). No existe ningún dato de stock, transporte o proveedor en los archivos proporcionados.", zone_abc: "Clasificación ABC — 2026", sku_classes: "SKU clasificados", zone_saison: "Estacionalidad — índice 2024-2025", preset_mois_courant: "Mes en curso", preset_mois_precedent: "Mes anterior", preset_annee_courante: "Año en curso", preset_annee_passee: "Año anterior", preset_personnalise: "Personalizado", yoy_variation_forte: "Variación muy fuerte — verifica el valor absoluto N-1, a menudo una base de comparación baja más que una tendencia real",
+    sum_ca_titre: "Facturación", sum_vs_mois_prec: "Vs mes anterior", sum_objectif_titre: "Objetivo", sum_ytd_titre: "Year-to-date", sum_panier_moyen_titre: "Ticket medio", sum_repartition_marque_titre: "Reparto por marca", sum_mp_leader: "Marketplace líder", sum_position: "Posición", sum_evolution_bestherm: "Evolución Bestherm", sum_top5_produits: "Top 5 productos", sum_normes_titre: "Normas", sum_top_cat: "Categoría / subcategoría top", sum_performance: "Rendimiento", sum_budget_investi: "Presupuesto invertido", sum_periode_titre: "Período",
+sum_en: "en", sum_sur: "en", sum_soit_lower: "es decir", sum_vs_meme_periode_an_dernier: "vs el mismo período del año pasado", sum_comparatif_n1_indispo: "comparativa N-1 no disponible", sum_objectif_annuel_realise: "del objetivo anual", sum_deja_realise_periode: "ya alcanzado para el período elegido.", sum_aucun_objectif_pour: "Sin objetivo anual definido para", sum_depuis_1er_janvier: "desde el 1 de enero, es decir", sum_objectif_annuel_point: "del objetivo anual.", sum_ytd_non_dispo: "Indicador YTD no disponible sin objetivo definido.", sum_annee_complete_pas_detail: "año 2026 completo, sin detalle disponible por período.", sum_non_disponible: "No disponible.", sum_du_ca_periode: "de la facturación en este período.", sum_realise_cette_periode: "del objetivo anual alcanzado en este período.", sum_aucun_objectif_point: "Sin objetivo anual definido.", sum_depuis_1er_janvier_parenthese: "desde el 1 de enero", sum_de_objectif_parenthese: "del objetivo).", sum_sur_cette_periode_point: "en este período.", sum_non_calculable: "No calculable.", sum_ere: "ª", sum_e: "ª", sum_mp_sur: "marketplace de", sum_pour_cette_periode: "para este período.", sum_rang_non_calculable: "Puesto no calculable.", sum_vs_an_dernier_point: "vs el año pasado.", sum_comparatif_n1_mp_indispo: "Comparativa N-1 no disponible por marketplace.", sum_qte_non_dispo_mp: "cantidad no disponible por marketplace", sum_annee_complete: "año 2026 completo", sum_aucune_donnee_produit: "Sin datos de producto disponibles.", sum_du_ca_ce: "de la facturación en CE,", sum_en_nf_periode: "en NF en este período.", sum_annee_complete_non_filtrable: "año 2026 completo, no filtrable por período.", sum_roas_de: "ROAS de", sum_sur_annee_2026: "en el año 2026.", sum_depenses_pour: "gastados para", sum_generes_cumul: "generados — total year-to-date 2026 (único dato disponible, sin detalle mensual).", sum_donnee_annuelle_complete: "Dato anual 2026 completo — el filtro de fecha no se aplica a esta pestaña.", conc_top_produits: "Productos top", conc_comparatif: "Comparativa", non_identifiee: "No identificada", marque_non_identifiee: "Marca no identificada", lifecycle_croissance_desc: "+20% o más vs mismo período 2025", lifecycle_declin_desc: "-20% o menos vs mismo período 2025", lifecycle_declin_lbl: "Declive", donnees_statiques: "Datos estáticos", forte_croissance_objectif_bas: "Fuerte crecimiento pero objetivo poco alcanzado — objetivo posiblemente a recalibrar", lifecycle_lancement_lbl: "Lanzamiento", lifecycle_lancement_desc: "Sin venta comparable el año pasado", lifecycle_croissance_lbl: "Crecimiento", lifecycle_mature_lbl: "Maduro", lifecycle_mature_desc: "Estable, entre -20% y +20%", mois_dec_court: "Dic", mois_sep_court: "Sep", mois_oct_court: "Oct", mois_nov_court: "Nov", zone_anticipation: "Previsión — septiembre a diciembre 2026", anticipation_mp_titre: "Previsión por marketplace", anticipation_mp_hint: "Mismo método que la previsión global, calculado por separado por marketplace — el reparto esperado del pico no es necesariamente el actual", zone_manquant: "Qué falta para ir más lejos", manque_stock_titre: "Stock y aprovisionamiento", manque_stock_texte: "Cobertura, punto de pedido, stock de seguridad, roturas, exceso de stock — requiere una exportación de stock (disponible/reservado/bloqueado) que aún no existe en los archivos proporcionados.", manque_transport_titre: "Transporte y entrega", manque_transport_texte: "Costes de transporte, plazos, tasas de retraso/daños — requiere una exportación del transportista (no se recibió este tipo de dato).", radar_radiateurs: "Radiadores", radar_secheserviettes: "Toalleros", axe_ceramique: "Cerámica", axe_fonte: "Fundición", axe_film: "Film", axe_wifi: "WiFi", axe_vertical: "Vertical", axe_plinthe: "Rodapié", axe_soufflerie: "Con ventilador", entry_acces_restreint: "Acceso restringido", entry_placeholder: "Clave de acceso", entry_entrer: "Entrar", entry_erreur: "Clave incorrecta", gauge_objectif: "OBJETIVO 2026", summary_synthese: "Resumen", summary_fermer: "Cerrar el resumen", zone_international: "Internacional", est_soit: "Es decir", est_a: "a", est_de_objectif_annuel: "del objetivo anual", pub_par_pays_hint: "Distinto del reparto anterior: esto mide el rendimiento de las campañas publicitarias por país, no el total de ventas reales", conf_haute: "Confianza alta", conf_moyenne: "Confianza media", conf_basse: "Confianza baja", conc_ref_identifiees_sur: "referencia(s) Bestherm/Thomson identificada(s) de", conc_produits_recenses: "productos registrados.", conc_aucune_ref_heater: "Ninguna referencia Bestherm/Thomson identificada en la recopilación actual.", conc_ref_sur: "referencia(s) Bestherm/Thomson de", conc_produits_point: "productos.", conc_aucune_ref_cooling: "Ninguna referencia Bestherm/Thomson — mercado aún no abordado en esta marketplace.", conc_reference_sing: "referencia", conc_reference_plur: "referencias", conc_produit_sing: "producto", conc_produit_plur: "productos", conc_collecte_sing: "recopilado", conc_collecte_plur: "recopilados", autres_mp: "Otras marketplaces", autres_mp_hint: "Ordenadas por facturación HT decreciente", vue_detaillee: "Vista detallada limitada a la marketplace seleccionada arriba", aucune_donnee_mp: "Sin datos para esta marketplace", repartition_geo: "Reparto geográfico", repartition_geo_hint: "Facturación HT generada por las campañas publicitarias, por país — no la facturación total de ventas, que no tiene detalle de país fiable en nuestras exportaciones", filtrer_par_mp: "Filtrar por marketplace:", detail_mensuel_indispo: "Solo 2026 — sin detalle mensual fiable disponible", positions_approx: "Posiciones aproximadas (no una proyección geográfica real) · escala no lineal para mantener visibles los países pequeños", detail_pays: "Detalle por país", detail_pays_hint: "Siempre las 14 marketplaces, acumulado completo 2026", repartition_marque: "Reparto de la facturación HT 2026 por marca", repartition_marque_hint: "Parte de cada marca en la facturación HT acumulada 2026", bestherm_vs_n1: "Bestherm vs N-1", thomson_hint: "Thomson: 0€ en esta ventana en 2025 — marca aún no comercializada en el primer semestre de 2025", ca_mensuel_marque: "Facturación HT mensual por marca", ca_mensuel_marque_hint: "Facturación HT por mes natural, solo año 2026", marque_reconstituee: "Marca reconstruida por referencia de producto sobre el histórico — cobertura 2026:", top_produits: "Productos top", top_produits_hint: "Los 3 productos con mayor facturación HT acumulada, período comparable vs N-1 (1 ene-18 jul)", qte_nd_mp: "cant. n/d por mp", nd: "n/d", reste_top15: "Resto del Top 15", reste_top15_hint: "Puesto 4 a 15", ca_mois_top6: "Facturación HT por mes — Top 6 productos, 2026", ca_mois_top6_hint: "Los 6 productos con mayor facturación HT acumulada · intensidad = facturación HT del mes", repartition_norme: "Reparto por norma (NF / CE)", repartition_norme_hint: "Parte de la facturación HT por norma de producto, mes a mes — año seleccionado con el filtro de abajo", evolution_mensuelle: "Evolución mensual", evolution_mensuelle_hint: "% de la facturación HT del mes según cada norma", repartition_categorie: "Reparto por categoría", repartition_categorie_hint: "% de la facturación HT 2026 por categoría y subcategoría — elige una marketplace para ver su propio reparto", rattache_catalogue: "% de la facturación HT vinculada a una categoría vía el catálogo de productos", categories: "Categorías", sous_categories: "Subcategorías", sous_categories_hint: "Columna «Subcategoría» del catálogo (ej. Cerámica gama básica, Cerámica + wifi…) — no las gamas de producto", suivi_prix: "Seguimiento de precios", suivi_prix_hint: "Precio de venta medio HT (facturación HT ÷ cantidad) por producto, marketplace y mes — conjunto de datos completo", rechercher_produit: "Buscar un producto…", resultat: "resultado", resultats: "resultados", affine_recherche: "Se muestran los primeros 40, afina tu búsqueda para ver el resto", non_dispo_2024: "2024 no disponible (sin detalle de marketplace en esta exportación)", aucun_resultat: "Sin resultados — prueba otro término de búsqueda", produit_col: "Producto", marketplace_col: "Marketplace", prix_mode: "Precio", qte_mode: "Cantidad", depense_totale: "Gasto total HT", depense_totale_hint: "Suma de los presupuestos ads consumidos, acumulado 2026", ca_genere_ht: "Facturación generada HT", ca_genere_ht_hint: "Facturación HT atribuida a las campañas ads, acumulado 2026", roas_pondere: "ROAS medio ponderado", roas_pondere_hint: "Facturación generada ÷ gasto, todas las marketplaces combinadas", budget_pub_mp: "Presupuesto publicitario por marketplace", budget_pub_mp_hint: "Presupuesto anual, gasto comprometido y saldo restante por marketplace — indicador circular para una lectura inmediata", depense_lbl: "Gastado", budget_lbl: "Presupuesto", restant_lbl: "Restante", top3_ads: "Top 3 por facturación generada", top3_ads_hint: "Las 3 marketplaces con mayor facturación generada por ads, acumulado 2026", a_surveiller: "A vigilar", a_surveiller_hint: "Gasto en ads cuyo retorno (ROAS) es inferior a 3x — umbral de alerta", perte_nette: "gasto superior a la facturación generada · por cada 100€ invertidos, ACOS de", reste_mp_ads: "Resto de marketplaces", reste_mp_ads_hint: "Ordenadas por facturación generada decreciente · barra = % del presupuesto anual ya consumido", pas_budget_n1: "Sin presupuesto ads N-1 proporcionado — comparativa interanual no disponible para este apartado", tous_montants_ht: "Todos los importes sin IVA · datos reales 2024–2026", erreur_titre: "Se produjo un problema", erreur_msg: "La aplicación encontró un error inesperado. Recargar la página normalmente resuelve el problema.", recharger: "Recargar", langue: "Idioma",
   },
 };
 
@@ -825,6 +888,28 @@ const PAYS_OBJECTIF = {"France":12800000.0,"Royaume-Uni":700000.0,"Belgique":560
 // BASKET_PAIRS — paires de produits réellement achetés ensemble (même numéro
 // de commande), 2025+2026, triées par fréquence. [produitA, produitB, nb_fois].
 const BASKET_PAIRS = [["ARIA 1000W","ARIA 1500W",2123],["ARIA 1000W","ARIA 2000W",1290],["ARIA 1500W","ARIA 2000W",1000],["NESSA CONNECT 1000W","NESSA CONNECT 1500W",376],["NESSA CONNECT 1000W","NESSA CONNECT 2000W",352],["NESSA CONNECT 1500W","NESSA CONNECT 2000W",305],["ARIA 1000W","ARIA BLANC 500W",283],["ILLO 1000W","ILLO 1500W",231],["ALBA 1000W","ALBA 1500W",213],["FREYA 1000W","FREYA 1500W",203],["LESSO 1000W","LESSO 1500W",202],["ARIA 1000W","HESTIA BLANC 500W",200],["TANIN 1000W","TANIN 1500W",199],["ILLO 1000W","ILLO 2000W",175],["NEMESIS 1000W","NEMESIS 1500W",171],["MOTU 1000W","MOTU 1500W",166],["ILLO 1500W","ILLO 2000W",157],["ARIA 1500W","ARIA BLANC 500W",157],["NEMESIS 1000W","NEMESIS 2000W",156],["ARIA 1000W NOIR","ARIA 1500W NOIR",154],["LESSO 1000W","LESSO 2000W",150],["MOTU 1500W","MOTU 2000W",147],["MOTU 1000W","MOTU 2000W",146],["FREYA 1500W","FREYA 2000W",145],["ARIA 1000W NOIR","ARIA 2000W NOIR",145],["TANIN 1000W","TANIN 2000W",139],["LESSO 1500W","LESSO 2000W",138],["MOLY BLANC 1000W","MOLY BLANC 1500W",137],["ARIA 1500W","HESTIA BLANC 500W",136],["ATLAS 1500W","ATLAS 2000W",135],["ALBA 1500W","ALBA 2000W",132],["FREYA 1000W","FREYA 2000W",126],["ALBA 1000W","ALBA 2000W",126],["OVEO 1000W","OVEO 1500W",114],["ARIA 1500W NOIR","ARIA 2000W NOIR",111],["TANIN 1500W","TANIN 2000W",111],["ARIA 2000W","HESTIA BLANC 500W",103],["MOLY BLANC 1000W","MOLY BLANC 2000W",97],["ATLAS 1000W","ATLAS 1500W",96],["BIA 1000W","BIA 1500W",94],["DIANE 1000W","DIANE 1500W",93],["NEMESIS 1500W","NEMESIS 2000W",90],["MILLA BLANC 1000W","MILLA BLANC 1500W",90],["ARIA 1000W","ARIA 1000W NOIR",89],["MOLY BLANC 1500W","MOLY BLANC 2000W",89],["ARIA 1500W","ARIA VERTICAL 1500W",85],["OVEO 1000W","OVEO 2000W",84],["MILLA BLANC 1000W","MILLA BLANC 2000W",76],["ARIA 1000W","ARIA VERTICAL 1500W",76],["MILLA BLANC 1500W","MILLA BLANC 2000W",76],["ALMEA 1000W","ALMEA 1500W",75],["ALMEA 1500W","ALMEA 2000W",75],["OVEO 1500W","OVEO 2000W",74],["ARIA 2000W","ARIA BLANC 500W",73],["ARIA 1000W","HESTIA 500+1000W",67],["DIANE 1000W","DIANE 2000W",63],["BIA 1000W","BIA 2000W",62],["ARIA 1500W","HESTIA 500+1000W",60],["ARIA 1000W NOIR","ARIA NOIR 500W",60],["ATLAS 1000W","ATLAS 2000W",57]];
+
+// CAT_I18N — traduction des noms de catégories/sous-catégories qui viennent
+// directement des données (category_by_mp, COMPETITION_DATA), pas de l'UI.
+// Ces noms français restent la clé de correspondance interne (filtres, matching) ;
+// seul l'AFFICHAGE passe par translateCat() ci-dessous.
+const CAT_I18N = {"1er prix Céramique":{"en":"Entry-level ceramic","zh":"入门级陶瓷款","es":"Cerámica gama básica"},"1er prix Déshumidificateur":{"en":"Entry-level dehumidifier","zh":"入门级除湿机","es":"Deshumidificador gama básica"},"1er prix format plinthe":{"en":"Entry-level baseboard","zh":"入门级踢脚线款","es":"Rodapié gama básica"},"1er prix sèche-seviettes":{"en":"Entry-level towel warmer","zh":"入门级毛巾架","es":"Toallero gama básica"},"1er prix vertical":{"en":"Entry-level vertical","zh":"入门级立式款","es":"Vertical gama básica"},"2e prix Céramique":{"en":"Mid-range ceramic","zh":"中端陶瓷款","es":"Cerámica gama media"},"3e prix Céramique":{"en":"Premium ceramic","zh":"高端陶瓷款","es":"Cerámica gama alta"},"Climatisation":{"en":"Air conditioning","zh":"空调","es":"Aire acondicionado"},"Céramique  + PIR":{"en":"Ceramic + PIR sensor","zh":"陶瓷+人体感应","es":"Cerámica + sensor PIR"},"Céramique + Film":{"en":"Ceramic + film","zh":"陶瓷+发热膜","es":"Cerámica + film"},"Céramique + P&P":{"en":"Ceramic + plug & play","zh":"陶瓷+即插即用","es":"Cerámica + plug & play"},"Céramique + film + p&p":{"en":"Ceramic + film + plug & play","zh":"陶瓷+发热膜+即插即用","es":"Cerámica + film + plug & play"},"Céramique + p&p":{"en":"Ceramic + plug & play","zh":"陶瓷+即插即用","es":"Cerámica + plug & play"},"Céramique + verre":{"en":"Ceramic + glass","zh":"陶瓷+玻璃","es":"Cerámica + cristal"},"Céramique + wifi":{"en":"Ceramic + wifi","zh":"陶瓷+wifi","es":"Cerámica + wifi"},"Céramique p&p":{"en":"Ceramic plug & play","zh":"陶瓷即插即用","es":"Cerámica plug & play"},"Déshumidificateur":{"en":"Dehumidifier","zh":"除湿机","es":"Deshumidificador"},"Déshumidificateur + wifi":{"en":"Dehumidifier + wifi","zh":"除湿机+wifi","es":"Deshumidificador + wifi"},"Fonte":{"en":"Cast iron","zh":"铸铁款","es":"Fundición"},"Fonte + film":{"en":"Cast iron + film","zh":"铸铁+发热膜","es":"Fundición + film"},"Fonte + film + p&p":{"en":"Cast iron + film + plug & play","zh":"铸铁+发热膜+即插即用","es":"Fundición + film + plug & play"},"Mobile + Bain d'huile":{"en":"Portable + oil bath","zh":"移动式+油汀","es":"Portátil + baño de aceite"},"Mobile + Céramique":{"en":"Portable + ceramic","zh":"移动式+陶瓷","es":"Portátil + cerámica"},"Pas de sous catégorie":{"en":"No subcategory","zh":"无子类别","es":"Sin subcategoría"},"Radiateur fixe":{"en":"Fixed radiator","zh":"固定式散热器","es":"Radiador fijo"},"Radiateur mobile":{"en":"Portable radiator","zh":"移动式散热器","es":"Radiador portátil"},"Radiateur soufflant":{"en":"Fan heater","zh":"暖风机","es":"Calefactor de aire"},"Radiateur électrique fixe":{"en":"Fixed electric radiator","zh":"固定式电散热器","es":"Radiador eléctrico fijo"},"Radiateur électrique mobile":{"en":"Portable electric radiator","zh":"移动式电散热器","es":"Radiador eléctrico portátil"},"Rayonnant":{"en":"Radiant","zh":"辐射式","es":"Radiante"},"Sèche-serviette connecté":{"en":"Connected towel warmer","zh":"智能毛巾架","es":"Toallero conectado"},"Sèche-serviette soufflant":{"en":"Fan-assisted towel warmer","zh":"带风扇毛巾架","es":"Toallero con ventilador"},"Sèche-serviette électrique":{"en":"Electric towel warmer","zh":"电毛巾架","es":"Toallero eléctrico"},"Sèche-serviettes électrique":{"en":"Electric towel warmer","zh":"电毛巾架","es":"Toallero eléctrico"},"Sèche-seviette":{"en":"Towel warmer","zh":"毛巾架","es":"Toallero"},"Sèche-seviette + soufflerie":{"en":"Towel warmer + fan","zh":"毛巾架+风扇","es":"Toallero + ventilador"},"Sèche-seviette + wifi":{"en":"Towel warmer + wifi","zh":"毛巾架+wifi","es":"Toallero + wifi"},"Sèche-seviette + wifi + Soufflerie":{"en":"Towel warmer + wifi + fan","zh":"毛巾架+wifi+风扇","es":"Toallero + wifi + ventilador"},"Sèche-seviettes + soufflerie":{"en":"Towel warmer + fan","zh":"毛巾架+风扇","es":"Toallero + ventilador"},"Séche serviettes + gain de place":{"en":"Space-saving towel warmer","zh":"省空间毛巾架","es":"Toallero ahorra espacio"},"Ventil. De plafond + 3 pales bois FSC":{"en":"Ceiling fan + 3 FSC wood blades","zh":"吊扇+3片FSC木叶片","es":"Ventilador de techo + 3 aspas madera FSC"},"Ventilateur de plafond":{"en":"Ceiling fan","zh":"吊扇","es":"Ventilador de techo"},"Ventilateur sur pied":{"en":"Standing fan","zh":"落地扇","es":"Ventilador de pie"}};
+
+function translateCat(nomFr, lang) {
+  if (lang === "fr" || !nomFr) return nomFr;
+  const entry = CAT_I18N[nomFr];
+  return entry ? (entry[lang] || nomFr) : nomFr;
+}
+
+// PAYS_I18N — traduction des noms de pays affichés (International, ads par pays).
+// Même principe que CAT_I18N : la donnée reste en français pour le matching interne.
+const PAYS_I18N = {"France":{"en":"France","zh":"法国","es":"Francia"},"Allemagne":{"en":"Germany","zh":"德国","es":"Alemania"},"Autriche":{"en":"Austria","zh":"奥地利","es":"Austria"},"Belgique":{"en":"Belgium","zh":"比利时","es":"Bélgica"},"Bulgarie":{"en":"Bulgaria","zh":"保加利亚","es":"Bulgaria"},"Espagne":{"en":"Spain","zh":"西班牙","es":"España"},"Grèce":{"en":"Greece","zh":"希腊","es":"Grecia"},"Irlande":{"en":"Ireland","zh":"爱尔兰","es":"Irlanda"},"Italie":{"en":"Italy","zh":"意大利","es":"Italia"},"Lettonie":{"en":"Latvia","zh":"拉脱维亚","es":"Letonia"},"Luxembourg":{"en":"Luxembourg","zh":"卢森堡","es":"Luxemburgo"},"Monaco":{"en":"Monaco","zh":"摩纳哥","es":"Mónaco"},"Pays-Bas":{"en":"Netherlands","zh":"荷兰","es":"Países Bajos"},"Pologne":{"en":"Poland","zh":"波兰","es":"Polonia"},"Portugal":{"en":"Portugal","zh":"葡萄牙","es":"Portugal"},"Royaume-Uni":{"en":"United Kingdom","zh":"英国","es":"Reino Unido"},"Suisse":{"en":"Switzerland","zh":"瑞士","es":"Suiza"},"Belgique/Pays-Bas":{"en":"Belgium/Netherlands","zh":"比利时/荷兰","es":"Bélgica/Países Bajos"}};
+
+function translatePays(nomFr, lang) {
+  if (lang === "fr" || !nomFr) return nomFr;
+  const entry = PAYS_I18N[nomFr];
+  return entry ? (entry[lang] || nomFr) : nomFr;
+}
 
 const MARKETPLACE_COLORS = {
   "Amazon FR": { primary: "#FF9900", soft: "#232F3E", text: "#232F3E" },
@@ -1281,7 +1366,7 @@ function DashboardApp() {
     const ca = globalMp === "Toutes" ? sumMonthSnapped(DATA.monthly_total, mb.from, mb.to) : sumRangeForMp(globalMp, mb.from, mb.to);
     return { ...mb, ca, pct: ca ? ((filteredCaTotal - ca) / ca) * 100 : null };
   }, [dateRange.from, globalMp, filteredCaTotal]);
-  const monthBeforeItem = momStats ? [{ title: "Vs mois précédent", text: `${fmtEUR(momStats.ca)} en ${momStats.label}${momStats.pct !== null ? ` (${momStats.pct >= 0 ? "+" : ""}${momStats.pct.toFixed(1)}%)` : ""}.` }] : [];
+  const monthBeforeItem = momStats ? [{ title: t.sum_vs_mois_prec, text: `${fmtEUR(momStats.ca)} ${t.sum_en} ${momStats.label}${momStats.pct !== null ? ` (${momStats.pct >= 0 ? "+" : ""}${momStats.pct.toFixed(1)}%)` : ""}.` }] : [];
   // référence Year-to-date (1er janvier → aujourd'hui), toujours calculée en plus
   // de la période choisie, quel que soit le préréglage actif
   const ytdStats = useMemo(() => {
@@ -1291,45 +1376,46 @@ function DashboardApp() {
     return { ca, pct, from, to };
   }, [globalMp, filteredObjectif]);
   const summaryApercu = !showSummary ? [] : [
-    { title: "Chiffre d'affaires", text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}" (${periodStats.from} → ${periodStats.to})${periodStats.yoy !== null ? `, soit ${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs la même période l'an dernier` : ", comparatif N-1 indisponible"}.` },
+    { title: t.sum_ca_titre, text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} ${t.sum_sur} "${periodLabelLower}" (${periodStats.from} → ${periodStats.to})${periodStats.yoy !== null ? `, ${t.sum_soit_lower} ${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% ${t.sum_vs_meme_periode_an_dernier}` : `, ${t.sum_comparatif_n1_indispo}`}.` },
     ...monthBeforeItem,
-    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel (${fmtEUR(filteredObjectif)}) déjà réalisé sur la période choisie.` : `Aucun objectif annuel défini pour ${mpLabel}.` },
-    { title: "Year-to-date", text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} depuis le 1er janvier, soit ${ytdStats.pct.toFixed(1)}% de l'objectif annuel.` : `Repère YTD non disponible sans objectif défini.` },
-    { title: "Panier moyen", text: filteredPanierMoyen !== null ? `${fmtEUR(filteredPanierMoyen)} — année 2026 complète, pas de détail par période disponible.` : "Non disponible." },
-    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% / Thomson ${(100-bestPct).toFixed(0)}% du CA sur cette période.` },
+    { title: t.sum_objectif_titre, text: filteredObjectif ? `${filteredPct.toFixed(1)}% ${t.sum_objectif_annuel_realise} (${fmtEUR(filteredObjectif)}) ${t.sum_deja_realise_periode}` : `${t.sum_aucun_objectif_pour} ${mpLabel}.` },
+    { title: t.sum_ytd_titre, text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} ${t.sum_depuis_1er_janvier} ${ytdStats.pct.toFixed(1)}% ${t.sum_objectif_annuel_point}` : t.sum_ytd_non_dispo },
+    { title: t.sum_panier_moyen_titre, text: filteredPanierMoyen !== null ? `${fmtEUR(filteredPanierMoyen)} — ${t.sum_annee_complete_pas_detail}` : t.sum_non_disponible },
+    { title: t.sum_repartition_marque_titre, text: `Bestherm ${bestPct.toFixed(0)}% / Thomson ${(100-bestPct).toFixed(0)}% ${t.sum_du_ca_periode}` },
   ];
   const summaryMarketplaces = !showSummary ? [] : [
-    { title: "Chiffre d'affaires", text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} sur "${periodLabelLower}"${periodStats.yoy !== null ? ` (${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% vs l'an dernier)` : ""}.` },
+    { title: t.sum_ca_titre, text: `${mpLabel} : ${fmtEUR(filteredCaTotal)} ${t.sum_sur} "${periodLabelLower}"${periodStats.yoy !== null ? ` (${periodStats.yoy >= 0 ? "+" : ""}${periodStats.yoy.toFixed(1)}% ${t.sum_vs_an_dernier_point.replace(/\.$/,'')})` : ""}.` },
     ...monthBeforeItem,
-    { title: "Objectif", text: filteredObjectif ? `${filteredPct.toFixed(1)}% de l'objectif annuel réalisé sur cette période.` : `Aucun objectif annuel défini.` },
-    { title: "Year-to-date", text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} depuis le 1er janvier (${ytdStats.pct.toFixed(1)}% de l'objectif).` : "Repère YTD non disponible sans objectif défini." },
+    { title: t.sum_objectif_titre, text: filteredObjectif ? `${filteredPct.toFixed(1)}% ${t.sum_realise_cette_periode}` : t.sum_aucun_objectif_point },
+    { title: t.sum_ytd_titre, text: filteredObjectif ? `${fmtEUR(ytdStats.ca)} ${t.sum_depuis_1er_janvier_parenthese} (${ytdStats.pct.toFixed(1)}% ${t.sum_de_objectif_parenthese}` : t.sum_ytd_non_dispo },
     globalMp === "Toutes"
-      ? { title: "Marketplace leader", text: sortedMp[0] ? `${sortedMp[0].marketplace}, ${fmtEURk(sortedMp[0].ca)} sur cette période.` : "Non calculable." }
-      : { title: "Position", text: mpRank > 0 ? `${mpRank}${mpRank === 1 ? "ère" : "e"} marketplace sur ${sortedMp.length} pour cette période.` : "Rang non calculable." },
+      ? { title: t.sum_mp_leader, text: sortedMp[0] ? `${sortedMp[0].marketplace}, ${fmtEURk(sortedMp[0].ca)} ${t.sum_sur_cette_periode_point}` : t.sum_non_calculable }
+      : { title: t.sum_position, text: mpRank > 0 ? `${mpRank}${mpRank === 1 ? t.sum_ere : t.sum_e} ${t.sum_mp_sur} ${sortedMp.length} ${t.sum_pour_cette_periode}` : t.sum_rang_non_calculable },
   ];
   const catMp = DATA.category_by_mp.categories[globalMp]?.[0];
   const sousCatMp = DATA.category_by_mp.souscategories[globalMp]?.[0];
   const summaryMarques = !showSummary ? [] : [
-    { title: "Répartition marque", text: `Bestherm ${bestPct.toFixed(0)}% (${fmtEURplain(bestherm26)}) / Thomson ${(100-bestPct).toFixed(0)}% (${fmtEURplain(thomson26)}) sur cette période.` },
-    { title: "Évolution Bestherm", text: besthermYoy !== null ? `${besthermYoy >= 0 ? "+" : ""}${besthermYoy.toFixed(1)}% vs l'an dernier.` : "Comparatif N-1 non disponible par marketplace." },
-    { title: "Top 5 produits", text: productsSource.length ? `${productsSource.slice(0,5).map((p) => `${p.produit} (${fmtEURk(p.ca)}${p.qte !== null && p.qte !== undefined ? `, ${fmtNum(p.qte)} u.` : ""})`).join(", ")} — année 2026 complète${globalMp !== "Toutes" ? ", quantité non disponible par marketplace" : ""}.` : "Aucune donnée produit disponible." },
-    { title: "Normes", text: `${normesTotal.cePct.toFixed(0)}% du CA en CE, ${normesTotal.nfPct.toFixed(0)}% en NF sur cette période.` },
-    { title: "Top catégorie / sous-catégorie", text: catMp ? `${catMp.nom} (${catMp.pct}%) / ${sousCatMp?.nom || "—"} (${sousCatMp?.pct ?? "—"}%) — année 2026 complète, non filtrable par période.` : "Non disponible." },
+    { title: t.sum_repartition_marque_titre, text: `Bestherm ${bestPct.toFixed(0)}% (${fmtEURplain(bestherm26)}) / Thomson ${(100-bestPct).toFixed(0)}% (${fmtEURplain(thomson26)}) ${t.sum_sur_cette_periode_point}` },
+    { title: t.sum_evolution_bestherm, text: besthermYoy !== null ? `${besthermYoy >= 0 ? "+" : ""}${besthermYoy.toFixed(1)}% ${t.sum_vs_an_dernier_point}` : t.sum_comparatif_n1_mp_indispo },
+    { title: t.sum_top5_produits, text: productsSource.length ? `${productsSource.slice(0,5).map((p) => `${p.produit} (${fmtEURk(p.ca)}${p.qte !== null && p.qte !== undefined ? `, ${fmtNum(p.qte)} u.` : ""})`).join(", ")} — ${t.sum_annee_complete}${globalMp !== "Toutes" ? `, ${t.sum_qte_non_dispo_mp}` : ""}.` : t.sum_aucune_donnee_produit },
+    { title: t.sum_normes_titre, text: `${normesTotal.cePct.toFixed(0)}% ${t.sum_du_ca_ce} ${normesTotal.nfPct.toFixed(0)}% ${t.sum_en_nf_periode}` },
+    { title: t.sum_top_cat, text: catMp ? `${translateCat(catMp.nom, lang)} (${catMp.pct}%) / ${sousCatMp ? translateCat(sousCatMp.nom, lang) : "—"} (${sousCatMp?.pct ?? "—"}%) — ${t.sum_annee_complete_non_filtrable}` : t.sum_non_disponible },
   ];
   const summaryAds = !showSummary || totalSpend === 0 ? [] : [
-    { title: "Performance", text: `ROAS de ${blendedRoas.toFixed(1)}x sur l'année 2026.` },
-    { title: "Budget investi", text: `${fmtEUR(totalSpend)} dépensés pour ${fmtEUR(totalAdsCa)} générés — cumul year-to-date 2026 (seule donnée disponible, pas de détail par mois).` },
-    { title: "Période", text: "Donnée annuelle 2026 complète — le filtre de date ne s'applique pas à cet onglet." },
+    { title: t.sum_performance, text: `${t.sum_roas_de} ${blendedRoas.toFixed(1)}x ${t.sum_sur_annee_2026}` },
+    { title: t.sum_budget_investi, text: `${fmtEUR(totalSpend)} ${t.sum_depenses_pour} ${fmtEUR(totalAdsCa)} ${t.sum_generes_cumul}` },
+    { title: t.sum_periode_titre, text: t.sum_donnee_annuelle_complete },
   ];
 
   // ===== Concurrence — veille collectée manuellement, cf. COMPETITION_DATA =====
   // structure : segments (Heater/Cooling) -> sous-catégories -> marketplaces -> produits
   const [concSegment, setConcSegment] = useState("Heater");
   const [topFlopSort, setTopFlopSort] = useState("ca"); // "ca" | "qte"
+  const [kpiRevealRef, kpiVisible] = useScrollReveal();
   const [marquesTab, setMarquesTab] = useState("marque");
   const [wattageCat, setWattageCat] = useState("Toutes");
   const [concSousCat, setConcSousCat] = useState(null); // null = toutes les sous-catégories du segment
-  const CONF_STYLE = { haute: { icon: ShieldCheck, color: GREEN, label: "Confiance haute" }, moyenne: { icon: ShieldQuestion, color: AMBER, label: "Confiance moyenne" }, basse: { icon: ShieldAlert, color: RED, label: "Confiance basse" } };
+  const CONF_STYLE = { haute: { icon: ShieldCheck, color: GREEN, label: t.conf_haute }, moyenne: { icon: ShieldQuestion, color: AMBER, label: t.conf_moyenne }, basse: { icon: ShieldAlert, color: RED, label: t.conf_basse } };
 
   const concSousCatsDuSegment = Object.keys(COMPETITION_DATA.segments[concSegment].sous_categories);
   // aplati tous les produits du segment (ou d'une seule sous-catégorie si sélectionnée), toutes marketplaces confondues
@@ -1361,7 +1447,7 @@ function DashboardApp() {
   const concBesthermCount = concAllProducts.filter((p) => p.est_bestherm).length;
   const concMarquesCount = useMemo(() => {
     const counts = {};
-    concAllProducts.forEach((p) => { const m = p.marque || "Non identifiée"; counts[m] = (counts[m] || 0) + 1; });
+    concAllProducts.forEach((p) => { const m = p.marque || t.non_identifiee; counts[m] = (counts[m] || 0) + 1; });
     return Object.entries(counts).sort((a,b) => b[1]-a[1]);
   }, [concAllProducts]);
   // qualité des sources réellement utilisées dans la sélection actuelle (segment + sous-catégorie)
@@ -1565,21 +1651,79 @@ function DashboardApp() {
   const seasonalityRows = useMemo(() => moisLabels.map((m, i) => ({ mois: m, index: SEASONALITY_INDEX[i] })), [moisLabels]);
   const peakMonth = seasonalityRows.reduce((max, r) => r.index > max.index ? r : max, seasonalityRows[0]);
   const troughMonth = seasonalityRows.reduce((min, r) => r.index < min.index ? r : min, seasonalityRows[0]);
-  const anticipationTotal = ANTICIPATION.projection_sept_dec.reduce((a,b) => a+b, 0);
 
-  // ===== anticipation éclatée par marketplace — même méthode que l'anticipation
-  // globale (CA réel du même mois N-1 x croissance récente juin-août), calculée
-  // séparément pour chaque marketplace plutôt qu'une seule masse agrégée =====
+  // ===== anticipation avec fourchette basse/haute, pas un chiffre unique —
+  // la croissance mois par mois 2026 vs 2025 est très volatile (de +7% à +138%
+  // selon le mois, jusqu'à -13% en août), un seul taux appliqué donnerait une
+  // fausse précision. Basse = croissance YTD complète (jan-août, plus stable
+  // car lissée sur 8 mois). Haute = croissance récente (juin-août, plus
+  // réactive mais plus bruitée). Les deux sont de vraies méthodes, pas une
+  // fourchette arbitraire — voir le détail affiché dans l'app. =====
+  const computeAnticipation = (m26, m25) => {
+    const ytd26 = m26.slice(0, 8).reduce((a, b) => a + b, 0), ytd25 = m25.slice(0, 8).reduce((a, b) => a + b, 0);
+    const growthYtd = ytd25 ? (ytd26 - ytd25) / ytd25 : 0;
+    const recentMonths = [5, 6, 7].filter((i) => m25[i] > 0).map((i) => (m26[i] - m25[i]) / m25[i]);
+    const growthRecent = recentMonths.length ? recentMonths.reduce((a, b) => a + b, 0) / recentMonths.length : growthYtd;
+    const growthBas = Math.min(growthYtd, growthRecent), growthHaut = Math.max(growthYtd, growthRecent);
+    const base = [8, 9, 10, 11].reduce((s, i) => s + m25[i], 0);
+    const parMois = [8, 9, 10, 11].map((i) => ({ bas: m25[i] * (1 + growthBas), haut: m25[i] * (1 + growthHaut) }));
+    const bas = parMois.reduce((s, x) => s + x.bas, 0), haut = parMois.reduce((s, x) => s + x.haut, 0);
+    return { base, bas, haut, growthYtd, growthRecent, milieu: (bas + haut) / 2, parMois };
+  };
+  const anticipation = useMemo(() => computeAnticipation(DATA.monthly_total["2026"], DATA.monthly_total["2025"]), []);
+  // estimation fin d'année complète = YTD réel (connu, jan-août) + fourchette
+  // anticipée (sept-déc) — répond directement à "vais-je atteindre l'objectif ?"
+  const estimationAnnuelle = useMemo(() => {
+    // s'adapte à la marketplace sélectionnée — recalcule directement via
+    // computeAnticipation plutôt que de dépendre d'anticipationByMp (défini
+    // plus bas dans le fichier), pour éviter tout risque d'ordre de déclaration
+    const m26Source = globalMp === "Toutes" ? DATA.monthly_total["2026"] : (DATA.gf.monthly_total_by_mp[globalMp]?.["2026"] || Array(12).fill(0));
+    const m25Source = globalMp === "Toutes" ? DATA.monthly_total["2025"] : (DATA.gf.monthly_total_by_mp[globalMp]?.["2025"] || Array(12).fill(0));
+    const anticipationMp = computeAnticipation(m26Source, m25Source);
+    const ytdReel = m26Source.slice(0, 8).reduce((a, b) => a + b, 0);
+    const mpObjectifEntry = globalMp !== "Toutes" ? DATA.mp_vs_objectif.find((m) => m.marketplace === globalMp) : null;
+    const objectifRef = globalMp === "Toutes" ? DATA.kpi.objectif_annuel_total : (mpObjectifEntry?.objectif_fiable ? mpObjectifEntry.objectif : null);
+    // décomposition mois par mois — jan-août réel connu, sept-déc fourchette anticipée
+    const parMois = moisLabels.map((label, i) => {
+      if (i < 8) return { mois: label, reel: m26Source[i], bas: null, haut: null };
+      return { mois: label, reel: null, bas: anticipationMp.parMois[i - 8].bas, haut: anticipationMp.parMois[i - 8].haut };
+    });
+    return {
+      bas: ytdReel + anticipationMp.bas, haut: ytdReel + anticipationMp.haut,
+      pctObjectifBas: objectifRef ? (ytdReel + anticipationMp.bas) / objectifRef * 100 : null,
+      pctObjectifHaut: objectifRef ? (ytdReel + anticipationMp.haut) / objectifRef * 100 : null,
+      objectifRef, parMois,
+      maxMois: Math.max(...parMois.map((m) => Math.max(m.reel || 0, m.haut || 0))),
+    };
+  }, [anticipation, moisLabels, globalMp]);
+  const anticipationTotal = anticipation.milieu;
+
+  // ===== courbe étendue avec fourchette anticipée sept-déc, fusionnée après
+  // coup plutôt que de modifier trendCombined directement — évite de réordonner
+  // du code existant qui fonctionne. Le dernier mois réel (août) sert de point
+  // de jonction pour que la zone anticipée démarre visuellement sans coupure. =====
+  const trendWithForecast = useMemo(() => {
+    return trendCombined.map((row, i) => {
+      if (i < 7) return { ...row, bas: null, haut: null };
+      if (i === 7) return { ...row, bas: row[2026], haut: row[2026] }; // jonction sur le dernier point réel
+      const est = estimationAnnuelle.parMois[i];
+      return { ...row, bas: est?.bas ?? null, haut: est?.haut ?? null };
+    });
+  }, [trendCombined, estimationAnnuelle]);
+  // l'axe Y doit aussi couvrir la fourchette haute anticipée, sinon la zone se
+  // fait couper en haut du graphique quand l'estimation dépasse l'historique
+  const maxYearlyMonthWithForecast = Math.max(maxYearlyMonth, estimationAnnuelle.maxMois);
+
+  // ===== anticipation éclatée par marketplace — même méthode à fourchette,
+  // calculée séparément pour chaque marketplace plutôt qu'une seule masse =====
   const anticipationByMp = useMemo(() => {
     const mps = Object.keys(DATA.gf.monthly_total_by_mp).sort();
     return mps.map((mp) => {
       const m26 = DATA.gf.monthly_total_by_mp[mp]["2026"] || Array(12).fill(0);
       const m25 = DATA.gf.monthly_total_by_mp[mp]["2025"] || Array(12).fill(0);
-      const growthMonths = [5, 6, 7].filter((i) => m25[i] > 0).map((i) => (m26[i] - m25[i]) / m25[i]);
-      const avgGrowth = growthMonths.length ? growthMonths.reduce((a, b) => a + b, 0) / growthMonths.length : 0;
-      const projection = [8, 9, 10, 11].map((i) => m25[i] * (1 + avgGrowth));
-      return { mp, avgGrowth, total: projection.reduce((a, b) => a + b, 0), base2025: [8,9,10,11].reduce((s,i)=>s+m25[i],0) };
-    }).filter((r) => r.base2025 > 0).sort((a, b) => b.total - a.total);
+      const r = computeAnticipation(m26, m25);
+      return { mp, ...r, total: r.milieu };
+    }).filter((r) => r.base > 0).sort((a, b) => b.total - a.total);
   }, []);
 
   const wattageAnalysis = useMemo(() => {
@@ -1637,7 +1781,7 @@ function DashboardApp() {
     // regrouper les concurrents par marque pour la liste "principaux concurrents"
     const concurrentsByBrand = {};
     concurrents.forEach((p) => {
-      const marque = p.marque || "Non identifiée";
+      const marque = p.marque || t.non_identifiee;
       if (!concurrentsByBrand[marque]) concurrentsByBrand[marque] = [];
       concurrentsByBrand[marque].push(p);
     });
@@ -1680,6 +1824,11 @@ function DashboardApp() {
         @keyframes ember { 0%{transform:translateY(0) translateX(0); opacity:0} 10%{opacity:0.7} 90%{opacity:0.35} 100%{transform:translateY(-90vh) translateX(20px); opacity:0} }
         .orb1 { animation: drift1 14s ease-in-out infinite; } .orb2 { animation: drift2 18s ease-in-out infinite; }
         .card-reveal { animation: cardIn 0.55s cubic-bezier(.22,1,.36,1) backwards; }
+        .scroll-reveal { opacity: 0; transform: translateY(28px) scale(0.96); transition: opacity 0.7s cubic-bezier(.34,1.56,.64,1), transform 0.7s cubic-bezier(.34,1.56,.64,1); }
+        .scroll-reveal.is-visible { opacity: 1; transform: translateY(0) scale(1); }
+        .reveal-d1.is-visible, .reveal-d1 { transition-delay: 0.06s; }
+        .reveal-d2.is-visible, .reveal-d2 { transition-delay: 0.12s; }
+        .reveal-d3.is-visible, .reveal-d3 { transition-delay: 0.18s; }
         .stagger-row { animation: rowIn 0.4s cubic-bezier(.22,1,.36,1) backwards; }
         .punch { animation: punch 0.26s cubic-bezier(.34,1.56,.64,1); }
         .tilt-card:hover { z-index: 5; }
@@ -1742,7 +1891,7 @@ function DashboardApp() {
             {DATE_PRESETS.map((p) => (
               <button key={p.id} onClick={() => setDatePreset(p.id)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
                 style={{ background: datePreset === p.id ? `${ORANGE}22` : "transparent", color: datePreset === p.id ? ORANGE_SOFT : MUTED, border: `1px solid ${datePreset === p.id ? ORANGE_SOFT + "55" : "transparent"}` }}>
-                {p.label}
+                {t[`preset_${p.id}`] || p.label}
               </button>
             ))}
             {datePreset === "personnalise" && (
@@ -1780,33 +1929,34 @@ function DashboardApp() {
 
         {tab === "apercu" && (
           <>
-            <PeriodSummaryCard key={`apercu-${globalMp}-${datePreset}`} items={summaryApercu} />
+            <PeriodSummaryCard key={`apercu-${globalMp}-${datePreset}`} items={summaryApercu} t={t} />
             <div className="flex items-center gap-2 mb-4 px-1 text-[11px]" style={{ color: FAINT }}>
               <CalendarDays size={12} />
               <span className="tabular-nums">{periodStats.from} → {periodStats.to}</span>
               {periodStats.n1 !== null && <span className="tabular-nums">· vs {periodStats.n1From} → {periodStats.n1To}</span>}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 mb-3">
-              <TiltCard className="p-5 flex flex-col items-center justify-center" glow glowColor={mpAccent.primary} index={0}>
-                <HeatGauge pct={pctAnimated} color={mpAccent.primary} />
-                <div className="mt-1 text-[11.5px] tabular-nums" style={{ color: MUTED }}>{filteredObjectif ? `${t.objectif_2026} ${fmtEUR(filteredObjectif)}` : t.objectif_non_defini}</div>
-                <div className="text-[10px] mt-1 text-center max-w-[170px]" style={{ color: FAINT }}>{t.part_objectif_hint} {globalMp === "Toutes" ? t.toutes_marketplaces_suffix : globalMp} {t.deja_realisee}</div>
-              </TiltCard>
-              <TiltCard className="p-6 flex flex-col justify-center" glow glowColor={mpAccent.primary} index={1}>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
+            <TiltCard className="p-6 mb-3" glow glowColor={mpAccent.primary} scrollReveal>
+              <div className="flex items-start justify-between gap-5 flex-wrap">
+                <div className="flex-1 min-w-[220px]">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <Eyebrow hint={t.ca_cumule_hint}>{globalMp === "Toutes" ? `${t.ca_cumule} — ${t.toutes_marketplaces_suffix}` : `${t.ca_cumule} — ${globalMp}`}</Eyebrow>
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full tabular-nums" style={{ background: `${mpAccent.primary}18`, color: mpAccent.primary }}>{dateRangeLabel}</span>
                   </div>
-                  <YoyBadge pct={periodStats.yoy} size="big" />
+                  <div className={`gradient-text tabular-nums font-bold leading-none ${caPunch ? "punch" : ""}`} style={{ fontSize: "clamp(38px, 7vw, 58px)", backgroundImage: `linear-gradient(135deg, ${INK}, ${mpAccent.primary} 130%)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", textShadow: `0 2px 24px ${mpAccent.primary}30`, transition: "background-image 0.4s ease" }}>{fmtEUR(caAnimated)}</div>
+                  <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                    <YoyBadge pct={periodStats.yoy} size="big" lang={lang} />
+                    <span className="text-[12px] tabular-nums" style={{ color: FAINT }}>{periodStats.n1 !== null ? `vs ${fmtEURplain(periodStats.n1)} · ${periodStats.n1From} → ${periodStats.n1To}` : t.sum_comparatif_n1_indispo}</span>
+                  </div>
                 </div>
-                <div className={`gradient-text tabular-nums font-bold leading-none ${caPunch ? "punch" : ""}`} style={{ fontSize: "clamp(36px, 6vw, 56px)", backgroundImage: `linear-gradient(135deg, ${INK}, ${mpAccent.primary} 130%)`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", textShadow: `0 2px 24px ${mpAccent.primary}30`, transition: "background-image 0.4s ease" }}>{fmtEUR(caAnimated)}</div>
-                <div className="text-[12px] mt-2 tabular-nums" style={{ color: FAINT }}>{periodStats.n1 !== null ? `vs ${fmtEURplain(periodStats.n1)} · ${periodStats.n1From} → ${periodStats.n1To}` : "comparatif N-1 indisponible"}</div>
-              </TiltCard>
-            </div>
+                <div className="flex flex-col items-center shrink-0">
+                  <MiniRing pct={pctAnimated} color={mpAccent.primary} size={76} />
+                  <div className="text-[9.5px] mt-2 text-center max-w-[130px] leading-tight" style={{ color: FAINT }}>{filteredObjectif ? `${t.objectif_2026} ${fmtEURk(filteredObjectif)}` : t.objectif_non_defini}</div>
+                </div>
+              </div>
+            </TiltCard>
 
-            <div className="flex flex-wrap gap-x-7 gap-y-4 mb-6 px-1">
+            <div ref={kpiRevealRef} className={`flex flex-wrap gap-x-7 gap-y-4 mb-6 px-1 scroll-reveal reveal-d1 ${kpiVisible ? "is-visible" : ""}`}>
               <div>
                 <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: MUTED }}>{t.panier_moyen}</div>
                 <div className="tabular-nums text-[23px] font-bold leading-none" style={{ letterSpacing: "-0.01em" }}>{filteredPanierMoyen !== null ? fmtEUR(filteredPanierMoyen) : "—"}</div>
@@ -1821,7 +1971,7 @@ function DashboardApp() {
               <div className="hidden sm:block w-px self-stretch" style={{ background: PANEL_BORDER_QUIET }} />
               <div>
                 <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: MUTED }}>{t.vs_meilleure_n1}</div>
-                <YoyBadge pct={bestVsN1Pct} naLabel={globalMp === "Toutes" ? t.non_comparable : t.indispo_par_mp} />
+                <YoyBadge pct={bestVsN1Pct} naLabel={globalMp === "Toutes" ? t.non_comparable : t.indispo_par_mp} lang={lang} />
                 <div className="text-[11px] mt-1.5" style={{ color: FAINT }}>{globalMp === "Toutes" ? `${fmtEURplain(DATA.best_seller_2025.ca)} ${t.en_2025}` : t.detail_non_conserve}</div>
               </div>
             </div>
@@ -1829,21 +1979,73 @@ function DashboardApp() {
               <Info size={11} /> Panier moyen et meilleure vente ne suivent pas le filtre de date — pas de détail mensuel disponible pour ces deux indicateurs
             </div>
 
+            {datePreset === "annee_courante" && (
+              <GlassCard className="p-5 mb-6" glow glowColor={estimationAnnuelle.pctObjectifHaut >= 100 ? GREEN : AMBER} scrollReveal>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Sparkles size={11} color={mpAccent.primary} />
+                  <span className="text-[9.5px] uppercase tracking-[0.16em] font-semibold" style={{ color: mpAccent.primary }}>{t.est_fin_annee} 2026{globalMp !== "Toutes" ? ` — ${globalMp}` : ""}</span>
+                </div>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="tabular-nums text-[26px] font-bold">{fmtEURk(estimationAnnuelle.bas)}</span>
+                  <span className="text-[16px]" style={{ color: FAINT }}>–</span>
+                  <span className="tabular-nums text-[26px] font-bold">{fmtEURk(estimationAnnuelle.haut)}</span>
+                </div>
+                <div className="text-[12px] mt-1.5" style={{ color: MUTED }}>
+                  {estimationAnnuelle.objectifRef ? (
+                    <>{t.est_soit} <span style={{ color: estimationAnnuelle.pctObjectifBas >= 100 ? GREEN : AMBER }}>{estimationAnnuelle.pctObjectifBas.toFixed(0)}%</span> {t.est_a} <span style={{ color: estimationAnnuelle.pctObjectifHaut >= 100 ? GREEN : AMBER }}>{estimationAnnuelle.pctObjectifHaut.toFixed(0)}%</span> {t.est_de_objectif_annuel} ({fmtEURk(estimationAnnuelle.objectifRef)})</>
+                  ) : (
+                    <span style={{ color: FAINT }}>{t.objectif_non_defini_mp}</span>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-4 space-y-1.5" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                  {estimationAnnuelle.parMois.map((m) => (
+                    <div key={m.mois} className="flex items-center gap-3">
+                      <span className="text-[10.5px] w-8 shrink-0" style={{ color: FAINT }}>{m.mois.slice(0,3)}</span>
+                      {m.reel !== null ? (
+                        <>
+                          <div className="flex-1 h-3 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                            <div className="h-full rounded-full" style={{ width: `${Math.max(2, (m.reel/estimationAnnuelle.maxMois)*100)}%`, background: mpAccent.primary }} />
+                          </div>
+                          <span className="tabular-nums text-[11px] font-semibold w-16 text-right shrink-0">{fmtEURk(m.reel)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex-1 h-3 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)", border: `1px dashed ${PANEL_BORDER}` }}>
+                            <div className="h-full rounded-full opacity-50" style={{ width: `${Math.max(2, (m.haut/estimationAnnuelle.maxMois)*100)}%`, background: AMBER }} />
+                          </div>
+                          <span className="tabular-nums text-[10px] w-24 sm:w-28 text-right shrink-0 whitespace-nowrap" style={{ color: AMBER }}>{fmtEURk(m.bas)}-{fmtEURk(m.haut)}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 mt-2 text-[10px]" style={{ color: FAINT }}>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: mpAccent.primary }} /> {t.legende_reel}</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: AMBER, opacity: 0.6 }} /> {t.legende_anticipe}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 mt-3 pt-3 text-[10.5px]" style={{ color: FAINT, borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+                  <Info size={11} /> CA réel jan-août + fourchette anticipée sept-déc (voir méthode détaillée dans l'onglet Supply) — pas un chiffre unique qui ferait semblant d'être certain.
+                </div>
+              </GlassCard>
+            )}
+
             <div className="mt-2">
               <SectionHeader hint={`${t.tendance_hint} · clique un point pour comparer les années à ce mois`}>{t.tendance_titre}</SectionHeader>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
                 {[2024, 2025, 2026].map((y) => (
                   <button key={y} onClick={() => setVisibleYears((v) => ({ ...v, [y]: !v[y] }))}
-                    className="btn-lift flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-full"
+                    className="btn-lift flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-full shrink-0"
                     style={{ background: visibleYears[y] ? `${YEAR_COLORS[y]}22` : PANEL_QUIET, border: `1px solid ${visibleYears[y] ? YEAR_COLORS[y] + "66" : PANEL_BORDER_QUIET}`, color: visibleYears[y] ? YEAR_COLORS[y] : FAINT, opacity: visibleYears[y] ? 1 : 0.6 }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: YEAR_COLORS[y] }} /> {y}
                     <span className="tabular-nums text-[10.5px]" style={{ color: visibleYears[y] ? YEAR_COLORS[y] : FAINT }}>{fmtEURk(DATA.monthly_total[y].reduce((a,b)=>a+b,0))}</span>
                   </button>
                 ))}
               </div>
-              <GlassCard className="p-4 card-reveal" style={{ animationDelay: "280ms" }}>
+              <GlassCard className="p-4" scrollReveal>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={trendCombined} style={{ cursor: "pointer" }}
+                  <AreaChart data={trendWithForecast} style={{ cursor: "pointer" }}
                     onClick={(e) => { if (e && e.activePayload && e.activePayload.length) setSelectedMonth({ monthIndex: e.activePayload[0].payload.monthIndex }); }}>
                     <defs>
                       {[2024,2025,2026].map((y) => (
@@ -1851,20 +2053,31 @@ function DashboardApp() {
                       ))}
                     </defs>
                     <XAxis dataKey="mois" tick={{ fontSize: 10, fill: FAINT }} axisLine={false} tickLine={false} />
-                    <YAxis hide domain={[0, maxYearlyMonth]} />
-                    <Tooltip formatter={(v, n) => [v ? fmtEURplain(v) : "—", n]} contentStyle={{ background: "#16140F", border: `1px solid ${PANEL_BORDER}`, borderRadius: 10, fontSize: 11 }} labelFormatter={() => ""} />
+                    <YAxis hide domain={[0, maxYearlyMonthWithForecast]} />
+                    <Tooltip formatter={(v, n) => [v ? fmtEURplain(v) : "—", n === "haut" ? "estimation (fourchette)" : n]} contentStyle={{ background: "#16140F", border: `1px solid ${PANEL_BORDER}`, borderRadius: 10, fontSize: 11 }} labelFormatter={() => ""} />
                     {[2024, 2025, 2026].filter((y) => visibleYears[y]).map((y) => (
                       <Area key={y} type="monotone" dataKey={String(y)} name={String(y)} stroke={YEAR_COLORS[y]} strokeWidth={2.5} fill={`url(#fillY${y})`} dot={{ r: 3, fill: YEAR_COLORS[y], cursor: "pointer" }} activeDot={{ r: 6, cursor: "pointer" }} connectNulls animationDuration={800} />
                     ))}
+                    {visibleYears[2026] && (
+                      <Area type="monotone" dataKey="haut" name="haut" stroke={YEAR_COLORS[2026]} strokeWidth={1} strokeDasharray="4 3" fill={YEAR_COLORS[2026]} fillOpacity={0.12} connectNulls animationDuration={800} dot={false} activeDot={false} />
+                    )}
+                    {visibleYears[2026] && (
+                      <Area type="monotone" dataKey="bas" name="bas" stroke={YEAR_COLORS[2026]} strokeWidth={1} strokeDasharray="4 3" fill={BG} fillOpacity={1} connectNulls animationDuration={800} dot={false} activeDot={false} />
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
               </GlassCard>
+              {visibleYears[2026] && (
+                <div className="flex items-center gap-1.5 mt-1.5 text-[10px]" style={{ color: FAINT }}>
+                  <span className="inline-block w-3 border-t border-dashed" style={{ borderColor: YEAR_COLORS[2026] }} /> Zone en pointillés = fourchette anticipée sept-déc, pas une donnée réelle
+                </div>
+              )}
 
               {monthlyObjectif && (
-                <GlassCard className="p-4 mt-3" quiet>
+                <GlassCard className="p-4 mt-3 reveal-d1" quiet scrollReveal>
                   <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                     <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: MUTED }}>Objectif du mois — {monthlyObjectif.monthLabel} 2026</span>
-                    <span className="text-[10px]" style={{ color: FAINT }}>réparti selon le motif saisonnier réel, pas 1/12 uniforme</span>
+                    <span className="text-[10px]" style={{ color: FAINT }}>{t.reparti_saisonnier}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
@@ -1892,13 +2105,13 @@ function DashboardApp() {
                 );
               })()}
             </div>
-            <div className="flex items-center gap-2 px-1 py-2 text-[11.5px]" style={{ color: FAINT }}><Info size={12} /> Tous les montants de l'app sont exprimés hors taxes (HT)</div>
+            <div className="flex items-center gap-2 px-1 py-2 text-[11.5px]" style={{ color: FAINT }}><Info size={12} /> {t.tous_montants_ht}</div>
           </>
         )}
 
         {tab === "marketplaces" && (
           <>
-            <PeriodSummaryCard key={`mp-${globalMp}-${datePreset}`} items={summaryMarketplaces} />
+            <PeriodSummaryCard key={`mp-${globalMp}-${datePreset}`} items={summaryMarketplaces} t={t} />
             {globalMp === "Toutes" ? (
               <>
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
@@ -1907,7 +2120,7 @@ function DashboardApp() {
                       <Eyebrow hint={`${t.ca_ht_total_hint} · ${periodStats.from} → ${periodStats.to}`}>{t.ca_ht_total_titre}</Eyebrow>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full tabular-nums" style={{ background: `${mpAccent.primary}18`, color: mpAccent.primary }}>{dateRangeLabel}</span>
                     </div>
-                    <div className="flex items-baseline gap-3 flex-wrap"><div className="tabular-nums font-bold leading-none" style={{ fontSize: "clamp(32px, 5vw, 48px)" }}>{fmtEUR(totalCaAllMp)}</div><YoyBadge pct={periodStats.yoy} size="big" /></div>
+                    <div className="flex items-baseline gap-3 flex-wrap"><div className="tabular-nums font-bold leading-none" style={{ fontSize: "clamp(32px, 5vw, 48px)" }}>{fmtEUR(totalCaAllMp)}</div><YoyBadge pct={periodStats.yoy} size="big" lang={lang} /></div>
                   </div>
                   {seasonalPace && (
                     <div className="text-[12.5px] px-3 py-2 rounded-xl" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: MUTED }}>
@@ -1924,18 +2137,18 @@ function DashboardApp() {
                 <div className="mt-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader></div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
                   {top3Mp.map((m, i) => (
-                    <TiltCard key={m.marketplace} className="p-4" glow={i === 0} glowColor={mpAccent.primary} index={i}>
+                    <TiltCard key={m.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i === 2 ? "reveal-d2" : ""}`} glow={i === 0} glowColor={mpAccent.primary} scrollReveal>
                       <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-semibold">{m.marketplace}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                       <div className="tabular-nums text-[22px] font-bold">{fmtEURk(m.ca)}</div>
                       <div className="flex items-center justify-between mt-1.5">
                         {m.objectif_fiable ? <span className="text-[11.5px]" style={{ color: m.pct_objectif > 40 ? GREEN : AMBER }}>{fmtPct(m.pct_objectif).replace('+','')} {t.de_word} {fmtEURk(m.objectif)}</span> : <span className="text-[11px]" style={{ color: FAINT }}>{t.objectif_non_defini}</span>}
-                        <YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} />
+                        <YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} lang={lang} />
                       </div>
                     </TiltCard>
                   ))}
                 </div>
                 <Eyebrow tone="quiet" hint={t.autres_mp_hint}>{t.autres_mp}</Eyebrow>
-                <GlassCard className="p-1.5" quiet>
+                <GlassCard className="p-1.5" quiet scrollReveal>
                   {restMp.map((m, i) => {
                     const alerteDeclin = m.yoy_pct !== null && m.yoy_pct < -10;
                     const alerteObjectif = !alerteDeclin && m.objectif_fiable && m.yoy_pct !== null && m.yoy_pct > 100 && m.pct_objectif < 30;
@@ -1943,11 +2156,11 @@ function DashboardApp() {
                     const alerteColor = alerteDeclin ? RED : AMBER;
                     return (
                     <StaggerRow key={m.marketplace} index={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: i < restMp.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none", borderLeft: alerte ? `2px solid ${alerteColor}` : "2px solid transparent", paddingLeft: alerte ? "10px" : "12px", background: alerte ? `${alerteColor}0a` : "transparent" }}>
-                      <span className="text-[12.5px] w-28 shrink-0 truncate flex items-center gap-1" style={{ color: MUTED }} title={alerteObjectif ? "Forte croissance mais objectif peu atteint — objectif potentiellement à recalibrer" : undefined}>{alerte && <AlertTriangle size={11} color={alerteColor} />}{m.marketplace}</span>
+                      <span className="text-[12.5px] w-28 shrink-0 truncate flex items-center gap-1" style={{ color: MUTED }} title={alerteObjectif ? t.forte_croissance_objectif_bas : undefined}>{alerte && <AlertTriangle size={11} color={alerteColor} />}{m.marketplace}</span>
                       <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (m.ca / maxMpCa) * 100)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} /></div>
                       <span className="text-[11.5px] tabular-nums w-16 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(m.ca)}</span>
                       <span className="text-[11px] tabular-nums w-12 text-right shrink-0" style={{ color: m.objectif_fiable ? FAINT : "#4A453E" }}>{m.objectif_fiable ? fmtPct(m.pct_objectif).replace('+','') : t.nd}</span>
-                      <span className="w-16 text-right shrink-0"><YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} /></span>
+                      <span className="w-16 text-right shrink-0"><YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} lang={lang} /></span>
                     </StaggerRow>
                   );})}
                 </GlassCard>
@@ -1959,7 +2172,7 @@ function DashboardApp() {
                   const m = DATA.mp_vs_objectif.find((x) => x.marketplace === globalMp);
                   if (!m) return <GlassCard className="p-5" quiet><span className="text-[12px]" style={{ color: FAINT }}>{t.aucune_donnee_mp}</span></GlassCard>;
                   return (
-                    <TiltCard className="p-6" glow glowColor={mpAccent.primary}>
+                    <TiltCard className="p-6" glow glowColor={mpAccent.primary} scrollReveal>
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: MUTED }}>{t.ca_ht_total_titre}</span>
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: `${mpAccent.primary}18`, color: mpAccent.primary }}>{dateRangeLabel}</span>
@@ -1967,7 +2180,7 @@ function DashboardApp() {
                       <div className="tabular-nums font-bold" style={{ fontSize: "clamp(32px, 5vw, 44px)" }}>{fmtEUR(m.ca)}</div>
                       <div className="flex items-center gap-3 mt-3 flex-wrap">
                         {m.objectif_fiable ? <span className="text-[13px]" style={{ color: m.pct_objectif > 40 ? GREEN : AMBER }}>{fmtPct(m.pct_objectif).replace('+','')} {t.de_word} ({fmtEUR(m.objectif)})</span> : <span className="text-[12px]" style={{ color: FAINT }}>{t.objectif_non_defini}</span>}
-                        <YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} size="big" />
+                        <YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} size="big" lang={lang} />
                       </div>
                     </TiltCard>
                   );
@@ -1978,22 +2191,22 @@ function DashboardApp() {
             {/* ===== section — International RÉEL (vraie donnée de vente par pays) —
                  ajouté en amont de l'ancienne carte ads, retrait de l'ancienne à suivre
                  une fois celle-ci confirmée stable ===== */}
-            <ZoneLabel>International</ZoneLabel>
+            <ZoneLabel>{t.zone_international}</ZoneLabel>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <SectionHeader hint={`Vraies commandes par pays — pas une estimation ads. 2024 exclu (pas de détail pays cette année-là) · ${dateRangeLabel} · ${mpLabel}`}>Répartition par pays</SectionHeader>
+              <SectionHeader hint={`${t.repartition_pays_hint} · ${dateRangeLabel} · ${mpLabel}`}>{t.repartition_pays_titre}</SectionHeader>
             </div>
             {internationalData.rows.length === 0 ? (
-              <GlassCard className="p-5 text-center mb-6" quiet>
-                <span className="text-[12.5px]" style={{ color: FAINT }}>Aucune donnée pays sur cette sélection — vérifie que la période inclut 2025 ou 2026.</span>
+              <GlassCard className="p-5 text-center mb-6" quiet scrollReveal>
+                <span className="text-[12.5px]" style={{ color: FAINT }}>{t.aucune_donnee_pays}</span>
               </GlassCard>
             ) : (
-              <GlassCard className="p-4 mb-2" quiet>
+              <GlassCard className="p-4 mb-2" quiet scrollReveal>
                 <div className="space-y-2.5">
                   {internationalData.rows.map((c, i) => {
                     const alerte = c.pctObjectif !== null && c.pctObjectif < 20;
                     return (
                     <div key={c.pays} className="flex items-center gap-3">
-                      <span className="text-[11.5px] font-medium w-24 shrink-0 truncate flex items-center gap-1" style={{ color: INK }}>{alerte && <AlertTriangle size={10} color={RED} />}{c.pays}</span>
+                      <span className="text-[11.5px] font-medium w-24 shrink-0 truncate flex items-center gap-1" style={{ color: INK }}>{alerte && <AlertTriangle size={10} color={RED} />}{translatePays(c.pays, lang)}</span>
                       <div className="flex-1 h-5 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
                         <div className="h-full rounded-full transition-all duration-700 flex items-center justify-end pr-2" style={{ width: `${Math.max(3, (c.ca/internationalData.maxCa)*100)}%`, background: `linear-gradient(90deg, ${mpAccent.primary}99, ${mpAccent.primary})` }}>
                           {(c.ca/internationalData.maxCa) > 0.28 && <span className="tabular-nums text-[10.5px] font-semibold" style={{ color: mpAccent.text }}>{fmtEURk(c.ca)}</span>}
@@ -2012,12 +2225,12 @@ function DashboardApp() {
 
             {globalMp === "Toutes" && (
               <>
-                <ZoneLabel>Publicité par pays</ZoneLabel>
-                <Eyebrow tone="quiet" hint="Distinct de la répartition ci-dessus : ceci mesure la performance des campagnes publicitaires par pays, pas le total des ventes réelles">{t.detail_pays} (dépense ads)</Eyebrow>
-                <GlassCard className="p-1.5" quiet>
+                <ZoneLabel>{t.pub_par_pays}</ZoneLabel>
+                <Eyebrow tone="quiet" hint={t.pub_par_pays_hint}>{t.detail_pays} ({t.depense_ads})</Eyebrow>
+                <GlassCard className="p-1.5" quiet scrollReveal>
                   {DATA.country_ads.map((c, i) => (
                     <div key={c.pays} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < DATA.country_ads.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
-                      <span className="text-[12px] w-32 shrink-0" style={{ color: INK }}>{c.pays}</span>
+                      <span className="text-[12px] w-32 shrink-0" style={{ color: INK }}>{translatePays(c.pays, lang)}</span>
                       <span className="text-[11px] tabular-nums w-20 text-right shrink-0" style={{ color: MUTED }}>{fmtEURplain(c.spend)}</span>
                       <span className="text-[11px] tabular-nums w-20 text-right shrink-0" style={{ color: ORANGE_SOFT }}>{fmtEURplain(c.ca)}</span>
                       <span className="text-[10.5px] tabular-nums w-14 text-right shrink-0 font-semibold" style={{ color: c.roas > 8 ? GREEN : c.roas > 3 ? AMBER : c.roas ? RED : FAINT }}>{c.roas ? `${c.roas}x` : "—"}</span>
@@ -2031,13 +2244,13 @@ function DashboardApp() {
 
         {tab === "marques" && (
           <>
-            <PeriodSummaryCard key={`marques-${globalMp}-${datePreset}`} items={summaryMarques} />
+            <PeriodSummaryCard key={`marques-${globalMp}-${datePreset}`} items={summaryMarques} t={t} />
 
             <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit flex-wrap" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
               {[
-                { id: "marque", label: "Marque" }, { id: "produits", label: "Produits" },
-                { id: "radar", label: "Produit idéal" }, { id: "classification", label: "Normes & Catégories" },
-                { id: "puissances", label: "Puissances" },
+                { id: "marque", label: t.zone_marque }, { id: "produits", label: t.zone_produits_titre },
+                { id: "radar", label: t.subnav_produit_ideal }, { id: "classification", label: t.subnav_normes_cat },
+                { id: "puissances", label: t.zone_puissances },
               ].map((s) => (
                 <button key={s.id} onClick={() => setMarquesTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full whitespace-nowrap"
                   style={{ background: marquesTab === s.id ? mpAccent.primary : "transparent", color: marquesTab === s.id ? mpAccent.text : MUTED }}>
@@ -2048,14 +2261,14 @@ function DashboardApp() {
 
             {marquesTab === "marque" && (
             <>
-            <ZoneLabel first>Marque</ZoneLabel>
+            <ZoneLabel first>{t.zone_marque}</ZoneLabel>
             <div className="mb-5 card-reveal">
               <div className="flex items-center gap-3 mb-2"><BesthermLogo size={16} color={INK} /><span style={{ color: FAINT }}>×</span><ThomsonLogo size={14} /></div>
               <Eyebrow hint={`${t.repartition_marque_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{globalMp === "Toutes" ? `${t.repartition_marque} — ${t.toutes_marketplaces_suffix}` : `${t.repartition_marque} — ${globalMp}`}</Eyebrow>
               <div className="flex items-baseline gap-3 flex-wrap">
                 <span className="tabular-nums font-bold" style={{ fontSize: "clamp(32px, 5vw, 48px)", color: ORANGE_SOFT }}>{bestPct.toFixed(0)}%</span>
                 <span className="text-[14px]" style={{ color: MUTED }}>Bestherm · {(100-bestPct).toFixed(0)}% Thomson</span>
-                <YoyBadge pct={besthermYoy} naLabel={globalMp === "Toutes" ? t.non_comparable : t.indispo_par_mp} /><span className="text-[11px]" style={{ color: FAINT }}>{t.bestherm_vs_n1}</span>
+                <YoyBadge pct={besthermYoy} naLabel={globalMp === "Toutes" ? t.non_comparable : t.indispo_par_mp} lang={lang} /><span className="text-[11px]" style={{ color: FAINT }}>{t.bestherm_vs_n1}</span>
               </div>
               <div className="h-2.5 rounded-full overflow-hidden flex mt-3 max-w-md"><div style={{ width: `${bestPct}%`, background: `linear-gradient(90deg, ${ORANGE_SOFT}, ${ORANGE})`, transition: "width 0.8s cubic-bezier(.22,1,.36,1)" }} /><div style={{ width: `${100-bestPct}%`, background: THOMSON_RED, transition: "width 0.8s cubic-bezier(.22,1,.36,1)" }} /></div>
               {globalMp === "Toutes" && <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: FAINT }}><Info size={11} /> {t.thomson_hint}</div>}
@@ -2083,13 +2296,13 @@ function DashboardApp() {
             {marquesTab === "produits" && (
             <>
             <div>
-              <ZoneLabel first>Produits</ZoneLabel>
+              <ZoneLabel first>{t.zone_produits_titre}</ZoneLabel>
             </div>
 
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <SectionHeader hint={`Filtrable date + marketplace comme le reste de l'app · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel} · accessoires et pièces détachées exclus`}>Tops & Flops</SectionHeader>
+              <SectionHeader hint={`${t.topflop_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel}`}>{t.topflop_titre}</SectionHeader>
               <div className="flex items-center gap-1 rounded-full p-0.5 shrink-0" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
-                {[{ id: "ca", label: "CA" }, { id: "qte", label: "Quantité" }].map((s) => (
+                {[{ id: "ca", label: "CA" }, { id: "qte", label: t.qte_mode }].map((s) => (
                   <button key={s.id} onClick={() => setTopFlopSort(s.id)} className="btn-lift text-[11px] font-semibold px-3 py-1 rounded-full"
                     style={{ background: topFlopSort === s.id ? mpAccent.primary : "transparent", color: topFlopSort === s.id ? mpAccent.text : MUTED }}>
                     {s.label}
@@ -2099,8 +2312,8 @@ function DashboardApp() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
               <GlassCard className="p-4">
-                <Eyebrow tone="quiet" hint="Meilleures performances sur la sélection actuelle">🔝 Top 5</Eyebrow>
-                {topFlopData.top.length === 0 ? <span className="text-[12px]" style={{ color: FAINT }}>Aucune donnée</span> : topFlopData.top.map((p, i) => (
+                <Eyebrow tone="quiet" hint={t.top5_hint}>🔝 Top 5</Eyebrow>
+                {topFlopData.top.length === 0 ? <span className="text-[12px]" style={{ color: FAINT }}>{t.aucune_donnee}</span> : topFlopData.top.map((p, i) => (
                   <div key={p.produit} className="flex items-center gap-2 py-1.5" style={{ borderTop: i > 0 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
                     <span className="text-[10px] tabular-nums w-4 shrink-0" style={{ color: GREEN }}>{i+1}</span>
                     <span className="text-[12px] flex-1 truncate">{p.produit}</span>
@@ -2109,8 +2322,8 @@ function DashboardApp() {
                 ))}
               </GlassCard>
               <GlassCard className="p-4">
-                <Eyebrow tone="quiet" hint="Performances les plus faibles sur la sélection actuelle, hors accessoires">🔻 Flop 5</Eyebrow>
-                {topFlopData.flop.length === 0 ? <span className="text-[12px]" style={{ color: FAINT }}>Aucune donnée</span> : topFlopData.flop.map((p, i) => (
+                <Eyebrow tone="quiet" hint={t.flop5_hint}>🔻 Flop 5</Eyebrow>
+                {topFlopData.flop.length === 0 ? <span className="text-[12px]" style={{ color: FAINT }}>{t.aucune_donnee}</span> : topFlopData.flop.map((p, i) => (
                   <div key={p.produit} className="flex items-center gap-2 py-1.5" style={{ borderTop: i > 0 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
                     <span className="text-[10px] tabular-nums w-4 shrink-0" style={{ color: RED }}>{i+1}</span>
                     <span className="text-[12px] flex-1 truncate">{p.produit}</span>
@@ -2123,13 +2336,13 @@ function DashboardApp() {
               <Info size={11} /> {topFlopData.nbProduits} produits distincts vendus sur cette sélection · données issues des lignes de commande réelles, mise à jour du 25/08/2026 (jusqu'au 15 août)
             </div>
 
-            <SectionHeader hint="Compare juin-août 2026 à la même période 2025 (pas les mois précédents, pour ne pas confondre saisonnalité et vraie tendance) — respecte le filtre marketplace">Cycle de vie produit</SectionHeader>
+            <SectionHeader hint={t.cycle_vie_hint}>{t.cycle_vie_titre}</SectionHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               {[
-                { key: "lancement", label: "Lancement", color: "#4A9EFF", desc: "Pas de vente comparable l'an dernier" },
-                { key: "croissance", label: "Croissance", color: GREEN, desc: "+20% ou plus vs même période 2025" },
-                { key: "mature", label: "Mature", color: AMBER, desc: "Stable, entre -20% et +20%" },
-                { key: "declin", label: "Déclin", color: RED, desc: "-20% ou moins vs même période 2025" },
+                { key: "lancement", label: t.lifecycle_lancement_lbl, color: "#4A9EFF", desc: t.lifecycle_lancement_desc },
+                { key: "croissance", label: t.lifecycle_croissance_lbl, color: GREEN, desc: t.lifecycle_croissance_desc },
+                { key: "mature", label: t.lifecycle_mature_lbl, color: AMBER, desc: t.lifecycle_mature_desc },
+                { key: "declin", label: t.lifecycle_declin_lbl, color: RED, desc: t.lifecycle_declin_desc },
               ].map(({ key, label, color, desc }) => {
                 const items = lifecycleData[key] || [];
                 return (
@@ -2159,7 +2372,7 @@ function DashboardApp() {
                 <TiltCard key={p.produit} className="p-4" glow={i === 0} glowColor={mpAccent.primary} index={i}>
                   <div className="flex items-center justify-between mb-2"><span className="text-[12.5px] font-semibold truncate">{p.produit}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded shrink-0 ml-1" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                   <div className="tabular-nums text-[20px] font-bold">{fmtEURk(p.ca)}</div>
-                  <div className="flex items-center justify-between mt-1.5"><span className="text-[11.5px]" style={{ color: MUTED }}>{p.qte !== null ? `${fmtNum(p.qte)} ${t.unites_vendues}` : t.qte_nd_mp}</span><YoyBadge pct={p.yoy_pct} naLabel={t.nd} /></div>
+                  <div className="flex items-center justify-between mt-1.5"><span className="text-[11.5px]" style={{ color: MUTED }}>{p.qte !== null ? `${fmtNum(p.qte)} ${t.unites_vendues}` : t.qte_nd_mp}</span><YoyBadge pct={p.yoy_pct} naLabel={t.nd} lang={lang} /></div>
                 </TiltCard>
               ))}
             </div>
@@ -2171,7 +2384,7 @@ function DashboardApp() {
                   <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (p.ca / maxProdCa) * 100)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} /></div>
                   <span className="text-[11.5px] tabular-nums w-14 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(p.ca)}</span>
                   <span className="text-[11px] tabular-nums w-16 text-right shrink-0" style={{ color: FAINT }}>{p.qte !== null ? `${fmtNum(p.qte)} u.` : t.nd}</span>
-                  <span className="w-16 text-right shrink-0"><YoyBadge pct={p.yoy_pct} naLabel={t.nouveau} /></span>
+                  <span className="w-16 text-right shrink-0"><YoyBadge pct={p.yoy_pct} naLabel={t.nouveau} lang={lang} /></span>
                 </StaggerRow>
               ))}
             </GlassCard>
@@ -2199,10 +2412,10 @@ function DashboardApp() {
               </div>
             </GlassCard>
 
-            <SectionHeader hint="Produits réellement achetés ensemble (même numéro de commande), 2025+2026 — donnée globale, pas encore filtrable par marketplace ou période">Souvent achetés ensemble</SectionHeader>
+            <SectionHeader hint={t.panier_hint}>{t.panier_titre}</SectionHeader>
             {basketCroises.length > 0 && (
               <>
-                <Eyebrow tone="quiet" hint="Radiateur + sèche-serviette dans la même commande — signal de rénovation salle de bain complète">Ventes croisées radiateur × sèche-serviette</Eyebrow>
+                <Eyebrow tone="quiet" hint={t.panier_croise_hint}>{t.panier_croise_titre}</Eyebrow>
                 <GlassCard className="p-1.5 mb-4">
                   {basketCroises.map((p, i) => (
                     <div key={`${p.a}-${p.b}`} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < basketCroises.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
@@ -2213,7 +2426,7 @@ function DashboardApp() {
                 </GlassCard>
               </>
             )}
-            <Eyebrow tone="quiet" hint="Toutes paires confondues, y compris même gamme à puissances différentes">Toutes paires — top 8</Eyebrow>
+            <Eyebrow tone="quiet" hint={t.panier_toutes_hint}>{t.panier_toutes_titre}</Eyebrow>
             <GlassCard className="p-1.5 mb-3">
               {basketTop.map((p, i) => (
                 <div key={`${p.a}-${p.b}`} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < basketTop.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
@@ -2232,7 +2445,7 @@ function DashboardApp() {
             <>
             {/* ===== section — Normes NF / CE ===== */}
             <div>
-              <ZoneLabel first>Normes</ZoneLabel>
+              <ZoneLabel first>{t.zone_normes}</ZoneLabel>
               <SectionHeader hint={`${t.repartition_norme_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to})`}>{t.repartition_norme}</SectionHeader>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -2279,8 +2492,8 @@ function DashboardApp() {
                 </div>
                 <div className="grid grid-cols-1 gap-5 mb-3">
                   {[
-                    { key: "radiateur", titre: "Radiateurs", axes: [["Céramique","ceramique"],["Fonte","fonte"],["Film","film"],["WiFi","wifi"],["Vertical","vertical"],["Plinthe","plinthe"]] },
-                    { key: "secheServiette", titre: "Sèche-serviettes", axes: [["Soufflerie","soufflerie"],["WiFi","wifi"]] },
+                    { key: "radiateur", titre: t.radar_radiateurs, axes: [[t.axe_ceramique,"ceramique"],[t.axe_fonte,"fonte"],[t.axe_film,"film"],[t.axe_wifi,"wifi"],[t.axe_vertical,"vertical"],[t.axe_plinthe,"plinthe"]] },
+                    { key: "secheServiette", titre: t.radar_secheserviettes, axes: [[t.axe_soufflerie,"soufflerie"],[t.axe_wifi,"wifi"]] },
                   ].map(({ key, titre, axes }) => {
                     const p = radarProfiles[key];
                     if (!p) return (
@@ -2314,11 +2527,11 @@ function DashboardApp() {
                         </ResponsiveContainer>
                         <div className="flex items-center justify-between gap-3 pt-3 mt-1" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
                           <div>
-                            <div className="text-[9.5px] uppercase tracking-wider" style={{ color: FAINT }}>Prix régulier idéal</div>
+                            <div className="text-[9.5px] uppercase tracking-wider" style={{ color: FAINT }}>{t.prix_regulier_ideal}</div>
                             <div className="tabular-nums text-[16px] font-bold">{p.prixRegulier !== null ? fmtEURplain(p.prixRegulier) : "—"}</div>
                           </div>
                           <div className="text-right">
-                            <div className="text-[9.5px] uppercase tracking-wider" style={{ color: FAINT }}>Prix promo idéal*</div>
+                            <div className="text-[9.5px] uppercase tracking-wider" style={{ color: FAINT }}>{t.prix_promo_ideal}</div>
                             <div className="tabular-nums text-[16px] font-bold" style={{ color: AMBER }}>{p.prixPromo !== null ? fmtEURplain(p.prixPromo) : "—"}</div>
                           </div>
                         </div>
@@ -2341,7 +2554,7 @@ function DashboardApp() {
             <>
             {/* ===== section — Répartition catégories / sous-catégories, filtrable par marketplace ===== */}
             <div className="flex items-center justify-between mb-2 mt-9 flex-wrap gap-2">
-              <ZoneLabel>Catégories</ZoneLabel>
+              <ZoneLabel>{t.categories}</ZoneLabel>
               <SectionHeader hint={t.repartition_categorie_hint}>{t.repartition_categorie}</SectionHeader>
               {globalMp === "Toutes" ? (
                 <select value={catMpFilter} onChange={(e) => setCatMpFilter(e.target.value)}
@@ -2360,7 +2573,7 @@ function DashboardApp() {
               <div className="space-y-2">
                 {(DATA.category_by_mp.categories[catMpFilter] || []).map((c) => (
                   <div key={c.nom} className="flex items-center gap-3">
-                    <span className="text-[12px] w-40 shrink-0 truncate" style={{ color: INK }}>{c.nom}</span>
+                    <span className="text-[12px] w-40 shrink-0 truncate" style={{ color: INK }}>{translateCat(c.nom, lang)}</span>
                     <div className="flex-1 h-5 rounded-lg relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
                       <div className="h-full rounded-lg" style={{ width: `${c.pct}%`, background: `linear-gradient(90deg, ${ORANGE_SOFT}, ${ORANGE})`, transition: "width 0.7s cubic-bezier(.22,1,.36,1)" }} />
                     </div>
@@ -2375,7 +2588,7 @@ function DashboardApp() {
               <div className="space-y-1.5">
                 {(DATA.category_by_mp.souscategories[catMpFilter] || []).map((s, i) => (
                   <StaggerRow key={s.nom} index={i} className="flex items-center gap-3">
-                    <span className="text-[11px] w-44 shrink-0 truncate" style={{ color: MUTED }}>{s.nom}</span>
+                    <span className="text-[11px] w-44 shrink-0 truncate" style={{ color: MUTED }}>{translateCat(s.nom, lang)}</span>
                     <div className="flex-1 h-3.5 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
                       <div className="h-full rounded-full" style={{ width: `${Math.max(2, s.pct * 2.5)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} />
                     </div>
@@ -2389,18 +2602,18 @@ function DashboardApp() {
 
             {marquesTab === "puissances" && (
             <>
-            <ZoneLabel first>Puissances</ZoneLabel>
+            <ZoneLabel first>{t.zone_puissances}</ZoneLabel>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <SectionHeader hint={`Quantité vendue par puissance, filtrable date + marketplace comme le reste de l'app · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel}`}>Puissances les plus vendues</SectionHeader>
+              <SectionHeader hint={`${t.puissances_vendues_hint} · ${dateRangeLabel} (${periodStats.from} → ${periodStats.to}) · ${mpLabel}`}>{t.puissances_vendues_titre}</SectionHeader>
               <select value={wattageCat} onChange={(e) => setWattageCat(e.target.value)}
                 className="text-[12px] rounded-lg px-2.5 py-1.5 font-medium shrink-0" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }}>
-                <option value="Toutes" style={{ background: BG }}>Toutes catégories</option>
+                <option value="Toutes" style={{ background: BG }}>{t.toutes_categories}</option>
                 {wattageCats.map((c) => <option key={c} value={c} style={{ background: BG }}>{c}</option>)}
               </select>
             </div>
             <GlassCard className="p-5 mb-5 card-reveal">
               {wattageAnalysis.rows.length === 0 ? (
-                <span className="text-[12px]" style={{ color: FAINT }}>Aucune donnée de quantité sur cette sélection</span>
+                <span className="text-[12px]" style={{ color: FAINT }}>{t.aucune_donnee_qte}</span>
               ) : (
                 <>
                   <div className="space-y-2.5">
@@ -2510,14 +2723,14 @@ function DashboardApp() {
 
         {tab === "ads" && (
           <>
-            <PeriodSummaryCard key={`ads-${globalMp}-${datePreset}`} items={summaryAds} />
+            <PeriodSummaryCard key={`ads-${globalMp}-${datePreset}`} items={summaryAds} t={t} />
             {globalMp !== "Toutes" && (GF_TO_ADS[globalMp] || []).length === 0 ? (
               <GlassCard className="p-6 text-center" quiet>
                 <span className="text-[12.5px]" style={{ color: FAINT }}>{lang==="en"?`No distinct ad data for ${globalMp} — this channel has no dedicated line in the marketing budget file`:lang==="zh"?`${globalMp} 暂无独立广告数据 — 该渠道在营销预算文件中没有专属行`:`Pas de données ads distinctes pour ${globalMp} — ce canal n'a pas de ligne dédiée dans le fichier budget marketing`}</span>
               </GlassCard>
             ) : (
             <>
-            <ZoneLabel first>Performance</ZoneLabel>
+            <ZoneLabel first>{t.zone_performance}</ZoneLabel>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
               <TiltCard className="p-5" glow glowColor={mpAccent.primary} index={0}><Eyebrow hint={t.depense_totale_hint}>{t.depense_totale}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalSpend)}</div></TiltCard>
               <TiltCard className="p-5" glow glowColor={mpAccent.primary} index={1}><Eyebrow hint={t.ca_genere_ht_hint}>{t.ca_genere_ht}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalAdsCa)}</div></TiltCard>
@@ -2525,7 +2738,7 @@ function DashboardApp() {
             </div>
 
             {/* ===== section — Budget / Consommé / Restant, très visuel ===== */}
-            <ZoneLabel>Budget</ZoneLabel>
+            <ZoneLabel>{t.zone_budget}</ZoneLabel>
             <div className="mb-2">
               <SectionHeader hint={t.budget_pub_mp_hint}>{t.budget_pub_mp}</SectionHeader>
             </div>
@@ -2554,7 +2767,7 @@ function DashboardApp() {
               })}
             </div>
 
-            <ZoneLabel>Classement</ZoneLabel>
+            <ZoneLabel>{t.zone_classement}</ZoneLabel>
             <div>
             <SectionHeader hint={t.top3_ads_hint}>{t.top3_ads}</SectionHeader>
             </div>
@@ -2608,7 +2821,7 @@ function DashboardApp() {
         {tab === "concurrence" && (
           <>
             <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-              <SectionHeader hint="Veille collectée manuellement par recherche web — France. Aucun prix, classement ou volume inventé.">Concurrence</SectionHeader>
+              <SectionHeader hint={t.conc_hint}>{t.conc_titre}</SectionHeader>
             </div>
 
             {/* bloc de filtres unique — segment, sous-catégorie, marketplace regroupés,
@@ -2632,16 +2845,16 @@ function DashboardApp() {
                 {concSousCatsDuSegment.map((sc) => (
                   <button key={sc} onClick={() => setConcSousCat(sc)} className="btn-lift text-[11px] font-medium px-2.5 py-1 rounded-full shrink-0"
                     style={{ background: concSousCat === sc ? `${ORANGE}22` : "transparent", color: concSousCat === sc ? ORANGE_SOFT : MUTED, border: `1px solid ${concSousCat === sc ? ORANGE_SOFT + "55" : PANEL_BORDER_QUIET}` }}>
-                    {sc}
+                    {translateCat(sc, lang)}
                   </button>
                 ))}
               </div>
 
               <div className="flex items-center gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
-                <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>Marketplace :</span>
+                <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>{t.marketplace_label}</span>
                 <select value={concMpFilter} onChange={(e) => setConcMpFilter(e.target.value)}
                   className="text-[12px] rounded-lg px-2.5 py-1.5 font-medium" style={{ background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, colorScheme: "dark" }}>
-                  <option value="Toutes" style={{ background: BG }}>Toutes</option>
+                  <option value="Toutes" style={{ background: BG }}>{t.toutes_mp}</option>
                   {concMarketplacesDuSegment.map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
                 </select>
                 {concBesthermCount > 0 && (
@@ -2660,19 +2873,19 @@ function DashboardApp() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-[12.5px]" style={{ color: MUTED }}>
                   <div>
-                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>Position Heater — </span>
-                    {mpConcSummary.bestHeater > 0 ? `${mpConcSummary.bestHeater} référence(s) Bestherm/Thomson identifiée(s) sur ${mpConcSummary.nbHeater} produits recensés.` : "Aucune référence Bestherm/Thomson identifiée dans la collecte actuelle."}
+                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>{t.conc_position_heater}</span>
+                    {mpConcSummary.bestHeater > 0 ? `${mpConcSummary.bestHeater} ${t.conc_ref_identifiees_sur} ${mpConcSummary.nbHeater} ${t.conc_produits_recenses}` : t.conc_aucune_ref_heater}
                   </div>
                   <div>
-                    <span className="font-semibold" style={{ color: "#6FB4FF" }}>Position Cooling — </span>
-                    {mpConcSummary.bestCooling > 0 ? `${mpConcSummary.bestCooling} référence(s) Bestherm/Thomson sur ${mpConcSummary.nbCooling} produits.` : "Aucune référence Bestherm/Thomson — marché non adressé sur cette marketplace pour l'instant."}
+                    <span className="font-semibold" style={{ color: "#6FB4FF" }}>{t.conc_position_cooling}</span>
+                    {mpConcSummary.bestCooling > 0 ? `${mpConcSummary.bestCooling} ${t.conc_ref_sur} ${mpConcSummary.nbCooling} ${t.conc_produits_point}` : t.conc_aucune_ref_cooling}
                   </div>
                   <div>
-                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>Radiateurs — </span>
+                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>{t.conc_radiateurs}</span>
                     {mpConcSummary.radPrixNb > 0 ? `prix moyen ${fmtEURplain(mpConcSummary.radPrixMoyen)} sur ${mpConcSummary.radPrixNb} prix réellement collecté(s) (échantillon restreint, pas une moyenne de marché fiable).` : `aucun prix collecté sur cette marketplace (${mpConcSummary.radProducts.length} produit(s) identifié(s) sans prix).`}
                   </div>
                   <div>
-                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>Sèche-serviettes — </span>
+                    <span className="font-semibold" style={{ color: ORANGE_SOFT }}>{t.conc_secheserviettes}</span>
                     {mpConcSummary.sechePrixNb > 0 ? `prix moyen ${fmtEURplain(mpConcSummary.sechePrixMoyen)} sur ${mpConcSummary.sechePrixNb} prix collecté(s).` : `aucun prix collecté sur cette marketplace (${mpConcSummary.secheProducts.length} produit(s) identifié(s) sans prix).`}
                   </div>
                 </div>
@@ -2683,7 +2896,7 @@ function DashboardApp() {
                       {Object.entries(mpConcSummary.concurrentsByBrand).sort((a,b) => b[1].length - a[1].length).slice(0, 6).map(([marque, produits]) => (
                         <div key={marque} className="flex items-start gap-2 text-[11.5px]">
                           <span className="font-semibold w-24 shrink-0 truncate">{marque}</span>
-                          <span style={{ color: FAINT }}>{[...new Set(produits.map((p) => p.sous_categorie))].join(", ")} — {produits.length} référence{produits.length>1?"s":""}</span>
+                          <span style={{ color: FAINT }}>{[...new Set(produits.map((p) => p.sous_categorie))].join(", ")} — {produits.length} {produits.length>1?t.conc_reference_plur:t.conc_reference_sing}</span>
                         </div>
                       ))}
                     </div>
@@ -2705,7 +2918,7 @@ function DashboardApp() {
 
             {/* sous-navigation interne à l'onglet */}
             <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
-              {[{ id: "synthese", label: "Synthèse" }, { id: "produits", label: "Top produits" }, { id: "prix", label: "Prix" }, { id: "comparatif", label: "Comparatif" }].map((s) => (
+              {[{ id: "synthese", label: t.summary_synthese }, { id: "produits", label: t.conc_top_produits }, { id: "prix", label: t.prix_mode }, { id: "comparatif", label: t.conc_comparatif }].map((s) => (
                 <button key={s.id} onClick={() => setConcTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full"
                   style={{ background: concTab === s.id ? "linear-gradient(135deg, #4A9EFF, #6FB4FF)" : "transparent", color: concTab === s.id ? "#0A0908" : MUTED }}>
                   {s.label}
@@ -2717,25 +2930,25 @@ function DashboardApp() {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   <TiltCard className="p-4" quiet index={0}>
-                    <Eyebrow tone="quiet" hint="Sélection actuelle (segment/sous-catégorie/marketplace)">Produits suivis</Eyebrow>
+                    <Eyebrow tone="quiet" hint={t.conc_produits_suivis_hint}>{t.conc_produits_suivis}</Eyebrow>
                     <div className="tabular-nums text-[22px] font-bold">{concNbProduits}</div>
                   </TiltCard>
 
                   <TiltCard className="p-4" quiet index={1}>
-                    <Eyebrow tone="quiet" hint="Sur les produits où le prix a pu être vérifié">Prix moyen</Eyebrow>
+                    <Eyebrow tone="quiet" hint={t.conc_prix_moyen_hint}>{t.conc_prix_moyen}</Eyebrow>
                     <div className="tabular-nums text-[22px] font-bold">{concPrixMoyen !== null ? fmtEUR(concPrixMoyen) : "—"}</div>
                   </TiltCard>
                   <TiltCard className="p-4" quiet index={2}>
-                    <Eyebrow tone="quiet" hint="Du moins cher au plus cher, prix vérifiés uniquement">Fourchette prix</Eyebrow>
+                    <Eyebrow tone="quiet" hint={t.conc_fourchette_prix_hint}>{t.conc_fourchette_prix}</Eyebrow>
                     <div className="tabular-nums text-[15px] font-bold">{concPrixMin !== null ? `${fmtEURplain(concPrixMin)} – ${fmtEURplain(concPrixMax)}` : "—"}</div>
                   </TiltCard>
                   <TiltCard className="p-4" quiet index={3}>
-                    <Eyebrow tone="quiet" hint="Produits affichant une remise vs prix de référence">En promotion</Eyebrow>
+                    <Eyebrow tone="quiet" hint={t.conc_en_promo_hint}>{t.conc_en_promo}</Eyebrow>
                     <div className="tabular-nums text-[22px] font-bold">{concPromoCount}<span className="text-[13px] font-normal" style={{ color: FAINT }}> / {concNbProduits}</span></div>
                   </TiltCard>
                 </div>
 
-                <SectionHeader hint="Fiabilité de la collecte par sous-catégorie et marketplace — méthodologie et limites propres à chaque source">Sources et qualité</SectionHeader>
+                <SectionHeader hint={t.conc_sources_qualite_hint}>{t.conc_sources_qualite}</SectionHeader>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                   {concSourcesQualite.map((d, i) => {
                     const conf = CONF_STYLE[d.confiance];
@@ -2749,13 +2962,13 @@ function DashboardApp() {
                         <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: FAINT }}>{d.sousCategorie}</div>
                         <div className="text-[11px] mb-1" style={{ color: MUTED }}>{d.methodologie}</div>
                         {d.note && <div className="flex items-center gap-1 text-[10.5px]" style={{ color: FAINT }}><Info size={10} /> {d.note}</div>}
-                        <div className="text-[10.5px] mt-1.5" style={{ color: FAINT }}>{d.produits.length} produit{d.produits.length>1?"s":""} collecté{d.produits.length>1?"s":""}</div>
+                        <div className="text-[10.5px] mt-1.5" style={{ color: FAINT }}>{d.produits.length} {d.produits.length>1?t.conc_produit_plur:t.conc_produit_sing} {d.produits.length>1?t.conc_collecte_plur:t.conc_collecte_sing}</div>
                       </StaggerRow>
                     );
                   })}
                 </div>
 
-                <SectionHeader hint="Marques les plus présentes dans la collecte, toutes marketplaces confondues (nombre d'apparitions, pas de part de marché réelle)">Marques les plus visibles</SectionHeader>
+                <SectionHeader hint={t.conc_marques_visibles_hint}>{t.conc_marques_visibles}</SectionHeader>
                 <GlassCard className="p-1.5">
                   {concMarquesCount.slice(0, 10).map(([marque, count], i) => (
                     <div key={marque} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: i < Math.min(9, concMarquesCount.length-1) ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
@@ -2773,7 +2986,7 @@ function DashboardApp() {
             {concTab === "produits" && (
               <>
                 <GlassCard className="p-1.5">
-                  {concAllProducts.length === 0 && <div className="p-4 text-center text-[12px]" style={{ color: FAINT }}>Aucun produit pour cette sélection</div>}
+                  {concAllProducts.length === 0 && <div className="p-4 text-center text-[12px]" style={{ color: FAINT }}>{t.conc_aucun_produit}</div>}
                   {concAllProducts.map((p, i) => {
                     const conf = CONF_STYLE[p.confiance];
                     const ConfIcon = conf.icon;
@@ -2784,9 +2997,9 @@ function DashboardApp() {
                           <div className="text-[12px] truncate">
                             {p.produit}
                             {p.est_bestherm && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${ORANGE}22`, color: ORANGE_SOFT }}>{p.note_special || "Bestherm/Thomson"}</span>}
-                            {p.sponsorise && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: PANEL_QUIET, color: FAINT }}>Sponsorisé</span>}
+                            {p.sponsorise && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: PANEL_QUIET, color: FAINT }}>{t.conc_sponsorise}</span>}
                           </div>
-                          <div className="text-[10.5px] truncate" style={{ color: FAINT }}>{p.marque || "Marque non identifiée"} · {p.marketplace} · {p.sous_categorie}</div>
+                          <div className="text-[10.5px] truncate" style={{ color: FAINT }}>{p.marque || t.marque_non_identifiee} · {p.marketplace} · {p.sous_categorie}</div>
                         </div>
                         <div className="text-right shrink-0">
                           {p.prix != null ? (
@@ -2794,7 +3007,7 @@ function DashboardApp() {
                               <div className="text-[12px] font-semibold tabular-nums" style={{ color: "#6FB4FF" }}>{fmtEURplain(p.prix)}</div>
                               {p.remise && <div className="text-[10px] tabular-nums" style={{ color: GREEN }}>-{p.remise}% vs {fmtEURplain(p.prix_avant)}</div>}
                             </>
-                          ) : <span className="text-[11px]" style={{ color: FAINT }}>Prix n/d</span>}
+                          ) : <span className="text-[11px]" style={{ color: FAINT }}>{t.conc_prix_nd}</span>}
                         </div>
                         <ConfIcon size={13} color={conf.color} className="shrink-0" />
                       </StaggerRow>
@@ -2806,14 +3019,14 @@ function DashboardApp() {
 
             {concTab === "prix" && (
               <>
-                <SectionHeader hint="Prix vérifiés uniquement — les produits sans prix extrait de façon fiable n'apparaissent pas ici">Comparatif prix par marketplace</SectionHeader>
+                <SectionHeader hint={t.conc_comparatif_prix_mp_hint}>{t.conc_comparatif_prix_mp}</SectionHeader>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {concMarketplacesDuSegment.filter((mp) => concMpFilter === "Toutes" || mp === concMpFilter).map((mp, i) => {
                     const prods = concAllProducts.filter((p) => p.marketplace === mp && p.prix != null);
                     if (!prods.length) return (
                       <StaggerRow key={mp} index={i} className="rounded-2xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
                         <span className="text-[13px] font-semibold">{mp}</span>
-                        <div className="text-[11px] mt-1" style={{ color: FAINT }}>Aucun prix vérifié sur cette sélection</div>
+                        <div className="text-[11px] mt-1" style={{ color: FAINT }}>{t.conc_aucun_prix_verifie}</div>
                       </StaggerRow>
                     );
                     const avg = prods.reduce((s,p)=>s+p.prix,0)/prods.length;
@@ -2821,7 +3034,7 @@ function DashboardApp() {
                       <StaggerRow key={mp} index={i} className="rounded-2xl p-4" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[13px] font-semibold">{mp}</span>
-                          <span className="text-[15px] font-bold tabular-nums" style={{ color: "#6FB4FF" }}>{fmtEURplain(avg)} <span className="text-[10px] font-normal" style={{ color: FAINT }}>moy.</span></span>
+                          <span className="text-[15px] font-bold tabular-nums" style={{ color: "#6FB4FF" }}>{fmtEURplain(avg)} <span className="text-[10px] font-normal" style={{ color: FAINT }}>{t.conc_moy}</span></span>
                         </div>
                         <div className="space-y-1">
                           {prods.sort((a,b)=>a.prix-b.prix).map((p,j) => (
@@ -2840,10 +3053,10 @@ function DashboardApp() {
 
             {concTab === "comparatif" && (
               <>
-                <SectionHeader hint="Prix Bestherm/Thomson comparés à la moyenne des concurrents (Bestherm/Thomson exclus du calcul de cette moyenne) — uniquement où un vrai prix concurrent a pu être vérifié">Bestherm/Thomson vs marché</SectionHeader>
+                <SectionHeader hint={t.conc_vs_marche_hint}>{t.conc_vs_marche}</SectionHeader>
                 {concComparatif.length === 0 ? (
                   <GlassCard className="p-5 text-center" quiet>
-                    <span className="text-[12.5px]" style={{ color: FAINT }}>Pas encore de prix concurrent vérifié dans la même sous-catégorie qu'un produit Bestherm/Thomson, sur cette sélection — comparaison impossible pour l'instant plutôt qu'approximative.</span>
+                    <span className="text-[12.5px]" style={{ color: FAINT }}>{t.conc_pas_de_comparaison}</span>
                   </GlassCard>
                 ) : (
                   <div className="space-y-4">
@@ -2877,14 +3090,14 @@ function DashboardApp() {
 
             {/* export du rapport — toujours visible, quel que soit le sous-onglet actif */}
             <div className="flex items-center gap-2 mt-8 pt-5 flex-wrap" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
-              <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>Exporter :</span>
+              <span className="text-[10.5px] uppercase tracking-wider font-medium shrink-0" style={{ color: MUTED }}>{t.conc_exporter}</span>
               <button onClick={downloadConcReportMd} className="btn-lift text-[11.5px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: "#6FB4FF" }}>
                 <ExternalLink size={11} /> Rapport (Markdown)
               </button>
               <button onClick={downloadConcReportCsv} className="btn-lift text-[11.5px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: "#6FB4FF" }}>
                 <ExternalLink size={11} /> Données (CSV)
               </button>
-              <span className="text-[10px] w-full sm:w-auto sm:ml-1" style={{ color: FAINT }}>Nommé à la date du jour · reflète la sélection en cours (segment/sous-catégorie/marketplace)</span>
+              <span className="text-[10px] w-full sm:w-auto sm:ml-1" style={{ color: FAINT }}>{t.conc_nomme_date}</span>
             </div>
           </>
         )}
@@ -2892,16 +3105,16 @@ function DashboardApp() {
         {tab === "supply" && (
           <>
             <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
-              <SectionHeader hint="Construit uniquement sur des données réellement disponibles — classification ABC (2026), historique de ventes (2024-2026). Aucune donnée stock, transport ou fournisseur n'existe dans les fichiers fournis.">Supply</SectionHeader>
+              <SectionHeader hint={t.supply_hint}>{t.supply_titre}</SectionHeader>
             </div>
             <div className="flex items-center gap-1.5 mb-6 text-[11px]" style={{ color: FAINT }}>
               <Info size={11} /> Onglet volontairement partiel — voir la note en bas de page pour ce qui manque et pourquoi
             </div>
 
-            <ZoneLabel first>Classification ABC — 2026</ZoneLabel>
+            <ZoneLabel first>{t.zone_abc}</ZoneLabel>
             <div className="flex flex-wrap gap-x-8 gap-y-4 mb-6 px-1">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: MUTED }}>SKU classés</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: MUTED }}>{t.sku_classes}</div>
                 <div className="tabular-nums text-[23px] font-bold leading-none">{abcSummary.nbSku}</div>
                 <div className="text-[11px] mt-1.5" style={{ color: FAINT }}>CA HT total : {fmtEUR(abcSummary.totalCa)}</div>
               </div>
@@ -2924,7 +3137,7 @@ function DashboardApp() {
               <Info size={11} /> A = forte contribution CA, D = contribution marginale — classification fournie directement par ton fichier, année 2026 uniquement (seule année avec cette donnée)
             </div>
 
-            <ZoneLabel>Saisonnalité — indice 2024-2025</ZoneLabel>
+            <ZoneLabel>{t.zone_saison}</ZoneLabel>
             <GlassCard className="p-5 mb-3" quiet>
               <div className="space-y-2">
                 {seasonalityRows.map((r) => (
@@ -2945,20 +3158,23 @@ function DashboardApp() {
               </div>
             </GlassCard>
 
-            <ZoneLabel>Anticipation — septembre à décembre 2026</ZoneLabel>
+            <ZoneLabel>{t.zone_anticipation}</ZoneLabel>
+            <div className="flex items-center gap-1.5 mb-3 px-1 text-[10.5px]" style={{ color: FAINT }}>
+              <Info size={11} /> Fourchette, pas un chiffre unique — la croissance mois par mois 2026 vs 2025 est volatile (jusqu'à -13% un mois, +138% un autre). Basse = croissance YTD (jan-août, plus stable) · Haute = croissance récente (juin-août, plus réactive).
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
               {["Sep","Oct","Nov","Déc"].map((m, i) => (
                 <GlassCard key={m} className="p-4" quiet glow={m === "Nov"} glowColor={RED}>
-                  <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1" style={{ color: MUTED }}>{m} 2026</div>
-                  <div className="tabular-nums text-[17px] font-bold">{fmtEURk(ANTICIPATION.projection_sept_dec[i])}</div>
+                  <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1" style={{ color: MUTED }}>{{Sep:t.mois_sep_court,Oct:t.mois_oct_court,Nov:t.mois_nov_court,"Déc":t.mois_dec_court}[m]} 2026</div>
+                  <div className="tabular-nums text-[15px] font-bold">{fmtEURk(anticipation.parMois[i].bas)} <span className="text-[11px] font-normal" style={{ color: FAINT }}>–</span> {fmtEURk(anticipation.parMois[i].haut)}</div>
                 </GlassCard>
               ))}
             </div>
             <div className="flex items-center gap-1.5 mb-6 px-1 text-[10.5px]" style={{ color: FAINT }}>
-              <Info size={11} /> Total anticipé sept-déc : {fmtEUR(anticipationTotal)} · méthode : CA réel du même mois 2025 × taux de croissance récent (juin-août 2026 vs 2025, +{(ANTICIPATION.growth_rate*100).toFixed(0)}%) — une estimation explicite, pas une boîte noire. À affiner si tu as un budget ou une tendance plus récente à intégrer.
+              <Info size={11} /> Total anticipé sept-déc : {fmtEUR(anticipation.bas)} à {fmtEUR(anticipation.haut)} · croissance YTD +{(anticipation.growthYtd*100).toFixed(0)}%, croissance récente +{(anticipation.growthRecent*100).toFixed(0)}% · pas une boîte noire, les deux méthodes sont explicites. À affiner si tu as un budget ou une tendance plus récente à intégrer.
             </div>
 
-            <SectionHeader hint="Même méthode que l'anticipation globale, calculée séparément par marketplace — la répartition attendue du pic n'est pas forcément celle du poids actuel">Anticipation par marketplace</SectionHeader>
+            <SectionHeader hint={t.anticipation_mp_hint}>{t.anticipation_mp_titre}</SectionHeader>
             <GlassCard className="p-1.5 mb-6">
               {anticipationByMp.map((r, i) => (
                 <StaggerRow key={r.mp} index={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: i < anticipationByMp.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
@@ -2966,22 +3182,21 @@ function DashboardApp() {
                   <div className="flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
                     <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(2, (r.total/anticipationByMp[0].total)*100)}%`, background: mpAccent.primary }} />
                   </div>
-                  <span className="tabular-nums text-[12px] font-semibold w-20 text-right shrink-0">{fmtEURk(r.total)}</span>
-                  <span className="tabular-nums text-[10.5px] w-14 text-right shrink-0" style={{ color: r.avgGrowth >= 0 ? GREEN : RED }}>{r.avgGrowth >= 0 ? "+" : ""}{(r.avgGrowth*100).toFixed(0)}%</span>
+                  <span className="tabular-nums text-[11.5px] font-semibold w-32 text-right shrink-0">{fmtEURk(r.bas)}–{fmtEURk(r.haut)}</span>
                 </StaggerRow>
               ))}
             </GlassCard>
 
-            <ZoneLabel>Ce qui manque pour aller plus loin</ZoneLabel>
+            <ZoneLabel>{t.zone_manquant}</ZoneLabel>
             <GlassCard className="p-5" quiet>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[12px]" style={{ color: MUTED }}>
                 <div>
-                  <div className="font-semibold mb-1" style={{ color: INK }}>Stocks & approvisionnement</div>
-                  <div style={{ color: FAINT }}>Couverture, point de commande, stock de sécurité, rupture, surstock — nécessite un export stock (disponible/réservé/bloqué) qui n'existe pas encore dans les fichiers fournis.</div>
+                  <div className="font-semibold mb-1" style={{ color: INK }}>{t.manque_stock_titre}</div>
+                  <div style={{ color: FAINT }}>{t.manque_stock_texte}</div>
                 </div>
                 <div>
-                  <div className="font-semibold mb-1" style={{ color: INK }}>Transport & livraison</div>
-                  <div style={{ color: FAINT }}>Coûts transporteur, délais, taux de retard/casse — nécessite un export transporteur (aucune donnée de ce type reçue).</div>
+                  <div className="font-semibold mb-1" style={{ color: INK }}>{t.manque_transport_titre}</div>
+                  <div style={{ color: FAINT }}>{t.manque_transport_texte}</div>
                 </div>
               </div>
             </GlassCard>
@@ -2996,7 +3211,7 @@ function DashboardApp() {
         </div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
-            {[{ id: "fr", label: "FR" }, { id: "en", label: "EN" }, { id: "zh", label: "中文" }].map((l) => (
+            {[{ id: "fr", label: "FR" }, { id: "en", label: "EN" }, { id: "es", label: "ES" }, { id: "zh", label: "中文" }].map((l) => (
               <button key={l.id} onClick={() => setLang(l.id)} className="btn-lift text-[10.5px] font-semibold px-2.5 py-1 rounded-full"
                 style={{ background: lang === l.id ? `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})` : "transparent", color: lang === l.id ? "#0A0908" : MUTED }}>
                 {l.label}
@@ -3009,7 +3224,7 @@ function DashboardApp() {
             background: liveConnection.status === "connected" ? `${GREEN}18` : "transparent",
           }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ background: liveConnection.status === "connected" ? GREEN : liveConnection.status === "error" ? RED : FAINT }} />
-            {liveConnection.status === "not_configured" && "Données statiques"}
+            {liveConnection.status === "not_configured" && t.donnees_statiques}
             {liveConnection.status === "loading" && "Connexion en cours…"}
             {liveConnection.status === "connected" && `Live · ${liveConnection.data.nb_lignes_ventes} lignes · ${liveConnection.syncedAt.toLocaleTimeString("fr-FR")}`}
             {liveConnection.status === "error" && `Échec connexion (${liveConnection.error})`}
@@ -3031,16 +3246,22 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, info) { console.error("Erreur applicative :", error, info); }
   render() {
     if (this.state.hasError) {
+      // ErrorBoundary est au-dessus de DashboardApp dans l'arbre : il n'a pas
+      // accès à son état "lang" interne (remonter cet état casserait potentiellement
+      // le chemin normal pour un gain minime sur cet écran de secours rare).
+      // Détection autonome via la langue du navigateur à la place.
+      const browserLang = (typeof navigator !== "undefined" && navigator.language || "fr").slice(0, 2);
+      const et = I18N[browserLang] && I18N[browserLang].erreur_titre ? I18N[browserLang] : I18N.fr;
       return (
         <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center" style={{ background: BG, color: INK }}>
           <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: `${ORANGE}22` }}>
             <AlertTriangle size={18} color={ORANGE_SOFT} />
           </div>
-          <p className="text-[14px] font-semibold">Un problème est survenu</p>
-          <p className="text-[12.5px] max-w-xs" style={{ color: MUTED }}>L'application a rencontré une erreur inattendue. Recharger la page résout généralement le problème.</p>
+          <p className="text-[14px] font-semibold">{et.erreur_titre}</p>
+          <p className="text-[12.5px] max-w-xs" style={{ color: MUTED }}>{et.erreur_msg}</p>
           <button onClick={() => window.location.reload()} className="btn-lift text-[12px] font-semibold px-5 py-2 rounded-full mt-1"
             style={{ background: `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})`, color: "#0A0908" }}>
-            Recharger
+            {et.recharger}
           </button>
         </div>
       );
