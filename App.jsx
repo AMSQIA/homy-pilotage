@@ -2348,8 +2348,15 @@ function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
     if (rs) return { type: "reponse", texte: rs.reponse(), action: rs.action };
     const q = matchChatQuestion(saisie);
     if (q) return { type: "reponse", texte: q.reponse(), action: q.action };
-    const intent = matchChatIntent(saisie);
-    if (intent) return { type: "navigation", intent };
+    // matchChatIntent fait un simple test de mot-clé, sans jugement de longueur ou de
+    // complexité — une vraie question qui mentionne juste une marketplace ou une marque
+    // ("quelle stratégie pour booster HOM'Y ?") ne doit pas être réduite à une simple
+    // navigation. On ne l'accepte que pour une saisie courte, sans marque de question.
+    const ressembleANavigation = !saisie.includes("?") && saisie.trim().split(/\s+/).length <= 4;
+    if (ressembleANavigation) {
+      const intent = matchChatIntent(saisie);
+      if (intent) return { type: "navigation", intent };
+    }
     return { type: "perdu" };
   };
   const afficherPerdu = (message) => {
@@ -2363,27 +2370,20 @@ function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
     else if (r.type === "navigation") confirmerEtNaviguer(r.intent);
     else afficherPerdu(messagePerduSpecifique);
   };
-  // un mot-clé de navigation seul ("prix", "amazon", "concurrence") va directement à
-  // l'écran, même quand l'IA est active ; dès qu'il y a une vraie question (point
-  // d'interrogation, chiffre, mois, mot interrogatif, plus de 3 mots) → l'IA répond
-  const estCommandeNavigation = (saisie) => {
-    const n = normaliserTexte(saisie);
-    if (saisie.includes("?") || /\d/.test(saisie) || saisie.trim().split(/\s+/).length > 3) return false;
-    if (MOIS_NOMS_FR.some((m) => n.includes(m))) return false;
-    if (/\b(combien|quel|quelle|quels|quelles|pourquoi|comment|compar|top|classement|evolution|baisse|hausse|meilleur|pire|vente|ventes|vendu|forecast|prevision|rupture|moyen)/.test(n)) return false;
-    return Boolean(matchChatIntent(saisie)) && !parseRequeteStructuree(saisie) && !matchChatQuestion(saisie);
-  };
-
   const soumettre = async (texteChoisi) => {
     const saisie = (texteChoisi ?? texte).trim();
     if (!saisie || etat === "reflexion") return;
     clearTimeout(perduTimerRef.current);
     setMessagePerdu(null);
     setDerniereQuestion(saisie);
-    if (estCommandeNavigation(saisie)) { appliquerLocal(repondreLocalement(saisie)); return; }
+    // le système local (instantané) répond toujours en premier — CA, prix, ads,
+    // marques, produits, navigation... tout ce qu'il couvre déjà. L'IA (plus lente,
+    // aller-retour serveur) ne prend le relais que pour ce que le local ne reconnaît pas.
+    const local = repondreLocalement(saisie);
+    if (local.type !== "perdu") { appliquerLocal(local); return; }
     let ia = iaDispo;
     if (ia === null && sondeRef.current) ia = await sondeRef.current;
-    if (!ia) { appliquerLocal(repondreLocalement(saisie)); return; }
+    if (!ia) { afficherPerdu(); return; }
     setEtat("reflexion"); setStatutReflexion(tx.reflechit); setTexte("");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -2401,7 +2401,7 @@ function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
       setReponseTexte(rep); setReponseAction(action || { tab: "apercu" }); setEtat("reponse");
     } catch (e) {
       if (sortieRef.current) return;
-      appliquerLocal(repondreLocalement(saisie), tx.iaIndisponible);
+      afficherPerdu(tx.iaIndisponible);
     } finally { clearTimeout(chrono); }
   };
 
