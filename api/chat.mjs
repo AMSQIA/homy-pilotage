@@ -10,7 +10,7 @@
 // ANTHROPIC_API_KEY n'est pas définie (ou le projet n'a pas été redéployé depuis).
 
 const API_URL = process.env.ANTHROPIC_API_URL || "https://api.anthropic.com/v1/messages";
-const MODELE = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+const MODELE = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 const MAX_TOKENS = 900;
 const MAX_MESSAGES = 30;
 const MAX_CARACTERES_BLOC = 24000;
@@ -37,18 +37,21 @@ const OUTILS = [
     sort_by: { type: "string", enum: ["ca", "qte"], description: "Tri des groupes (défaut ca)." },
     top_n: { type: "integer", minimum: 1, maximum: 30, description: "Nombre de groupes retournés (défaut 10)." },
   }),
-  outil("get_kpis", "Vue d'ensemble : CA 2026, quantités, panier moyen, objectif annuel et % atteint, classement des marketplaces avec évolution vs 2025 et objectifs, CA mensuel global par année, meilleurs produits."),
-  outil("get_brands", "CA par marque (Bestherm, Thomson, HOM'Y) : 2025 vs 2026, évolution et CA mensuel ; optionnellement le CA mensuel 2026 d'une marque sur une marketplace.", {
+  outil("get_kpis", "Vue d'ensemble : CA 2026 HT à date, quantités, panier moyen, objectif annuel (15 M€) et % atteint, plan 2026 à date (écart en points), classement des marketplaces avec évolution vs la MÊME période 2025 et objectifs, CA mensuel global par année, meilleur produit."),
+  outil("get_objectives", "Plan 2026 : objectif annuel (15 M€ HT), plan mensuel et hebdomadaire, objectif cumulé attendu à ce jour et écart avec le réalisé (en € et en points), objectifs par marketplace et par pays. À utiliser pour toute question sur l'objectif, le plan, l'avance ou le retard, ou la tenue d'un mois ou d'une semaine.", {
+    last_weeks: { type: "integer", minimum: 1, maximum: 12, description: "Nombre de dernières semaines détaillées (objectif de la semaine vs réalisé). Défaut 6." },
+  }),
+  outil("get_brands", "CA par marque (Bestherm, Thomson, HOM'Y) : 2026 vs la MÊME période 2025 (et 2025 année complète), évolution et CA mensuel ; optionnellement le CA mensuel 2026 d'une marque sur une marketplace.", {
     brand: { type: "string", description: "Bestherm, Thomson ou HOM'Y (vide = toutes les marques)." },
     marketplace: { type: "string", description: MP },
   }),
-  outil("get_marketplace_profile", "Profil complet d'une marketplace : CA, évolution, objectif, quantités, panier moyen, meilleur produit, top produits, CA mensuel par année et répartition par marque.", {
+  outil("get_marketplace_profile", "Profil complet d'une marketplace : CA, évolution vs la même période 2025, objectif, quantités, panier moyen, meilleur produit, top produits, CA mensuel par année et répartition par marque.", {
     marketplace: { type: "string", description: MP },
   }, ["marketplace"]),
-  outil("get_ads", "Publicité : dépenses, CA généré, ROAS, ACOS, budget annuel et % de budget consommé par marketplace. ATTENTION : uniquement des totaux annuels 2026, aucun détail mensuel.", {
+  outil("get_ads", "Publicité : dépenses, CA généré, ROAS, ACOS, budget annuel et % de budget consommé par marketplace. ATTENTION : le fichier budget marketing ne couvre que janvier–juin 2026 (totaux cumulés, aucun détail mensuel) ; les % de budget consommé sont donc sous-estimés à ce jour.", {
     marketplace: { type: "string", description: "Marketplace ads (ex. Amazon, Leroy Merlin, Cdiscount) ; vide = toutes, avec le détail par pays." },
   }),
-  outil("get_prices", "Prix HT constatés d'un produit par marketplace : dernier prix 2026, prix moyen pondéré 2026 et 2025, quantités, prix mois par mois 2026.", {
+  outil("get_prices", "Prix HT constatés d'un produit par marketplace : dernier prix 2026, prix moyen pondéré 2026 et 2025, quantités (2025 même période et année complète), prix mois par mois 2026.", {
     product: { type: "string", description: PRODUIT }, marketplace: { type: "string", description: MP },
   }, ["product"]),
   outil("get_elasticity", "Élasticité-prix estimée (produit × marketplace) : sensibilité des volumes au prix, avec indicateur de fiabilité.", {
@@ -67,7 +70,7 @@ const OUTILS = [
   outil("get_forecast", "Prévision annuelle d'un produit en CA et en quantité (saisonnalité) avec détection des mois de rupture et fiabilité de l'estimation.", {
     product: { type: "string", description: PRODUIT },
   }, ["product"]),
-  outil("get_product_info", "Fiche d'un produit : famille, classe ABC, CA 2025/2026, quantités, meilleures marketplaces, caractéristiques du catalogue (matière, garantie, dimensions…).", {
+  outil("get_product_info", "Fiche d'un produit : famille, classe ABC, CA 2026, CA 2025 (même période et année complète) et évolution à période comparable, quantités, meilleures marketplaces, caractéristiques du catalogue (matière, garantie, dimensions…).", {
     product: { type: "string", description: PRODUIT },
   }, ["product"]),
   outil("get_countries", "CA HT par pays, avec part du total et objectif annuel par pays ; filtrable par année, mois, pays ou marketplace.", {
@@ -84,7 +87,7 @@ const OUTILS = [
   outil("get_unsold_products", "Produits du catalogue qui n'ont aucune vente enregistrée.", {
     brand: { type: "string", description: "Filtrer sur une marque (Bestherm, Thomson, HOM'Y)." },
   }),
-  outil("get_weekly", "Ventes d'une semaine de 2026 : CA, quantités, prix moyen, répartition par marketplace, top produits et tendance sur 4 semaines.", {
+  outil("get_weekly", "Ventes d'une semaine de 2026 (semaines Excel dimanche→samedi, semaine 1 = 1er au 3 janvier) : CA, objectif de la semaine, quantités, prix moyen, répartition par marketplace, top produits et tendance sur 4 semaines.", {
     week: { type: "integer", description: "Numéro de semaine de 2026 (1 = première semaine). Défaut : dernière semaine disponible." },
     marketplace: { type: "string", description: MP },
   }),
@@ -116,11 +119,13 @@ function promptSysteme(lang) {
     "5. Si la question n'a aucun rapport avec l'activité ou les données de l'entreprise (culture générale, blague, vie privée, politique, code, etc.), réponds uniquement « Oulah ! Question de fripon 🙈 » (traduit si la question n'est pas en français), sans appeler d'outil.",
     "",
     "CONTEXTE ET LIMITES DES DONNÉES",
-    "- Aujourd'hui : " + aujourdhui + ". Dernière donnée de vente : 19 septembre 2026, donc septembre 2026 est partiel. Le détail par produit × marketplace × mois existe pour 2025 et 2026 ; les totaux mensuels globaux remontent à 2024.",
+    "- Aujourd'hui : " + aujourdhui + ". La date de la dernière donnée de vente figure dans les résultats d'outils (donnees_jusqu_au) : au dernier import elle était le 19 septembre 2026, donc septembre 2026 est partiel. Le détail par produit × marketplace × mois existe pour 2025 et 2026 ; les totaux mensuels globaux remontent à 2024.",
+    "- Objectif 2026 : 15 M€ HT, décliné en plan mensuel et hebdomadaire (outil get_objectives). Le plan est très chargé en fin d'année : pour dire si l'activité est en avance ou en retard, compare le réalisé au plan cumulé à date (plan_a_date), jamais à une simple règle de trois. Les objectifs par marketplace et par pays sont indicatifs et ne se somment pas exactement à l'objectif annuel. Semaines = convention Excel (dimanche→samedi, semaine 1 = 1er au 3 janvier 2026).",
     "- CA = chiffre d'affaires HT. Prix = CA HT ÷ quantité.",
     "- Marketplaces : Amazon FR, Leroy Merlin, ManoMano, Cdiscount, Castorama, Site Web, Darty, Boulanger, Bricomarché, Bricoman, Maxeda, Bol.com, Brico Bravo, Worten, But, Autre.",
     "- Familles de produits : Fixe heater (radiateurs fixes), Sèche-serviettes, Mobile, Ventil, Déshum (déshumidificateurs), Soufflant, Autre.",
-    "- Signale ces limites quand elles comptent pour la réponse : (a) publicité : seulement des totaux annuels par marketplace, pas de détail mensuel ; (b) évolutions vs 2025 : les données 2026 sont brutes (non dédupliquées) alors que la base 2025 est dédupliquée, les variations sont donc à prendre avec prudence ; (c) élasticités : estimées sur l'historique, fiable=false signifie estimation fragile ; (d) prévisions : basées sur la saisonnalité, fragiles avec moins de 3 mois de ventes réelles ; (e) concurrence : relevés manuels de meilleures ventes publiques, le rang n'est pas un CA.",
+    "- Évolutions vs 2025 : toutes les évolutions fournies (total, marketplaces, marques, produits) comparent 2026 à la MÊME période de 2025 (du 1er janvier au même jour), jamais à l'année 2025 complète ; l'année complète est donnée à part (champs *_annee_complete). Ne compare pas toi-même 2026 à une année 2025 complète. Le CA est la somme brute des lignes de commande, sans déduplication, pour 2025 comme pour 2026.",
+    "- Signale ces limites quand elles comptent pour la réponse : (a) publicité : totaux cumulés par marketplace issus du fichier budget marketing, qui ne contient des dépenses que pour janvier–juin 2026 : les % de budget consommé sont sous-estimés et ces dépenses ne se rapportent pas au CA total jusqu'en septembre ; pas de détail mensuel ; (b) évolutions : celle de « Autre » n'est pas interprétable (des canaux récents peuvent y être classés) ; celle de Thomson n'est pas significative (marque lancée mi-2025, base très faible) ; (c) élasticités : estimées sur l'historique, fiable=false signifie estimation fragile ; (d) prévisions : basées sur la saisonnalité, fragiles avec moins de 3 mois de ventes réelles ; (e) concurrence : relevés manuels de meilleures ventes publiques (date de collecte dans les résultats), le rang n'est pas un CA.",
     "- Un produit dont le nom est incertain se retrouve avec search_products avant d'appeler les autres outils.",
   ].join("\n");
 }
