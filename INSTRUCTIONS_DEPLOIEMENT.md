@@ -1,16 +1,14 @@
-# HOM'Y Pilotage — mise à jour du 12 octobre 2026
+# HOM'Y Pilotage — mise à jour du 12 octobre 2026 (ventes jusqu'au 3 octobre, semaine 40)
 
-## Contenu du paquet
+## Contenu du dépôt
 
-- `App.jsx` — remplace le fichier du même nom à la racine du dépôt `homy-pilotage`.
-  Ventes jusqu'au 19/09/2026 (+ 2 lignes ManoMano ajoutées, voir plus bas), plan 2026 (15 M€) intégré.
-- `api/chat.mjs` — relais de l'assistant IA (inchangé depuis le 7 octobre).
+- `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré.
+- `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
 
 ## Mise en ligne
 
-1. Sur GitHub, remplace `App.jsx` (et `api/chat.mjs` s'il n'a jamais été mis à jour depuis le 7 octobre).
-   Le dossier `api` est au même niveau que `App.jsx` (pas dans `src`).
-2. Commit : Vercel redéploie tout seul.
+Un commit sur `main` suffit : Vercel redéploie tout seul. Le dossier `api` est au même niveau que
+`App.jsx` (pas dans `src`).
 
 ## Activer l'assistant IA (une seule fois)
 
@@ -34,67 +32,90 @@ Optionnel : la variable `ANTHROPIC_MODEL` permet de changer de modèle sans touc
 `api/login.mjs`, `api/data.mjs` et `api/_data.json` viennent d'une ancienne
 architecture : l'app actuelle ne s'en sert pas (les données sont dans `App.jsx`
 et le mot de passe est vérifié dans le navigateur). `_data.json` est de plus un
-instantané périmé (12 septembre). Ils sont volontairement absents de ce paquet.
+instantané périmé (12 septembre).
 
-## Ce qui change dans cette mise à jour (12 octobre)
+## Ce qui change dans cette mise à jour (12 octobre, après-midi)
 
-### Le fichier reçu : « Lignes ODP (4) »
+### Le fichier reçu : « Lignes ODP » jusqu'à la semaine 40
 
-Ce fichier s'arrête au **15/08/2026**, alors que l'app contient déjà les ventes jusqu'au
-**19/09/2026**. Le prendre comme remplacement aurait fait perdre un mois de ventes : j'ai donc
-fait une **fusion** — l'app garde tout, et on y ajoute ce que le fichier contient en plus.
+Onglet « Lignes ODP » du classeur `DASHBOARD_ONLINE … TEST_2` : 74 632 lignes de commande du
+01/01 au **03/10/2026** (dimanche 27/09 → samedi 03/10 = semaine 40). Il contient toutes les lignes
+déjà présentes dans l'app, plus les ventes du 20/09 au 03/10 : l'app est recalculée à partir de lui
+(2024 et 2025 inchangés).
 
-Comparaison ligne à ligne du 01/01 au 15/08 : 59 296 lignes identiques (écart de CA ≤ 0,05 € :
-le fichier arrondit le CA à 0,1 €), mêmes canaux, pays et marques. **Deux lignes manquaient dans l'app**,
-elles sont ajoutées :
+**Colonne Date contrôlée** sur les 74 632 lignes :
 
-| N° de commande | Date | Canal | Produit | Qté | CA HT |
-|---|---|---|---|---|---|
-| M2602505759878 | 19/02/2026 | ManoMano | ARIA 1000W | 1 | 69,90 € |
-| M2604505986973 | 22/04/2026 | ManoMano | ARIA 1000W | 1 | 123,30 € |
+- aucun écart avec les colonnes Mois, Année et Semaine du fichier (semaines Excel, dimanche → samedi) ;
+- cohérente avec les dates codées dans les numéros de commande : Leroy Merlin (29 843 lignes) aucune date
+  antérieure à la commande, 98,8 % expédiées sous 20 jours ; ManoMano (5 070 lignes) même mois que la commande
+  pour 5 062 lignes, mois suivant pour 8.
 
-- Ces deux lignes n'ont **pas de SKU** dans le fichier : elles sont rattachées à ARIA 1000W
-  (SKU HT10PDC, le plus fréquent sur ManoMano). Cela ne joue que sur le classement ABC par SKU
-  (HT10PDC : 116 342 € → 116 535 €, classe A inchangée).
-- À l'inverse, 27 lignes du 11 au 15/08 (2 861,83 €) sont dans l'app mais pas dans le fichier :
-  elles sont **conservées** (le fichier s'arrête au 15/08 et ne les contient pas).
+**Écarts avec la version précédente (données au 19/09)**
+
+- 5 181 lignes nouvelles du 20/09 au 03/10 : 586 498 € HT, 6 452 unités ;
+- 36 lignes de septembre arrivées tardivement dans le fichier (31 Amazon FR, 3 « Autre », 2 ManoMano) : +3 914 € ;
+- 78 lignes du 17 au 19/09 (9 040 €) reclassées de « Autre » vers « Site Web » ;
+- janvier → août : inchangés (seuls 2 montants ManoMano de février et d'avril bougent de 0,03 €, arrondi du fichier).
 
 ### Effet sur les chiffres
 
-| Indicateur | Avant | Après |
+| Indicateur | Avant (19/09) | Après (03/10) |
 |---|---|---|
-| CA HT 2026 à date | 6 918 719,74 € | **6 918 912,94 €** |
-| Unités vendues | 74 292 | **74 294** |
-| Lignes de commande | 69 413 | 69 415 |
-| ManoMano | 631 985,80 € | 632 179,00 € |
-| ARIA 1000W (meilleur produit) | 666 034,95 € | 666 228,15 € |
-| Février 2026 | 801 336,99 € | 801 406,89 € |
-| Avril 2026 | 601 954,60 € | 602 077,90 € |
-| Part de l'objectif annuel | 46,12 % | 46,13 % |
-| Évolution à période comparable | +49,4 % | +49,4 % (inchangée) |
+| CA HT 2026 à date | 6 918 912,94 € | **7 509 325,69 €** |
+| Unités vendues | 74 294 | **80 787** |
+| Lignes de commande | 69 415 | 74 632 |
+| Panier moyen | 99,67 € | 100,62 € |
+| Part de l'objectif annuel (15 M€) | 46,13 % | **50,06 %** |
+| Plan cumulé attendu à date | 7 326 532 € (S38, 48,8 %) | 8 274 406 € (S40, 55,2 %) |
+| Écart au plan | −2,7 pt | **−5,1 pt** |
+| Évolution à période comparable | +49,4 % | **+40,2 %** (5 356 876 € en 2025 à la même date) |
+| Septembre 2026 | 607 675 € (19 jours) | 1 065 772 € (mois complet, −9,4 % vs sept. 2025) |
+| Octobre 2026 à date (1er–3) | — | 132 316 € |
+| Semaine 40 (27/09 → 03/10) | — | 333 274 € · 3 700 u. (≈ 70 % de l'objectif hebdomadaire de 479 k€) |
 
-Tout ce qui dérive des lignes de commande a été recalculé (KPI, courbes mensuelles et hebdomadaires S8 et S17,
-marques, marketplaces, catégories, pays, suivi des prix, classement ABC, élasticité). Rien d'autre ne change :
-le code de l'app est identique.
+L'évolution à période comparable baisse parce que les deux dernières semaines 2026 (590 k€) sont environ
+19 % sous la même période 2025 (727 k€, début de saison de chauffe 2025 très fort).
+L'écart au plan se creuse pour la même raison : le plan prévoit ≈ 474 k€ par semaine sur ces deux semaines.
 
-### À vérifier dans la source
+Tout ce qui dérive des lignes de commande a été recalculé : KPI, courbes mensuelles et hebdomadaires (jusqu'à S40),
+marques, marketplaces, catégories, pays, suivi des prix, classement ABC, paniers (60 paires), élasticité,
+tableau « simulation d'une hausse de +5 % » (il reposait sur un calcul d'élasticité plus ancien : il est maintenant
+régénéré avec la règle documentée).
 
-La ligne du 22/04 (123,30 € pour **1 unité**) vaut environ le double du prix habituel de l'ARIA 1000W
-sur ManoMano (≈ 58 € HT). Prise telle quelle, elle fait passer l'élasticité-prix ARIA 1000W × ManoMano
-de −5,22 à −4,93 (un seul point extrême suffit à la déplacer). Si c'est une erreur de saisie, dites-le :
-on la corrige ou on l'exclut.
+### Catalogue et référentiels
+
+- 3 produits vendus pour la première fois : STELLINA 1000W, STELLINA 2000W, SORIA 500W (retirés de la liste
+  « catalogue non vendu », 41 → 38).
+- SKU techniques rapprochés : filtre à charbon, livraison Shopify, variantes `_never_used` (HESTIA 500W BLANC).
+- 2 nouveaux pays dans les ventes : Estonie, « Canaries, îles » (traductions ajoutées).
+
+### Fenêtres de calcul qui ne sont plus figées
+
+Plusieurs calculs reposaient sur des mois écrits en dur ; ils suivent maintenant la date de la dernière donnée :
+
+- **Estimation de fin d'année** : croissance du cumul (janvier → septembre) et croissance récente (moyenne des
+  3 derniers mois entiers, juillet → septembre) appliquées à octobre–décembre 2025 ; le mois en cours (octobre, 3 jours)
+  est anticipé comme un mois entier. Résultat **13,9 – 14,2 M€** (92 – 95 % de l'objectif). Avec les anciennes
+  fenêtres figées (janvier → août, juin → août), le même calcul aurait donné 14,6 – 16,4 M€ : septembre complet
+  (−9,4 % vs 2025) pèse maintenant dans la croissance récente.
+- **Cycle de vie produit** : comparaison sur les 3 derniers mois entiers (juillet → septembre).
+- Textes et coupes N-1 (« 1er au 3 octobre 2025 », libellés des périodes) alignés sur le 03/10.
 
 ### À savoir
 
-- Le tableau « simulation d'une hausse de +5 % » (onglet Suivi Prix) repose sur un calcul d'élasticité un peu plus ancien
-  que la table d'élasticité de l'app (ex. ARIA 1000W × Leroy Merlin : −6,26 dans la simulation, −6,30 dans la table).
-  Il n'a pas été modifié ; il peut être recalculé sur demande.
-- Les ventes **ne vont toujours pas au-delà du 19/09/2026**.
+- Données publicitaires : le fichier « Dépenses budget marketing 2026 – year to date » ne contient des dépenses
+  que de janvier à juin ; les % de budget consommé restent sous-estimés (mention dans l'onglet Campagnes Ads).
+- Deux lignes ManoMano (19/02 et 22/04, ARIA 1000W) n'ont pas de SKU dans le fichier : elles sont rattachées à
+  ARIA 1000W (SKU HT10PDC). Celle du 22/04 (123,27 € pour 1 unité) vaut environ le double du prix habituel sur
+  ManoMano : si c'est une erreur de saisie, à corriger dans la source.
 
-## Pour passer à début octobre
+---
 
-Envoie l'onglet **« Lignes ODP »** exporté **après le 19/09** (Excel ou CSV avec les mêmes colonnes) : les ventes
-du 20/09 à aujourd'hui seront intégrées et tous les KPI recalculés comme ci-dessus.
+## Rappel — mise à jour du 12 octobre (matin)
+
+Le fichier « Lignes ODP (4) » s'arrêtait au 15/08/2026 alors que l'app contenait déjà les ventes jusqu'au 19/09 :
+fusion sans perte (l'app garde tout, on y ajoute ce que le fichier contient en plus), 59 296 lignes identiques
+du 01/01 au 15/08, 2 lignes ManoMano ajoutées (voir ci-dessus).
 
 ---
 
@@ -127,7 +148,5 @@ comparent 2026 à la **même période** de 2025. L'année 2025 complète reste a
 
 ### À savoir
 
-- Données publicitaires : le fichier « Dépenses budget marketing 2026 – year to date » ne contient des dépenses
-  que de janvier à juin. Les % de budget consommé sont donc sous-estimés ; une mention est affichée dans l'onglet Campagnes Ads.
 - « Autre » : son évolution (−30 %) n'est pas interprétable (des canaux récents ont pu y être classés).
 - Le bouton « Voir le détail dans Supply » (onglet supprimé, il ouvrait une page vide) a été retiré.
