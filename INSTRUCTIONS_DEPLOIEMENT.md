@@ -1,8 +1,35 @@
-# HOM'Y Pilotage — mise à jour du 12 octobre 2026 (ventes jusqu'au 3 octobre, semaine 40)
+# HOM'Y Pilotage — instructions et notes de mise à jour
+
+## Mise à jour du 14 octobre 2026 — bloc « Flash Shopify » (boutique des marketplaces)
+
+Nouveau bloc en tête de l'onglet « Vue d'ensemble » (visible avec « Toutes marketplaces ») : les ventes de la
+boutique Shopify BESTHERM du **4 au 13 octobre 2026**, c'est-à-dire après la dernière ligne du fichier ODP (3 octobre).
+
+| Indicateur (4 → 13 octobre) | Valeur |
+|---|---|
+| CA HT net | **488 197 €** |
+| Commandes / unités | 2 851 / 4 826 |
+| Panier moyen | 171 € |
+| Évolution vs mêmes dates 2025 | **+10,3 %** (442 756 € dans l'Excel, hors site web) |
+
+- **Recoupement Shopify / Excel** sur la période commune 20/09 → 03/10 : 528 759 € contre 524 086 € (+0,9 % en CA,
+  −1,1 % en unités). Remises et retours sont à zéro sur toute la période : ventes nettes = ventes brutes.
+- **Bloc à part** : les KPI, courbes, plan et estimations restent calculés sur le fichier ODP (site web compris, jusqu'au
+  3 octobre). Mêler dans les totaux des ventes « marketplaces seulement » plus récentes que celles du site fausserait les
+  coupes N-1 et toutes les comparaisons. La boutique Shopify du site web est laissée de côté pour l'instant.
+- **Comparaison 2025** : faite avec l'Excel (comme le reste de l'app). Sur ces mêmes dates, la boutique Shopify
+  comptait 425 343 € en 2025, soit 96 % de l'Excel : la croissance mesurée contre Shopify 2025 serait de +14,8 %.
+- **Données** : extraction Shopify agrégée (ShopifyQL), aucune donnée client. Les références Shopify `-FLM` et
+  `_never_used` sont rattachées au produit de l'Excel (99,9 % du CA rattaché). Pas de répartition par marketplace :
+  Shopify ne la porte pas dans ses statistiques (elle n'existe que dans les attributs de chaque commande).
+- **Actualisation** : à la demande (connecteur Shopify reconnecté sur BESTHERM, puis demander l'actualisation). Les
+  chiffres sont figés dans `App.jsx` (constante `SHOPIFY_FLASH`) entre deux mises à jour. À la prochaine mise à jour du
+  fichier ODP (au-delà du 3 octobre), le bloc est à rafraîchir ou à retirer pour ne pas faire doublon avec l'Excel.
 
 ## Contenu du dépôt
 
-- `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré.
+- `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré, plus le
+  bloc « Flash Shopify » du 4 au 13 octobre.
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
 
 ## Mise en ligne
