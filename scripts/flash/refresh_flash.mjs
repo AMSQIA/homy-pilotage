@@ -175,7 +175,10 @@ function planifier(app, today) {
 /* ------------------------------------------------------------------ résultats ShopifyQL */
 function* fichiersTranscription(explicites) {
   if (explicites.length) { yield* explicites; return; }
-  const racine = path.join(os.homedir(), ".claude", "projects");
+  // Dossier de configuration de Claude : variable d'environnement, répertoire personnel, emplacements usuels
+  const racines = [...new Set([
+    process.env.CLAUDE_CONFIG_DIR, path.join(os.homedir(), ".claude"), "/root/.claude", "/home/claude/.claude",
+  ].filter(Boolean).map((d) => path.join(d, "projects")))];
   const trouves = [];
   const parcourir = (d, prof = 0) => {
     let ents = [];
@@ -186,7 +189,7 @@ function* fichiersTranscription(explicites) {
       else if (e.isFile() && e.name.endsWith(".jsonl")) trouves.push([p, fs.statSync(p).mtimeMs]);
     }
   };
-  parcourir(racine);
+  for (const r of racines) parcourir(r);
   trouves.sort((a, b) => b[1] - a[1]);
   for (const [p] of trouves) yield p;
 }
