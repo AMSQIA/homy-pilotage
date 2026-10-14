@@ -1,35 +1,40 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
-## Mise à jour du 14 octobre 2026 — bloc « Flash Shopify » (boutique des marketplaces)
+## Mise à jour du 14 octobre 2026 (soir) — Flash Shopify actualisé chaque matin
 
-Nouveau bloc en tête de l'onglet « Vue d'ensemble » (visible avec « Toutes marketplaces ») : les ventes de la
-boutique Shopify BESTHERM du **4 au 13 octobre 2026**, c'est-à-dire après la dernière ligne du fichier ODP (3 octobre).
+Le bloc « Flash Shopify » (haut de l'onglet « Vue d'ensemble », avec « Toutes marketplaces ») est désormais **recalculé
+chaque matin** par une tâche planifiée, et exprimé sur la **même base que l'Excel**.
 
-| Indicateur (4 → 13 octobre) | Valeur |
+| Indicateur (4 → 13 octobre 2026) | Valeur |
 |---|---|
-| CA HT net | **488 197 €** |
+| CA HT comparable | **474 788 €** = (ventes nettes + taxes) ÷ 1,2 |
 | Commandes / unités | 2 851 / 4 826 |
-| Panier moyen | 171 € |
-| Évolution vs mêmes dates 2025 | **+10,3 %** (442 756 € dans l'Excel, hors site web) |
+| Panier moyen | 167 € |
+| Évolution vs mêmes dates 2025 | **+15,3 %** (411 651 € mesurés dans Shopify 2025, même convention) |
+| Cumul 2026 estimé | **7,98 M€**, soit 53,2 % de l'objectif de 15 M€ (fichier ODP au 3 octobre + flash, site web non inclus depuis le 4) |
+| Contrôle ODP, 20/09 → 03/10 | Shopify 524 070 € contre 524 086 € dans l'ODP hors site web (écart de 16 €) |
 
-- **Recoupement Shopify / Excel** sur la période commune 20/09 → 03/10 : 528 759 € contre 524 086 € (+0,9 % en CA,
-  −1,1 % en unités). Remises et retours sont à zéro sur toute la période : ventes nettes = ventes brutes.
-- **Bloc à part** : les KPI, courbes, plan et estimations restent calculés sur le fichier ODP (site web compris, jusqu'au
-  3 octobre). Mêler dans les totaux des ventes « marketplaces seulement » plus récentes que celles du site fausserait les
-  coupes N-1 et toutes les comparaisons. La boutique Shopify du site web est laissée de côté pour l'instant.
-- **Comparaison 2025** : faite avec l'Excel (comme le reste de l'app). Sur ces mêmes dates, la boutique Shopify
-  comptait 425 343 € en 2025, soit 96 % de l'Excel : la croissance mesurée contre Shopify 2025 serait de +14,8 %.
-- **Données** : extraction Shopify agrégée (ShopifyQL), aucune donnée client. Les références Shopify `-FLM` et
-  `_never_used` sont rattachées au produit de l'Excel (99,9 % du CA rattaché). Pas de répartition par marketplace :
-  Shopify ne la porte pas dans ses statistiques (elle n'existe que dans les attributs de chaque commande).
-- **Actualisation** : à la demande (connecteur Shopify reconnecté sur BESTHERM, puis demander l'actualisation). Les
-  chiffres sont figés dans `App.jsx` (constante `SHOPIFY_FLASH`) entre deux mises à jour. À la prochaine mise à jour du
-  fichier ODP (au-delà du 3 octobre), le bloc est à rafraîchir ou à retirer pour ne pas faire doublon avec l'Excel.
+- **Pourquoi « HT comparable »** : la version précédente affichait les ventes nettes Shopify, qui restent en TTC pour les
+  commandes sans taxe enregistrée (surévaluation d'environ 2 %). Sur la base HT comparable, Shopify et l'ODP concordent à
+  16 € près sur les deux dernières semaines complètes.
+- **N-1** : mesuré dans Shopify (mêmes dates calendaires 2025) et non plus dans l'Excel : même périmètre, même convention.
+- **Données** : fichier `shopify_flash.json` (importé par `App.jsx`), écrit uniquement par `scripts/flash/refresh_flash.mjs`.
+  `App.jsx` n'est jamais modifié par l'actualisation quotidienne. Détail et procédure : `scripts/flash/README.md`.
+- **Bloc à part** : les KPI, courbes, plan, estimations et autres onglets restent calculés sur le fichier ODP (site web
+  compris, jusqu'au 3 octobre). Ils ne bougent qu'avec un nouvel export ODP. La boutique Shopify du site web n'est pas
+  lisible en même temps que BESTHERM.
+- **Garde-fous** : boutique vérifiée à chaque extraction, couverture des listes contrôlée, pas de régression, contrôle
+  d'écart avec l'ODP (refus d'écrire au-delà de 8 %). Dans l'application : les jours déjà couverts par l'ODP sont ignorés
+  (pas de doublon après une mise à jour de l'ODP), et une pastille « Non actualisé depuis N j » apparaît après 2 jours.
+- **Après un nouvel export ODP** : relancer l'actualisation le jour même (étapes 3 à 8 du README) ; sinon les listes
+  pays et produits restent masquées jusqu'au lendemain matin.
 
 ## Contenu du dépôt
 
 - `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré, plus le
-  bloc « Flash Shopify » du 4 au 13 octobre.
+  composant « Flash Shopify ».
+- `shopify_flash.json` — données du bloc « Flash Shopify », actualisées chaque matin.
+- `scripts/flash/` — script d'actualisation, auto-test, test d'affichage et mode d'emploi (`README.md`).
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
 
 ## Mise en ligne
