@@ -2899,7 +2899,11 @@ function DashboardApp() {
   const [lang, setLang] = useState(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("lang");
-      return fromUrl && ["fr", "en", "es", "zh"].includes(fromUrl) ? fromUrl : "fr";
+      if (fromUrl && ["fr", "en", "es", "zh"].includes(fromUrl)) return fromUrl;
+      // sans paramètre d'URL : langue du navigateur si l'app la gère, sinon français
+      // (c'était le rôle de l'écran de conversation, retiré du parcours le 14/10/2026)
+      const nav = ((typeof navigator !== "undefined" && navigator.language) || "fr").slice(0, 2).toLowerCase();
+      return ["fr", "en", "es", "zh"].includes(nav) ? nav : "fr";
     } catch { return "fr"; }
   });
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -5928,15 +5932,17 @@ function memoriserSession() {
   try { localStorage.setItem(REMEMBER_KEY, String(Date.now() + REMEMBER_DAYS * 86400000)); } catch { /* stockage indisponible (navigation privée) — tant pis, pas bloquant */ }
 }
 
+// Écran de conversation retiré du parcours le 14/10/2026 à la demande du propriétaire :
+// ses deux étapes (« Pose ta question, ou choisis une destination » puis « Quelle marketplace ? »)
+// ne s'affichent plus, l'app ouvre directement le dashboard après l'écran d'accès.
+// Le composant ChatRouter (et l'assistant IA qu'il porte) reste défini plus haut, inutilisé.
+// Pour le remettre : réintroduire un état chatDone et l'étape ChatRouter entre EntryGate et
+// DashboardApp (voir le commit précédent dans l'historique git).
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => aUneSessionMemorisee());
-  const [chatDone, setChatDone] = useState(false);
-  const browserLang = (typeof navigator !== "undefined" && navigator.language || "fr").slice(0, 2);
   return (
     <ErrorBoundary>
-      {!unlocked ? <EntryGate onUnlock={() => setUnlocked(true)} />
-        : !chatDone ? <ChatRouter onComplete={() => setChatDone(true)} lang={browserLang} />
-        : <DashboardApp />}
+      {!unlocked ? <EntryGate onUnlock={() => setUnlocked(true)} /> : <DashboardApp />}
     </ErrorBoundary>
   );
 }

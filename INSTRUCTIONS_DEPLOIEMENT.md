@@ -1,5 +1,20 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 14 octobre 2026 (nuit) — écran de conversation retiré
+
+Après l'écran d'accès (mot de passe), l'app ouvre **directement le dashboard** (Vue d'ensemble, toutes marketplaces).
+Les deux étapes de conversation (« Pose ta question, ou choisis une destination », puis « Quelle marketplace ? »)
+ne s'affichent plus.
+
+- Langue : reprise du navigateur (français, anglais, espagnol ou chinois, sinon français) ; `?lang=` dans l'adresse reste
+  prioritaire. Le sélecteur de langue du dashboard est inchangé.
+- Les liens directs (`?tab=`, `?marketplace=`, `?periode=`…) fonctionnent comme avant.
+- **L'assistant IA (question libre) se trouvait dans la première étape : il n'est plus accessible.** Son code (`ChatRouter`
+  dans `App.jsx`) et le relais `api/chat.mjs` restent dans le dépôt, inutilisés. La clé `ANTHROPIC_API_KEY` n'a donc plus
+  d'effet visible tant que l'écran n'est pas remis.
+- Pour remettre l'écran : annuler le commit « Retire les deux étapes de conversation » (`git revert`).
+- Le test d'affichage de la tâche du matin (`scripts/flash/smoke.mjs`) accepte les deux parcours.
+
 ## Mise à jour du 14 octobre 2026 (soir) — Flash Shopify actualisé chaque matin
 
 Le bloc « Flash Shopify » (haut de l'onglet « Vue d'ensemble », avec « Toutes marketplaces ») est désormais **recalculé
@@ -43,6 +58,9 @@ Un commit sur `main` suffit : Vercel redéploie tout seul. Le dossier `api` est 
 `App.jsx` (pas dans `src`).
 
 ## Activer l'assistant IA (une seule fois)
+
+> Depuis le 14 octobre (nuit), l'écran de conversation qui porte l'assistant est retiré du parcours (voir la note en haut
+> du fichier) : cette étape n'a d'effet que si l'écran est remis.
 
 Sans clé, l'app marche normalement en « mode local » (réponses rapides calculées
 dans l'app). Pour brancher l'assistant IA :

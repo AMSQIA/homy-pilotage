@@ -83,8 +83,14 @@ async function ouvrir(browser, { largeur = 1280, hauteur = 900, avance = 0 } = {
 
 async function versDashboard(page, base) {
   await page.goto(base, { waitUntil: "load" });
+  // Depuis le 14/10/2026 l'app ouvre directement le dashboard (écran de conversation retiré).
+  // On tolère quand même son retour éventuel : s'il est présent, on le passe.
   const passer = page.getByRole("button", { name: /Passer au dashboard|Skip to dashboard|跳到仪表盘|Ir al dashboard/ });
-  await passer.first().click({ timeout: 20000 });
+  await page.waitForFunction(
+    // insensible à la casse : innerText restitue la mise en majuscules appliquée par le CSS
+    () => /Flash Shopify|Shopify flash|Shopify 快报|Passer au dashboard|Skip to dashboard|跳到仪表盘|Ir al dashboard/i.test(document.body.innerText),
+    null, { timeout: 30000 });
+  if (await passer.count()) await passer.first().click({ timeout: 20000 });
   await page.waitForSelector("text=/Flash Shopify|Shopify flash|Shopify 快报/", { timeout: 30000 });
 }
 
