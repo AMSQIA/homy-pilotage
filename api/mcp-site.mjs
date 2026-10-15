@@ -22,7 +22,8 @@
 // {"ok":true,"configured":true,…}. Sans la clé, la page ne révèle rien. Si "configured" vaut false, la liste
 // "manque" donne les variables à saisir et "identiques" celles qui portent la même valeur (erreur de collage ; puis
 // redéployer : Vercel n'applique pas une variable à un déploiement déjà en ligne). "formes_plausibles" indique, sans
-// révéler les valeurs, si l'ID client et le secret ont la forme habituelle (true / false, null = variable absente).
+// révéler les valeurs, si l'ID client et le secret ont la forme habituelle et si le secret commence par « shpss_ »
+// (true / false, null = variable absente).
 //
 // Changer la clé : modifier MCP_SITE_KEY dans Vercel, redéployer, puis corriger l'adresse du connecteur dans Claude.
 
@@ -42,6 +43,7 @@ const CLE_SURE_POUR_UNE_ADRESSE = /^[A-Za-z0-9._~-]+$/; // la clé est placée d
 // ID client = 32 caractères hexadécimaux ; secret = « shpss_ » + 32 caractères hexadécimaux (anciens secrets : les 32 seuls).
 const FORME_ID_CLIENT = /^[0-9a-f]{32}$/i;
 const FORME_SECRET = /^(?:shpss_)?[0-9a-f]{32}$/i;
+const PREFIXE_SECRET = /^shpss_/i;
 const MAX_REQUETE = 1500;
 const JEUX_AUTORISES = new Set(["sales", "sessions", "products"]);
 // Défense en profondeur : même sans le droit sur les clients, on refuse toute requête qui vise des données personnelles
@@ -126,6 +128,8 @@ function lireConfig() {
   cfg.formes = {
     id_client: cfg.clientId ? FORME_ID_CLIENT.test(cfg.clientId) : null,
     secret: cfg.clientSecret ? FORME_SECRET.test(cfg.clientSecret) : null,
+    // le secret d'une application récente commence par « shpss_ » ; 32 caractères sans préfixe : ancien secret, ou ID client collé ici par erreur
+    secret_prefixe_shpss: cfg.clientSecret ? PREFIXE_SECRET.test(cfg.clientSecret) : null,
   };
   return cfg;
 }
@@ -184,6 +188,7 @@ function conseilJeton(statut, code, cfg) {
   const formes = [];
   if (cfg.formes?.id_client === false) formes.push("SHOPIFY_SITE_CLIENT_ID ne ressemble pas à un ID client (32 caractères : chiffres et lettres a à f)");
   if (cfg.formes?.secret === false) formes.push("SHOPIFY_SITE_CLIENT_SECRET ne ressemble pas à un secret (« shpss_ » suivi de 32 caractères)");
+  else if (cfg.formes?.secret_prefixe_shpss === false) formes.push("SHOPIFY_SITE_CLIENT_SECRET ne commence pas par « shpss_ » (le secret d'une application récente commence ainsi : est-ce l'ID client qui a été collé ici ?)");
   const indices = formes.length ? ` Indice : ${formes.join(" ; ")}.` : "";
   if (statut === 404) return `Boutique introuvable : ${cfg.domaine} n'existe pas. Vérifier SHOPIFY_SITE_SHOP (le nom qui précède .myshopify.com).${indices}`;
   if (code === "application_cannot_be_found") {
