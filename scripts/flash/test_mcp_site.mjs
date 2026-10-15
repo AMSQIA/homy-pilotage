@@ -643,9 +643,100 @@ await scenario("I", async () => {
   check("I · secret seul manquant : désigné précisément", enErreur(r) && /SHOPIFY_SITE_CLIENT_SECRET/.test(texteOutil(r)) && !/SHOPIFY_SITE_CLIENT_ID/.test(texteOutil(r)) && !/SHOPIFY_SITE_SHOP/.test(texteOutil(r)), texteOutil(r));
 });
 
+/* ================================================================== K · valeurs collées au mauvais endroit, aides au diagnostic */
+await scenario("K", async () => {
+  const getAuth = async () => (await appeler(requete({ methode: "GET" }))).corps;
+  const ID_HEX = "0123456789abcdef0123456789abcdef";
+  const SECRET_SHPSS = ["shpss", "0123456789abcdef0123456789abcdef"].join("_"); // assemblé ici : un secret Shopify en clair, même factice, est refusé par l'analyse des secrets de GitHub
+
+  // la clé du connecteur collée dans le nom de la boutique (erreur réellement rencontrée lors de la mise en service)
+  env({ SHOPIFY_SITE_SHOP: CLE });
+  let g = await getAuth();
+  check("K · boutique = clé du connecteur : détectée, configuration non valide", g.configured === false && egal(g.identiques, ["SHOPIFY_SITE_SHOP = MCP_SITE_KEY"]), JSON.stringify(g));
+  let r = await appeler(requete({ methode: "GET", cle: "" }));
+  check("K · sans la clé, la sonde ne dit rien des doublons ni des formes", !("identiques" in r.corps) && !("formes_plausibles" in r.corps), JSON.stringify(r.corps));
+  r = await outil("get-shop-info", {});
+  check("K · get-shop-info : refus guidé, variables nommées, aucun appel à Shopify, aucune valeur", enErreur(r) && /mal remplies/.test(texteOutil(r)) && /SHOPIFY_SITE_SHOP = MCP_SITE_KEY/.test(texteOutil(r)) && /redéployer/.test(texteOutil(r)) && appels.length === 0 && !texteOutil(r).includes(CLE) && !texteOutil(r).includes(SECRET), texteOutil(r));
+  r = await outil("run-analytics-query", { query: "FROM sales SHOW net_sales" });
+  check("K · run-analytics-query : même refus, aucun appel", enErreur(r) && /mal remplies/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
+
+  // autres collages malheureux
+  env({ SHOPIFY_SITE_CLIENT_ID: CLE });
+  g = await getAuth();
+  check("K · ID client = clé du connecteur : détecté", g.configured === false && egal(g.identiques, ["MCP_SITE_KEY = SHOPIFY_SITE_CLIENT_ID"]), JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_CLIENT_ID: SECRET });
+  g = await getAuth();
+  check("K · ID client = secret : détecté", g.configured === false && egal(g.identiques, ["SHOPIFY_SITE_CLIENT_ID = SHOPIFY_SITE_CLIENT_SECRET"]), JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_CLIENT_ID: CLE.toLowerCase() });
+  g = await getAuth();
+  check("K · comparaison insensible à la casse", egal(g.identiques, ["MCP_SITE_KEY = SHOPIFY_SITE_CLIENT_ID"]), JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_SHOP: `${CLE}.myshopify.com` });
+  g = await getAuth();
+  check("K · boutique saisie sous la forme « xxxx.myshopify.com » : comparée sans le suffixe", egal(g.identiques, ["SHOPIFY_SITE_SHOP = MCP_SITE_KEY"]), JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_SHOP: CLE, SHOPIFY_SITE_CLIENT_ID: CLE, SHOPIFY_SITE_CLIENT_SECRET: CLE });
+  g = await getAuth();
+  check("K · même valeur dans quatre variables : les six paires sont signalées", g.identiques.length === 6, JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_TOKEN: CLE, SHOPIFY_SITE_CLIENT_ID: undefined, SHOPIFY_SITE_CLIENT_SECRET: undefined });
+  g = await getAuth();
+  check("K · jeton fixe = clé du connecteur : détecté", g.configured === false && egal(g.identiques, ["MCP_SITE_KEY = SHOPIFY_SITE_TOKEN"]), JSON.stringify(g.identiques));
+  env({ SHOPIFY_SITE_SHOP: undefined, SHOPIFY_SITE_CLIENT_ID: undefined, SHOPIFY_SITE_CLIENT_SECRET: undefined });
+  g = await getAuth();
+  check("K · variables absentes : jamais prises pour des doublons", egal(g.identiques, []) && g.configured === false, JSON.stringify(g));
+  env();
+  g = await getAuth();
+  check("K · configuration normale : aucun doublon", egal(g.identiques, []) && g.configured === true, JSON.stringify(g));
+
+  // forme de l'ID client et du secret : simple indice, jamais bloquant, jamais de valeur
+  env({ SHOPIFY_SITE_CLIENT_ID: ID_HEX, SHOPIFY_SITE_CLIENT_SECRET: SECRET_SHPSS });
+  g = await getAuth();
+  check("K · ID client et secret de forme habituelle : jugés plausibles", g.formes_plausibles.id_client === true && g.formes_plausibles.secret === true, JSON.stringify(g.formes_plausibles));
+  check("K · la sonde ne révèle ni l'ID client ni le secret", !JSON.stringify(g).includes(ID_HEX) && !JSON.stringify(g).includes(SECRET_SHPSS));
+  env({ SHOPIFY_SITE_CLIENT_ID: ID_HEX, SHOPIFY_SITE_CLIENT_SECRET: "fedcba9876543210fedcba9876543210" });
+  g = await getAuth();
+  check("K · ancien secret (32 caractères, sans préfixe) : plausible", g.formes_plausibles.secret === true, JSON.stringify(g.formes_plausibles));
+  env({ SHOPIFY_SITE_CLIENT_ID: "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c", SHOPIFY_SITE_CLIENT_SECRET: "abc" });
+  g = await getAuth();
+  check("K · ID client de 40 caractères et secret trop court : jugés non plausibles", g.formes_plausibles.id_client === false && g.formes_plausibles.secret === false, JSON.stringify(g.formes_plausibles));
+  env({ SHOPIFY_SITE_CLIENT_ID: undefined, SHOPIFY_SITE_CLIENT_SECRET: undefined });
+  g = await getAuth();
+  check("K · variables absentes : forme « null »", g.formes_plausibles.id_client === null && g.formes_plausibles.secret === null, JSON.stringify(g.formes_plausibles));
+  env();
+  g = await getAuth();
+  check("K · formes inhabituelles : simple indice, la configuration reste valide", g.configured === true && g.formes_plausibles.id_client === false && g.formes_plausibles.secret === false, JSON.stringify(g));
+  reset();
+  file = [jeton("jt-k"), repInfo];
+  r = await outil("get-shop-info", {});
+  check("K · formes inhabituelles : l'outil fonctionne quand même", !enErreur(r) && appels.length === 2, `${appels.length} appels · ${texteOutil(r)}`);
+
+  // messages guidés quand Shopify refuse la demande de jeton
+  env();
+  reset();
+  file = [() => rep(400, { error: "application_cannot_be_found", error_description: "Could not find Shopify API application with api_key [FILTERED]" })];
+  r = await outil("get-shop-info", {});
+  let t = texteOutil(r);
+  check("K · application introuvable : les trois causes possibles et la boutique sont nommées", enErreur(r) && /400/.test(t) && /application_cannot_be_found/.test(t) && /site-test\.myshopify\.com/.test(t) && /ID client faux/.test(t) && /Installer l'application/.test(t) && /organisations différentes/.test(t), t);
+  check("K · application introuvable : indice sur la forme de l'ID client et du secret, sans leurs valeurs", /SHOPIFY_SITE_CLIENT_ID ne ressemble pas/.test(t) && /SHOPIFY_SITE_CLIENT_SECRET ne ressemble pas/.test(t) && !t.includes(SECRET) && !t.includes(`app-test-${nApp}`), t);
+  env({ SHOPIFY_SITE_CLIENT_ID: ID_HEX, SHOPIFY_SITE_CLIENT_SECRET: SECRET_SHPSS });
+  reset();
+  file = [() => rep(400, { error: "application_cannot_be_found", error_description: "x" })];
+  r = await outil("get-shop-info", {});
+  check("K · formes habituelles : aucun indice superflu", enErreur(r) && /Installer l'application/.test(texteOutil(r)) && !/Indice/.test(texteOutil(r)), texteOutil(r));
+  env();
+  reset();
+  file = [() => rep(404, "<html>Not Found</html>")];
+  r = await outil("get-shop-info", {});
+  t = texteOutil(r);
+  check("K · boutique introuvable (404 à la demande de jeton) : message sur SHOPIFY_SITE_SHOP", enErreur(r) && /Boutique introuvable/.test(t) && /site-test\.myshopify\.com/.test(t) && /SHOPIFY_SITE_SHOP/.test(t) && appels.length === 1, t);
+  env();
+  reset();
+  file = [() => rep(400, { error: "shop_not_permitted", error_description: "Client credentials cannot be performed on this shop." })];
+  r = await outil("get-shop-info", {});
+  check("K · autre organisation : message guidé", enErreur(r) && /même organisation/.test(texteOutil(r)) && /shop_not_permitted/.test(texteOutil(r)) && /Développer des applications/.test(texteOutil(r)), texteOutil(r));
+});
+
 /* ================================================================== J · aucune fuite dans le journal */
 await scenario("J", async () => {
-  const jetonsVus = ["jt-1", "jt-2", "jt-A", "jt-B", "jt-C", "jt-ok", "jt-court", "jt-neuf", "shpat_fixe_test"];
+  const jetonsVus = ["jt-1", "jt-2", "jt-A", "jt-B", "jt-C", "jt-ok", "jt-k", "jt-court", "jt-neuf", "shpat_fixe_test"];
   const tout = lignesJournal.join("\n");
   check("J · le journal contient des lignes mcp-site (initialize, appels d'outils)", lignesJournal.some((l) => l.includes('"evt":"mcp-site"') && l.includes('"methode":"initialize"')) && lignesJournal.some((l) => l.includes('"outil":"run-analytics-query"') && l.includes('"ok":true')) && lignesJournal.some((l) => l.includes('"ok":false')), `${lignesJournal.length} lignes`);
   check("J · le journal est composé de lignes JSON valides", lignesJournal.every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));

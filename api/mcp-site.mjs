@@ -20,8 +20,9 @@
 //
 // Vérification après déploiement : ouvrir /api/mcp-site?key=<MCP_SITE_KEY> dans le navigateur →
 // {"ok":true,"configured":true,…}. Sans la clé, la page ne révèle rien. Si "configured" vaut false, la liste
-// "manque" donne les variables à saisir (puis redéployer : Vercel n'applique pas une variable à un déploiement
-// déjà en ligne).
+// "manque" donne les variables à saisir et "identiques" celles qui portent la même valeur (erreur de collage ; puis
+// redéployer : Vercel n'applique pas une variable à un déploiement déjà en ligne). "formes_plausibles" indique, sans
+// révéler les valeurs, si l'ID client et le secret ont la forme habituelle (true / false, null = variable absente).
 //
 // Changer la clé : modifier MCP_SITE_KEY dans Vercel, redéployer, puis corriger l'adresse du connecteur dans Claude.
 
@@ -37,6 +38,10 @@ const INSTRUCTIONS =
 
 const LONGUEUR_CLE_MIN = 24;
 const CLE_SURE_POUR_UNE_ADRESSE = /^[A-Za-z0-9._~-]+$/; // la clé est placée dans une adresse web : lettres, chiffres, . _ ~ - seulement
+// Formes habituelles des identifiants d'une application Dev Dashboard : simples indices de diagnostic, jamais bloquants.
+// ID client = 32 caractères hexadécimaux ; secret = « shpss_ » + 32 caractères hexadécimaux (anciens secrets : les 32 seuls).
+const FORME_ID_CLIENT = /^[0-9a-f]{32}$/i;
+const FORME_SECRET = /^(?:shpss_)?[0-9a-f]{32}$/i;
 const MAX_REQUETE = 1500;
 const JEUX_AUTORISES = new Set(["sales", "sessions", "products"]);
 // Défense en profondeur : même sans le droit sur les clients, on refuse toute requête qui vise des données personnelles
@@ -105,6 +110,23 @@ function lireConfig() {
   }
   cfg.manque = manque;
   cfg.pret = manque.length === 0;
+  // Erreur de collage classique : la même valeur saisie dans deux variables (la clé du connecteur collée dans le nom de la
+  // boutique, par exemple). Seuls les NOMS des variables concernées sont renvoyés, jamais leurs valeurs.
+  const comparables = [
+    ["SHOPIFY_SITE_SHOP", domaine.replace(/\.myshopify\.com$/, "")], ["MCP_SITE_KEY", cfg.cle],
+    ["SHOPIFY_SITE_CLIENT_ID", cfg.clientId], ["SHOPIFY_SITE_CLIENT_SECRET", cfg.clientSecret], ["SHOPIFY_SITE_TOKEN", cfg.jeton],
+  ].map(([nom, valeur]) => [nom, valeur.toLowerCase()]);
+  cfg.identiques = [];
+  for (let i = 0; i < comparables.length; i++) {
+    for (let j = i + 1; j < comparables.length; j++) {
+      if (comparables[i][1] && comparables[i][1] === comparables[j][1]) cfg.identiques.push(`${comparables[i][0]} = ${comparables[j][0]}`);
+    }
+  }
+  // null = variable absente ; sinon : la valeur a-t-elle la forme habituelle ? (indice seulement)
+  cfg.formes = {
+    id_client: cfg.clientId ? FORME_ID_CLIENT.test(cfg.clientId) : null,
+    secret: cfg.clientSecret ? FORME_SECRET.test(cfg.clientSecret) : null,
+  };
   return cfg;
 }
 
@@ -157,6 +179,25 @@ function delai(echeance, max) {
   return Math.min(max, reste);
 }
 
+// Que vérifier quand Shopify refuse la demande de jeton ? (aucune valeur secrète dans ces messages : seulement des noms)
+function conseilJeton(statut, code, cfg) {
+  const formes = [];
+  if (cfg.formes?.id_client === false) formes.push("SHOPIFY_SITE_CLIENT_ID ne ressemble pas à un ID client (32 caractères : chiffres et lettres a à f)");
+  if (cfg.formes?.secret === false) formes.push("SHOPIFY_SITE_CLIENT_SECRET ne ressemble pas à un secret (« shpss_ » suivi de 32 caractères)");
+  const indices = formes.length ? ` Indice : ${formes.join(" ; ")}.` : "";
+  if (statut === 404) return `Boutique introuvable : ${cfg.domaine} n'existe pas. Vérifier SHOPIFY_SITE_SHOP (le nom qui précède .myshopify.com).${indices}`;
+  if (code === "application_cannot_be_found") {
+    return `Shopify ne trouve pas l'application pour la boutique ${cfg.domaine}. Trois causes possibles : ID client faux (SHOPIFY_SITE_CLIENT_ID), ` +
+      "application non installée sur cette boutique (Dev Dashboard > application > Accueil > Installer l'application), ou application et boutique " +
+      `dans deux organisations différentes.${indices}`;
+  }
+  if (code === "shop_not_permitted") {
+    return "L'application et la boutique ne sont pas dans la même organisation Shopify : créer l'application depuis l'administration de la boutique " +
+      `du site (Paramètres > Applications > Développer des applications).${indices}`;
+  }
+  return "À vérifier : application installée sur la boutique du site, même organisation que la boutique, identifiant et secret recopiés sans espace." + indices;
+}
+
 async function recupererJeton(cfg, renouveler, echeance) {
   if (cfg.jeton) return cfg.jeton;
   const k = `${cfg.domaine}|${cfg.clientId}`;
@@ -177,9 +218,7 @@ async function recupererJeton(cfg, renouveler, echeance) {
   }
   if (!r.ok || !j?.access_token) {
     const detail = [j?.error, j?.error_description].filter((x) => typeof x === "string").join(" - ").slice(0, 160);
-    throw new ErreurOutil(
-      `Shopify refuse les identifiants de l'application (code ${r.status}${detail ? " : " + detail : ""}). À vérifier : application installée ` +
-      "sur la boutique du site, même organisation que la boutique, identifiant et secret recopiés sans espace.");
+    throw new ErreurOutil(`Shopify refuse les identifiants de l'application (code ${r.status}${detail ? " : " + detail : ""}). ${conseilJeton(r.status, j?.error, cfg)}`);
   }
   jetons.set(k, { valeur: j.access_token, expire: Date.now() + (Number(j.expires_in) || 3600) * 1000 });
   return j.access_token;
@@ -253,6 +292,7 @@ const GQL_QL = `query ShopifyQLSite($q: String!) { shop { myshopifyDomain } shop
 
 async function appelerOutil(nom, args, cfg) {
   if (!cfg.pret) throw new ErreurOutil(`Boutique du site non configurée : variables manquantes côté Vercel (${cfg.manque.join(", ")}). Les saisir, puis redéployer.`);
+  if (cfg.identiques.length) throw new ErreurOutil(`Variables Vercel mal remplies : la même valeur a été saisie deux fois (${cfg.identiques.join(" ; ")}). Corriger la variable concernée, puis redéployer.`);
   if (nom === "get-shop-info") {
     const d = await graphql(cfg, GQL_INFO, {});
     const s = d?.shop;
@@ -362,7 +402,11 @@ export default async function handler(req, res) {
     const cleLongue = cfg.cle.length >= LONGUEUR_CLE_MIN;
     const cleSure = CLE_SURE_POUR_UNE_ADRESSE.test(cfg.cle);
     if (cleAcceptee(req, cfg.cle)) {
-      return res.status(200).json({ ok: true, service: "mcp-site", configured: cfg.pret && cleLongue && cleSure, boutique: cfg.domaine || null, manque: cfg.manque, cle_assez_longue: cleLongue, cle_url_sure: cleSure, version_api: versionApi(), lecture_seule: true });
+      return res.status(200).json({
+        ok: true, service: "mcp-site", configured: cfg.pret && cleLongue && cleSure && cfg.identiques.length === 0, boutique: cfg.domaine || null,
+        manque: cfg.manque, identiques: cfg.identiques, formes_plausibles: cfg.formes, cle_assez_longue: cleLongue, cle_url_sure: cleSure,
+        version_api: versionApi(), lecture_seule: true,
+      });
     }
     // Sans la clé : seulement de quoi diagnostiquer une clé mal choisie (jamais sa valeur).
     return res.status(200).json({ ok: true, service: "mcp-site", cle_definie: Boolean(cfg.cle), cle_valide: cleLongue && cleSure });
