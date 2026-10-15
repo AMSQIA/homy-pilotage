@@ -37,6 +37,11 @@ garde les chiffres de la veille pour la boutique en échec, avec la pastille « 
 2 jours) ; boutique vérifiée à chaque extraction ; lecture seule ; aucune donnée de client ; `switch-shop` n'est jamais
 appelé. Détail, procédure et codes de sortie : `scripts/flash/README.md`.
 
+**Bloc retiré** : « Aperçu de la semaine » (semaine du 27 septembre au 3 octobre : synthèse, CA, quantité, prix moyen,
+cumul, objectif de semaine, répartition par marketplace) ne s'affiche plus dans « Vue d'ensemble ». Figé sur la dernière
+semaine du fichier ODP, il était dépassé par le « Flash Shopify », qui couvre jusqu'à la veille. Rien d'autre ne change
+dans cet onglet. Pour le remettre : annuler le commit « Retire le bloc obsolète Aperçu de la semaine » (`git revert`).
+
 ### Comment le site est lu : un relais en lecture seule
 
 Le connecteur Shopify de Claude ne sert qu'**une boutique à la fois** (changer de boutique coupe la première). Le site passe

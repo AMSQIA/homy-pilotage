@@ -3432,7 +3432,6 @@ function DashboardApp() {
   // ===== Concurrence — veille collectée manuellement, cf. COMPETITION_DATA =====
   // structure : segments (Heater/Cooling) -> sous-catégories -> marketplaces -> produits
   const [concSegment, setConcSegment] = useState("Heater");
-  const [weeklyPreviewOpen, setWeeklyPreviewOpen] = useState(true);
   const [marquesTab, setMarquesTab] = useState(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("sousTab");
@@ -3527,63 +3526,6 @@ function DashboardApp() {
   // la moyenne (sinon la comparaison se fausse elle-même) =====
   // ===== analyse des puissances les plus vendues — filtrable date + marketplace,
   // à partir de price_tracking (quantité mensuelle réelle par produit×marketplace) =====
-  // ===== vue hebdomadaire — totaux, répartition marketplace, expéditions (vrai
-  // aperçu semaine la plus récente pour la Vue d'ensemble
-  const latestWeek = useMemo(() => Math.max(...WEEKLY_TOTALS.map((w) => w[0])), []);
-  // objectif de la dernière semaine (plan hebdomadaire) et plan cumulé S1→dernière semaine
-  const latestWeekPlan = useMemo(() => {
-    const ow = OBJECTIF_2026.hebdo.find((x) => x[0] === latestWeek);
-    if (!ow) return null;
-    const ca = (WEEKLY_TOTALS.find((w) => w[0] === latestWeek) || [0, 0])[1];
-    const attendu = planAttenduAuJour(DMAX);
-    return { obj: ow[1], pct: ow[1] ? (ca / ow[1]) * 100 : 0, attendu, couverture: attendu ? (DATA.kpi.ca_total_2026 / attendu) * 100 : 0 };
-  }, [latestWeek]);
-  const latestWeekStats = useMemo(() => {
-    const totalRow = WEEKLY_TOTALS.find((w) => w[0] === latestWeek);
-    const ca = totalRow ? totalRow[1] : 0, qte = totalRow ? totalRow[2] : 0;
-    const prevRow = WEEKLY_TOTALS.find((w) => w[0] === latestWeek - 1);
-    const trend = prevRow && prevRow[1] > 0 ? ((ca - prevRow[1]) / prevRow[1]) * 100 : null;
-    const allMp = WEEKLY_BY_MP.filter((r) => r[0] === latestWeek).map(([, mp, ca, qte]) => ({ mp, ca, qte })).sort((a, b) => b.ca - a.ca);
-    const mpRows = allMp.slice(0, 3);
-    const mpMaxCa = mpRows.length ? mpRows[0].ca : 0;
-    // top 6 + "Autres" pour le donut — même logique que weeklyPieData plus bas,
-    // dupliquée volontairement ici plutôt que partagée : latestWeekStats doit
-    // rester sur la dernière semaine indépendamment de selectedWeek (voir plus haut)
-    const top6 = allMp.slice(0, 6);
-    const autresCa = allMp.slice(6).reduce((s, r) => s + r.ca, 0);
-    const donutSegments = [...top6, ...(autresCa > 0 ? [{ mp: t.autres_lbl, ca: autresCa }] : [])]
-      .map((r) => ({ label: r.mp, value: r.ca, color: (MARKETPLACE_COLORS[r.mp] && MARKETPLACE_COLORS[r.mp].primary) || FAINT }));
-    return { ca, qte, prixMoyen: qte > 0 ? ca / qte : null, trend, mpRows, mpMaxCa, donutSegments };
-  }, [latestWeek, t.autres_lbl]);
-  // résumé texte de la semaine — même composant et même style que les résumés
-  // de période ailleurs dans l'app (PeriodSummaryCard), pas de jauge séparée
-  // à maintenir en parallèle. Toujours généré (pas de condition showSummary) :
-  // contrairement aux autres onglets, cette carte est déjà par nature une vue
-  // ciblée sur une semaine précise, jamais une vue "tout confondu" par défaut.
-  const summaryWeekly = useMemo(() => {
-    const top = latestWeekStats.donutSegments[0];
-    // meilleure progression marketplace vs semaine précédente — seuil de 3% du
-    // CA total de la semaine (ou 1500€ mini) pour écarter les hausses en %
-    // spectaculaires mais tirées d'un volume marginal (ex. 183€ -> 1621€ =
-    // +784%, réel mais pas un signal utile) ; même logique de prudence que
-    // yoy_variation_forte ailleurs dans l'app pour les bases de comparaison faibles
-    const prevWeekMp = {};
-    WEEKLY_BY_MP.filter((r) => r[0] === latestWeek - 1).forEach(([, mp, ca]) => { prevWeekMp[mp] = ca; });
-    const totalCaWeek = latestWeekStats.ca;
-    const threshold = Math.max(1500, totalCaWeek * 0.03);
-    const progressions = WEEKLY_BY_MP.filter((r) => r[0] === latestWeek)
-      .map(([, mp, ca]) => ({ mp, ca, prev: prevWeekMp[mp] }))
-      .filter((r) => r.prev && r.prev > 0 && r.ca >= threshold)
-      .map((r) => ({ ...r, pct: ((r.ca - r.prev) / r.prev) * 100 }));
-    const bestProgression = progressions.length ? progressions.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
-    return [
-      { title: t.sum_ca_titre, text: `${fmtEUR(latestWeekStats.ca)} ${t.sum_cette_semaine}${latestWeekStats.trend !== null ? `, ${latestWeekStats.trend >= 0 ? "+" : ""}${latestWeekStats.trend.toFixed(1)}% ${t.vs_semaine_prec}` : ""}.` },
-      { title: t.sum_mp_leader, text: top ? `${top.label}, ${fmtEURk(top.value)} (${((top.value / latestWeekStats.ca) * 100).toFixed(0)}%) ${t.sum_du_ca_semaine}.` : t.sum_non_calculable },
-      { title: t.sum_meilleure_progression, text: bestProgression ? `${bestProgression.mp}, ${bestProgression.pct >= 0 ? "+" : ""}${bestProgression.pct.toFixed(1)}% ${t.sum_vs_semaine_derniere} (${fmtEURk(bestProgression.prev)} → ${fmtEURk(bestProgression.ca)}).` : t.sum_non_calculable },
-      { title: t.sum_ytd_titre, text: `${fmtEUR(DATA.kpi.ca_total_2026)} ${t.sum_depuis_1er_janvier} ${DATA.kpi.pct_objectif_atteint.toFixed(1)}% ${t.sum_objectif_annuel_point} ${t.plan_a_date} S${planStatus.semaine} : ${planStatus.pctPlan.toFixed(1)}% (${planStatus.ecart >= 0 ? "+" : ""}${planStatus.ecart.toFixed(1)} pt).` },
-    ];
-  }, [latestWeekStats, latestWeek, t, planStatus]);
-
   // ===== vue exhaustive tous produits — CA + quantité, année 2026 complète
   // (year-to-date), toutes marketplaces ou une seule si globalMp filtré.
   // Inclut le déstockage (contrairement à Tops/Flops) car l'objectif ici est
@@ -4226,83 +4168,6 @@ function DashboardApp() {
         {tab === "apercu" && (
           <>
             {(globalMp === "Toutes" || globalMp === "Site Web") && <ShopifyFlashCard t={t} lang={lang} canal={globalMp === "Site Web" ? "site" : undefined} />}
-            <GlassCard className="p-4 mb-5" glow glowColor="#4A9EFF">
-              <button onClick={() => setWeeklyPreviewOpen((o) => !o)} className="w-full flex items-center justify-between gap-2 btn-lift">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <CalendarDays size={13} color="#4A9EFF" style={{ flexShrink: 0 }} />
-                  <span className="text-[9.5px] uppercase tracking-[0.14em] font-semibold" style={{ color: "#4A9EFF" }}>{t.apercu_semaine_titre}</span>
-                  <span className="w-1.5 h-1.5 rounded-full pulse-dot shrink-0" style={{ background: "#4A9EFF" }} />
-                  <span className="text-[11px] tabular-nums truncate" style={{ color: FAINT }}>· {excelWeekRange(latestWeek)}</span>
-                </div>
-                <ChevronRight size={14} color={FAINT} style={{ flexShrink: 0, transform: weeklyPreviewOpen ? "rotate(90deg)" : "none", transition: "transform 0.3s cubic-bezier(.65,0,.35,1)" }} />
-              </button>
-              <div className={`fold-panel ${weeklyPreviewOpen ? "" : "is-closed"}`}>
-                <div className="pt-3">
-                  <PeriodSummaryCard key={`hebdo-${latestWeek}`} items={summaryWeekly} t={t} />
-                </div>
-                <div className="flex flex-wrap items-end gap-x-6 gap-y-2 mb-3">
-                  <div>
-                    <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>CA</div>
-                    <div className="tabular-nums text-[20px] font-bold" style={{ color: INK }}>{fmtEURk(latestWeekStats.ca)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.qte_mode}</div>
-                    <div className="tabular-nums text-[16px] font-semibold" style={{ color: MUTED }}>{fmtNum(latestWeekStats.qte)} u.</div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.cp_prix_moyen}</div>
-                    <div className="tabular-nums text-[16px] font-semibold" style={{ color: MUTED }}>{latestWeekStats.prixMoyen !== null ? fmtEURplain(latestWeekStats.prixMoyen) : "N/A"}</div>
-                  </div>
-                  {latestWeekStats.trend !== null && (
-                    <div className="text-[12px] font-semibold tabular-nums flex items-center gap-1" style={{ color: latestWeekStats.trend >= 0 ? GREEN : RED }}>
-                      {latestWeekStats.trend >= 0 ? "▲" : "▼"} {Math.abs(latestWeekStats.trend).toFixed(0)}% <span className="font-normal" style={{ color: FAINT }}>{t.vs_semaine_prec}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-3 mb-3 pb-3 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,0.03)" }}>
-                  <div>
-                    <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.ca_cumule}</div>
-                    <div className="tabular-nums text-[14px] font-bold" style={{ color: INK }}>{fmtEUR(DATA.kpi.ca_total_2026)}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.objectif_2026} {fmtEURk(DATA.kpi.objectif_annuel_total)}</div>
-                    <div className="tabular-nums text-[14px] font-bold" style={{ color: DATA.kpi.pct_objectif_atteint >= 40 ? GREEN : AMBER }}>{DATA.kpi.pct_objectif_atteint.toFixed(1)}%</div>
-                  </div>
-                </div>
-                {latestWeekPlan && (
-                  <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,0.03)" }}>
-                    <div>
-                      <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.objectif_semaine} · S{latestWeek}</div>
-                      <div className="tabular-nums text-[14px] font-bold" style={{ color: INK }}>
-                        {fmtEURk(latestWeekPlan.obj)}{" "}
-                        <span className="text-[11px] font-semibold" style={{ color: latestWeekPlan.pct >= 90 ? GREEN : latestWeekPlan.pct >= 60 ? AMBER : RED }}>{latestWeekPlan.pct.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: FAINT }}>{t.plan_a_date} · S1→S{latestWeek}</div>
-                      <div className="tabular-nums text-[14px] font-bold" style={{ color: INK }}>
-                        {fmtEURk(latestWeekPlan.attendu)}{" "}
-                        <span className="text-[11px] font-semibold" style={{ color: latestWeekPlan.couverture >= 100 ? GREEN : latestWeekPlan.couverture >= 90 ? AMBER : RED }}>{latestWeekPlan.couverture.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {latestWeekStats.donutSegments.length > 0 && (
-                  <div className="flex items-center gap-4 mb-4">
-                    <MarketplaceDonut segments={latestWeekStats.donutSegments} size={128} centerValue={fmtEURk(latestWeekStats.ca)} centerLabel={t.repartition_mp_semaine_courte} />
-                    <div className="flex-1 min-w-0">
-                      {latestWeekStats.donutSegments.map((seg) => (
-                        <div key={seg.label} className="flex items-center gap-1.5 mb-1">
-                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: seg.color }} />
-                          <span className="text-[10.5px] flex-1 truncate min-w-0" style={{ color: MUTED }}>{seg.label}</span>
-                          <span className="tabular-nums text-[10px] font-semibold shrink-0" style={{ color: INK }}>{((seg.value / latestWeekStats.ca) * 100).toFixed(0)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </GlassCard>
             <PeriodSummaryCard key={`apercu-${globalMp}-${datePreset}`} items={summaryApercu} t={t} />
             <div className="flex items-center gap-2 mb-4 px-1 text-[11px]" style={{ color: FAINT }}>
               <CalendarDays size={12} />
