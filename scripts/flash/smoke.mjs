@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * Test d'affichage du bloc « Flash Shopify » sur le build de production (dossier dist/).
+ * Test d'affichage du bloc « Flash Shopify » (onglets Total / Marketplaces / Site web) sur le build
+ * de production (dossier dist/).
  *
  *   node scripts/flash/smoke.mjs [--shots dossier]
  *
  * Lance un petit serveur statique, ouvre l'application dans Chromium (Playwright), passe
- * l'écran d'accès et vérifie : aucune erreur JavaScript, bloc Flash présent avec les chiffres
- * du bloc SHOPIFY_FLASH de App.jsx, quatre langues, pastille « non actualisé » après 3 jours,
- * affichage mobile sans débordement horizontal.
+ * l'écran d'accès et vérifie : aucune erreur JavaScript, carte Flash présente avec les chiffres
+ * de shopify_flash.json et shopify_flash_site.json (total, marketplaces, site web), quatre
+ * langues, pastille « non actualisé » après 3 jours, filtre « Site Web », affichage mobile sans
+ * débordement horizontal.
  *
  * Codes de sortie : 0 ok · 2 échec d'affichage · 77 test impossible (Playwright ou Chromium
  * indisponible : à signaler, ce n'est pas un échec de l'application).
@@ -39,10 +41,13 @@ const contient = (texte, motif) => texte.toLowerCase().includes(norm(motif).toLo
 
 function lireBloc() {
   const src = fs.readFileSync(path.join(REPO, "App.jsx"), "utf8");
-  const F = JSON.parse(fs.readFileSync(path.join(REPO, "shopify_flash.json"), "utf8"));
+  const lire = (f) => JSON.parse(fs.readFileSync(path.join(REPO, f), "utf8"));
+  const F = lire("shopify_flash.json"), S = lire("shopify_flash_site.json");
   const dm = /DMAX = "(\d{4}-\d{2}-\d{2})"/.exec(src);
   const kpi = /"kpi":\{"ca_total_2026":([\d.]+),[^}]*"objectif_annuel_total":(\d+)/.exec(src);
-  return { F, dmax: dm[1], ca: Number(kpi[1]), obj: Number(kpi[2]) };
+  const data = JSON.parse(/^const DATA = (.*);\s*$/m.exec(src)[1]);
+  const site = data.mp_vs_objectif.find((m) => m.marketplace === "Site Web");
+  return { F, S, dmax: dm[1], ca: Number(kpi[1]), obj: Number(kpi[2]), siteCa: site.ca, siteObj: site.objectif };
 }
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".woff2": "font/woff2" };
@@ -104,50 +109,88 @@ async function textesCarte(page) {
   }));
 }
 
+const somme = (F) => F.jours.reduce((a, j) => ({ ca: a.ca + j.ca, cmd: a.cmd + j.cmd, qte: a.qte + j.qte }), { ca: 0, cmd: 0, qte: 0 });
+const fmtN = (n) => norm(new Intl.NumberFormat("fr-FR").format(n));
+const chiffres = (t, avecPanier = true) => ({
+  ca: `${Math.round(t.ca / 1000)}k€`,
+  cmd: fmtN(t.cmd),
+  qte: fmtN(t.qte),
+  ...(avecPanier ? { panier: norm(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(t.ca / t.cmd)) + " €") } : {}),
+});
+const mEur = (v) => new Intl.NumberFormat("fr", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v / 1e6) + " M€";
+const PLACEHOLDERS = /\{(boutique|date|dmax|du|au|shopify|excel|ecart|n|mp|site)\}/;
+
+async function onglet(page, i) {
+  await page.getByRole("tab").nth(i).click();
+  await page.waitForTimeout(250);
+}
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, "index.html"))) { console.error("dist/ introuvable : lancer « npx vite build » d'abord"); return 2; }
   const pw = chargerPlaywright();
   if (!pw) { console.log("TEST IMPOSSIBLE · Playwright introuvable"); return 77; }
-  const { F, dmax, ca, obj } = lireBloc();
-  if (!F) { console.log("Bloc Flash vide : rien à afficher, test sans objet"); return 0; }
+  const { F, S, dmax, ca, obj, siteCa, siteObj } = lireBloc();
+  if (!F || !S) { console.log("Bloc Flash vide : rien à afficher, test sans objet"); return 0; }
   let browser;
   try { browser = await pw.chromium.launch(); } catch (e) { console.log(`TEST IMPOSSIBLE · Chromium indisponible (${String(e.message).split("\n")[0]})`); return 77; }
   const srv = await serveur();
   const base = `http://127.0.0.1:${srv.address().port}/`;
   try {
-    const tot = F.jours.reduce((a, j) => ({ ca: a.ca + j.ca, cmd: a.cmd + j.cmd, qte: a.qte + j.qte }), { ca: 0, cmd: 0, qte: 0 });
-    const attendu = {
-      ca: `${Math.round(tot.ca / 1000)}k€`,
-      cmd: norm(new Intl.NumberFormat("fr-FR").format(tot.cmd)),
-      qte: norm(new Intl.NumberFormat("fr-FR").format(tot.qte)),
-      panier: norm(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(tot.ca / tot.cmd)) + " €"),
-      cumul: new Intl.NumberFormat("fr", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format((ca + tot.ca) / 1e6) + " M€",
-      pctObj: ((ca + tot.ca) / obj * 100).toFixed(1) + " %",
-      tendance: F.n1 && F.n1.ca > 0 ? Math.abs((tot.ca / F.n1.ca - 1) * 100).toFixed(0) + "%" : null,
+    const tm = somme(F), ts = somme(S), tt = { ca: tm.ca + ts.ca, cmd: tm.cmd + ts.cmd, qte: tm.qte + ts.qte };
+    const total = {
+      ...chiffres(tt),
+      cumul: mEur(ca + tt.ca),
+      pctObj: ((ca + tt.ca) / obj * 100).toFixed(1) + " %",
+      tendance: F.n1?.ca > 0 && S.n1?.ca > 0 ? Math.abs((tt.ca / (F.n1.ca + S.n1.ca) - 1) * 100).toFixed(0) + "%" : null,
     };
+    const siteCumul = { cumul: mEur(siteCa + ts.ca), pctObj: ((siteCa + ts.ca) / siteObj * 100).toFixed(1) + " %" };
 
-    // 1) français, bureau
+    // 1) français, bureau : onglet Total par défaut, puis chaque boutique
     {
       const { ctx, page, erreurs } = await ouvrir(browser);
       await versDashboard(page, base);
-      const t = await textesCarte(page);
+      let t = await textesCarte(page);
       verifier(t.length > 50, "carte Flash introuvable ou vide");
-      for (const [k, v] of Object.entries(attendu)) if (v) verifier(t.includes(norm(v)), `FR · « ${v} » (${k}) absent de la carte`);
-      verifier(contient(t, "Cumul 2026 estimé"), "FR · libellé du cumul absent");
+      verifier((await page.getByRole("tab").count()) === 3, "FR · trois onglets attendus (Total, Marketplaces, Site web)");
+      for (const [k, v] of Object.entries(total)) if (v) verifier(t.includes(norm(v)), `FR · Total · « ${v} » (${k}) absent de la carte`);
+      verifier(contient(t, "Cumul 2026 estimé"), "FR · libellé du cumul absent (Total)");
       verifier(!/Non actualisé/.test(t), "FR · pastille « non actualisé » affichée alors que les données sont fraîches");
-      verifier(F.pays.slice(0, 5).every((p) => t.includes(p.nom)), "FR · un des 5 premiers pays est absent");
-      verifier(F.produits.slice(0, 5).every((p) => t.includes(p.nom)), "FR · un des 5 premiers produits est absent");
-      if (F.recoupement) verifier(/Contrôle .* Shopify .* vs fichier ODP hors site web/.test(t), "FR · phrase de contrôle absente");
-      if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: path.join(shotsDir, "bureau-fr.png"), fullPage: false }); }
+      verifier(!PLACEHOLDERS.test(t), "FR · Total · variable de modèle non remplacée");
+      if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: path.join(shotsDir, "bureau-fr-total.png"), fullPage: false }); }
 
-      // 2) langues
-      const marques = { en: ["Estimated 2026 total", "Same dates 2025 (Shopify)"], es: ["Acumulado 2026 estimado"], zh: ["2026 年预估累计"] };
+      await onglet(page, 1); // Marketplaces
+      t = await textesCarte(page);
+      for (const [k, v] of Object.entries(chiffres(tm))) verifier(t.includes(norm(v)), `FR · Marketplaces · « ${v} » (${k}) absent`);
+      verifier(F.pays.slice(0, 5).every((p) => t.includes(p.nom)), "FR · Marketplaces · un des 5 premiers pays est absent");
+      verifier(F.produits.slice(0, 5).every((p) => t.includes(p.nom)), "FR · Marketplaces · un des 5 premiers produits est absent");
+      if (F.recoupement) verifier(/Contrôle .* Shopify .* vs fichier ODP hors site web/.test(t), "FR · Marketplaces · phrase de contrôle absente");
+      verifier(!contient(t, "Cumul 2026 estimé"), "FR · Marketplaces · pas de cumul attendu avec deux boutiques");
+      verifier(!PLACEHOLDERS.test(t), "FR · Marketplaces · variable de modèle non remplacée");
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "bureau-fr-marketplaces.png"), fullPage: false });
+
+      await onglet(page, 2); // Site web
+      t = await textesCarte(page);
+      for (const [k, v] of Object.entries(chiffres(ts))) verifier(t.includes(norm(v)), `FR · Site web · « ${v} » (${k}) absent`);
+      verifier(S.pays.slice(0, 5).every((p) => t.includes(p.nom)), "FR · Site web · un des 5 premiers pays est absent");
+      verifier(S.produits.slice(0, 5).every((p) => t.includes(p.nom)), "FR · Site web · un des 5 premiers produits est absent");
+      if (S.recoupement) verifier(/Contrôle .* Shopify .* vs fichier ODP « Site Web »/.test(t), "FR · Site web · phrase de contrôle absente");
+      verifier(contient(t, "Cumul 2026 estimé · site web") && t.includes(siteCumul.cumul) && t.includes(siteCumul.pctObj), `FR · Site web · cumul du site (${siteCumul.cumul}, ${siteCumul.pctObj}) absent`);
+      verifier(!PLACEHOLDERS.test(t), "FR · Site web · variable de modèle non remplacée");
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "bureau-fr-site.png"), fullPage: false });
+
+      // 2) langues : chaque onglet, sans variable de modèle restante
+      await onglet(page, 0);
+      const marques = { en: ["Estimated 2026 total", "Same dates 2025 (Shopify)", "Website"], es: ["Acumulado 2026 estimado", "Sitio web"], zh: ["2026 年预估累计", "官网"] };
       for (const [code, etiquette] of [["en", "EN"], ["es", "ES"], ["zh", "中文"]]) {
         await page.getByRole("button", { name: etiquette, exact: true }).last().click();
         await page.waitForTimeout(400);
-        const tl = await textesCarte(page);
-        for (const m of marques[code]) verifier(contient(tl, m), `${code.toUpperCase()} · « ${m} » absent de la carte`);
-        verifier(!/\{(boutique|date|dmax|du|au|shopify|excel|ecart|n)\}/.test(tl), `${code.toUpperCase()} · variable de modèle non remplacée`);
+        for (let i = 0; i < 3; i++) {
+          await onglet(page, i);
+          const tl = await textesCarte(page);
+          verifier(!PLACEHOLDERS.test(tl), `${code.toUpperCase()} · onglet ${i + 1} · variable de modèle non remplacée`);
+          if (i === 0) for (const m of marques[code]) verifier(contient(tl, m), `${code.toUpperCase()} · « ${m} » absent de la carte`);
+        }
+        await onglet(page, 0);
       }
       verifier(erreurs.length === 0, `erreurs JavaScript (bureau) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
@@ -163,14 +206,29 @@ async function main() {
       await ctx.close();
     }
 
-    // 4) mobile : pas de défilement horizontal de la page
+    // 4) filtre « Site Web » du tableau de bord : seule la boutique du site, sans onglets
+    {
+      const { ctx, page, erreurs } = await ouvrir(browser);
+      await versDashboard(page, base);
+      await page.locator("select", { has: page.locator("option[value='Site Web']") }).first().selectOption("Site Web");
+      await page.waitForTimeout(500);
+      const t = await textesCarte(page);
+      verifier((await page.getByRole("tab").count()) === 0, "filtre Site Web : aucun onglet attendu");
+      for (const [k, v] of Object.entries(chiffres(ts))) verifier(t.includes(norm(v)), `filtre Site Web · « ${v} » (${k}) absent`);
+      verifier(t.includes(siteCumul.cumul), "filtre Site Web · cumul du site absent");
+      verifier(!PLACEHOLDERS.test(t), "filtre Site Web · variable de modèle non remplacée");
+      verifier(erreurs.length === 0, `erreurs JavaScript (filtre Site Web) : ${erreurs.slice(0, 3).join(" | ")}`);
+      await ctx.close();
+    }
+
+    // 5) mobile : pas de défilement horizontal de la page
     {
       const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 390, hauteur: 844 });
       await versDashboard(page, base);
       const defil = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       verifier(defil <= 1, `mobile : débordement horizontal de ${defil}px`);
       const t = await textesCarte(page);
-      verifier(t.includes(norm(attendu.cumul)), "mobile : cumul absent");
+      verifier(t.includes(norm(total.cumul)), "mobile : cumul absent");
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mobile-fr.png"), fullPage: false });
       verifier(erreurs.length === 0, `erreurs JavaScript (mobile) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
@@ -180,7 +238,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log("SMOKE_OK · bloc Flash affiché (4 langues, pastille de fraîcheur, mobile), aucune erreur JavaScript");
+  console.log("SMOKE_OK · carte Flash affichée (onglets Total / Marketplaces / Site web, 4 langues, filtre Site Web, pastille de fraîcheur, mobile), aucune erreur JavaScript");
   return 0;
 }
 

@@ -5,7 +5,10 @@
  *   node scripts/flash/selftest.mjs        → « SELFTEST_OK » attendu
  */
 import assert from "node:assert/strict";
-import { planifier, construire, comparerAuPrecedent, normaliserSku, lastYear, weekExcel, addDays, serialiser, Echec, CFG } from "./refresh_flash.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { planifier, construire, collecter, comparerAuPrecedent, normaliserSku, lastYear, weekExcel, addDays, serialiser, Echec, CFG, PROFILS } from "./refresh_flash.mjs";
 
 let n = 0;
 const test = (nom, f) => { f(); n++; };
@@ -139,6 +142,139 @@ test("comparaison avec le bloc précédent", () => {
   echec(() => comparerAuPrecedent(b, { du: b.du, au: b.au, jours: b.jours.map((j) => ({ ...j, ca: j.ca * 2 })) }, false, []), /ont varié/);
   // --force autorise les deux
   comparerAuPrecedent(b, { du: b.du, au: b.au, jours: b.jours.map((j) => ({ ...j, ca: j.ca * 2 })) }, true, []);
+});
+
+
+/* --- boutique du site : base brute HT, contrôle ODP « Site Web », résultats isolés par boutique -------- */
+const SITE = PROFILS.site, MKT = PROFILS.marketplaces;
+const planSite = planifier(app, "2026-10-06", SITE); // même fenêtre : 04 → 05 octobre
+const DOM_SITE = "besthermshop.myshopify.com";
+const MS = ["orders", "quantity_ordered", "gross_sales"];
+function jeuSite(modif = (x) => x) {
+  const q = Object.fromEntries(planSite.queries.map((x) => [x.id, x.query]));
+  const m = new Map();
+  m.set(q.jours, res(q.jours, ["day", ...MS], [["2026-10-04", "10", "12", "1000"], ["2026-10-05", "20", "25", "2400"]], DOM_SITE));
+  m.set(q.jours_n1, res(q.jours_n1, ["day", ...MS], [["2025-10-04", "8", "9", "800"], ["2025-10-05", "15", "18", "1200"]], DOM_SITE));
+  m.set(q.pays, res(q.pays, ["shipping_country", ...MS], [["France", "25", "30", "3000"], ["Belgium", "5", "7", "400"]], DOM_SITE));
+  m.set(q.produits, res(q.produits, ["product_variant_sku", "quantity_ordered", "gross_sales"],
+    [["AAA1", "20", "2000"], ["BBB2_never_used", "15", "1400"], ["", "0", "0"]], DOM_SITE));
+  m.set(q.recoup, res(q.recoup, MS, [["30", "40", "70"]], DOM_SITE));
+  return modif(m) ?? m;
+}
+const reqSite = (id) => planSite.queries.find((x) => x.id === id).query;
+
+test("site : plan sur les ventes brutes, profils distincts", () => {
+  assert.equal(planSite.boutique, "site");
+  assert.equal(plan.boutique, "marketplaces");
+  assert.equal(planSite.queries.length, 5);
+  assert.equal(reqSite("jours"), "FROM sales SHOW orders, quantity_ordered, gross_sales TIMESERIES day SINCE 2026-10-04 UNTIL 2026-10-05");
+  assert.equal(reqSite("jours_n1"), "FROM sales SHOW orders, quantity_ordered, gross_sales TIMESERIES day SINCE 2025-10-04 UNTIL 2025-10-05");
+  assert.equal(reqSite("pays"), `FROM sales SHOW orders, quantity_ordered, gross_sales GROUP BY shipping_country SINCE 2026-10-04 UNTIL 2026-10-05 ORDER BY gross_sales DESC LIMIT ${CFG.limitePays}`);
+  assert.equal(reqSite("produits"), `FROM sales SHOW quantity_ordered, gross_sales GROUP BY product_variant_sku SINCE 2026-10-04 UNTIL 2026-10-05 ORDER BY gross_sales DESC LIMIT ${CFG.limiteSku}`);
+  assert.equal(reqSite("recoup"), "FROM sales SHOW orders, quantity_ordered, gross_sales SINCE 2026-09-20 UNTIL 2026-10-03");
+  // Les requêtes des marketplaces n'ont pas bougé (leurs résultats sont relus par texte de requête)
+  assert.equal(plan.queries[0].query, "FROM sales SHOW orders, quantity_ordered, net_sales, taxes TIMESERIES day SINCE 2026-10-04 UNTIL 2026-10-05");
+  assert.equal(plan.queries[3].query, `FROM sales SHOW quantity_ordered, net_sales, taxes GROUP BY product_variant_sku SINCE 2026-10-04 UNTIL 2026-10-05 ORDER BY net_sales DESC LIMIT ${CFG.limiteSku}`);
+  assert.notEqual(MKT.domaine, SITE.domaine);
+  assert.notEqual(MKT.fichier, SITE.fichier);
+  assert.equal(planifier(app, "2026-10-04", SITE).vide, true);
+});
+
+test("site : bloc construit sans division par la TVA", () => {
+  const avert = [];
+  const b = construire(app, planSite, jeuSite(), avert, SITE);
+  assert.deepEqual(b.jours, [
+    { d: "2026-10-04", ca: 1000, cmd: 10, qte: 12, n1: 800 },
+    { d: "2026-10-05", ca: 2400, cmd: 20, qte: 25, n1: 1200 },
+  ]);
+  assert.deepEqual(b.n1, { ca: 2000, qte: 27, cmd: 23 });
+  assert.deepEqual(b.pays, [{ nom: "France", ca: 3000, qte: 30 }, { nom: "Belgique", ca: 400, qte: 7 }]);
+  assert.deepEqual(b.produits, [{ nom: "PRODUIT A", ca: 2000, qte: 20 }, { nom: "PRODUIT B", ca: 1400, qte: 15 }]);
+  // Contrôle ODP : uniquement les lignes « Site Web » (50 + 20), pas Amazon FR
+  assert.deepEqual(b.recoupement, { du: "2026-09-20", au: "2026-10-03", shopify: 70, excel: 70 });
+  assert.equal(b.boutique, "bestherm.fr");
+  assert.equal(b.base, "ventes_brutes_ht");
+  assert.equal(avert.length, 0);
+  assert.deepEqual(JSON.parse(serialiser(b)), b);
+});
+
+test("site : seuils du contrôle ODP (avertissement à 5 %, échec à 12 %)", () => {
+  const ecartDe = (brut) => (m) => { m.get(reqSite("recoup")).rows[0][2] = String(brut); };
+  const avertPour = (brut) => { const a = []; construire(app, planSite, jeuSite(ecartDe(brut)), a, SITE); return a.filter((x) => /Contrôle ODP/.test(x)); };
+  assert.equal(avertPour(72.8).length, 0); // +4 % : rien à signaler (les marketplaces avertiraient dès 3 %)
+  assert.equal(avertPour(74.2).length, 1); // +6 % : avertissement, pas d'échec
+  assert.equal(avertPour(77).length, 1); // +10 % : avertissement seulement (les marketplaces échoueraient dès 8 %)
+  assert.equal(avertPour(63).length, 1); // −10 %
+  echec(() => construire(app, planSite, jeuSite(ecartDe(80)), [], SITE), /Contrôle ODP.*site web.*\+14\.3 %/); // +14,3 %
+  echec(() => construire(app, planSite, jeuSite(ecartDe(60)), [], SITE), /Contrôle ODP/); // −14,3 %
+  // Marketplaces : avertissement dès 3 %, échec au-delà de 8 %
+  const recoupM = (v) => (m) => { m.get(plan.queries.find((x) => x.id === "recoup").query).rows[0][2] = String(v); };
+  const avertM = [];
+  construire(app, plan, jeu(recoupM(321)), avertM); // 321 / 300 : +7 %
+  assert.ok(avertM.some((a) => /Contrôle ODP/.test(a)));
+  echec(() => construire(app, plan, jeu(recoupM(330)), []), /Contrôle ODP/); // +10 %
+});
+
+test("site : aucune vente ODP « Site Web » sur la période de contrôle", () => {
+  const appSansSite = { ...app, src: app.src.replace(/\[39,"Site Web",50,1\],/, "").replace(/\[40,"Site Web",20,1\],/, "") };
+  const avert = [];
+  const b = construire(appSansSite, planSite, jeuSite(), avert, SITE);
+  assert.equal(b.recoupement, undefined);
+  assert.ok(avert.some((a) => /Contrôle ODP impossible/.test(a)));
+});
+
+test("site : la boutique est obligatoire et vérifiée", () => {
+  echec(() => construire(app, planSite, jeuSite((m) => { for (const r of m.values()) delete r.shopDomain; }), [], SITE), /Boutique inattendue \(non indiquée\)/);
+  echec(() => construire(app, planSite, jeuSite((m) => { for (const r of m.values()) r.shopDomain = MKT.domaine; }), [], SITE), /Boutique inattendue/);
+  // Un seul résultat d'une autre boutique suffit à tout refuser
+  echec(() => construire(app, planSite, jeuSite((m) => { m.get(reqSite("pays")).shopDomain = MKT.domaine; }), [], SITE), /Boutique inattendue/);
+  // Marketplaces : shopDomain absent toléré (historique), autre boutique refusée
+  construire(app, plan, jeu((m) => { for (const r of m.values()) delete r.shopDomain; }), []);
+  // Un résultat étranger, hors plan, ne bloque pas la construction
+  construire(app, planSite, jeuSite((m) => { m.set("FROM sales SHOW autre", res("FROM sales SHOW autre", ["x"], [["1"]], "autre.myshopify.com")); }), [], SITE);
+  // Résultat du plan absent : échec net (code 3), pas une erreur technique
+  assert.throws(() => construire(app, planSite, jeuSite((m) => { m.delete(reqSite("pays")); }), [], SITE), (e) => e instanceof Echec && e.code === 3);
+});
+
+test("site : colonne de valeur manquante ou non numérique", () => {
+  echec(() => construire(app, planSite, jeuSite((m) => { m.get(reqSite("jours")).columns = [{ name: "day" }, { name: "orders" }, { name: "quantity_ordered" }, { name: "net_sales" }]; }), [], SITE), /Colonne « gross_sales » absente/);
+  echec(() => construire(app, planSite, jeuSite((m) => { m.get(reqSite("jours")).rows[0][3] = "n/a"; }), [], SITE), /non numérique/);
+});
+
+test("résultats lus par boutique : même requête, deux boutiques, jamais mélangées", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flash-selftest-"));
+  try {
+    const q = (id) => plan.queries.find((x) => x.id === id).query; // même texte pour les deux profils : les requêtes « marketplaces »
+    const planDeux = { ...plan, queries: plan.queries.filter((x) => x.id === "jours") };
+    const mk = res(q("jours"), ["day", ...M], [["2026-10-04", "1", "1", "100", "20"]], MKT.domaine);
+    const st = res(q("jours"), ["day", ...M], [["2026-10-04", "9", "9", "900", "180"]], SITE.domaine);
+    const sans = { query: q("jours"), columns: M.map((name) => ({ name })), rows: [["2026-10-04", "5", "5", "500", "100"]] }; // sans shopDomain
+    const ecrit = (nom, x) => { const f = path.join(dir, nom); fs.writeFileSync(f, JSON.stringify(x)); return f; };
+    const fMk = ecrit("mk.json", [mk]), fSt = ecrit("st.json", [st]), fSans = ecrit("sans.json", [sans]);
+    const lire = (fichiers, profil) => collecter(planDeux, { results: fichiers, transcript: [] }, profil).get(q("jours"));
+    // Les deux résultats dans le même fichier de résultats, dans les deux ordres
+    assert.equal(lire([fMk, fSt], MKT).rows[0][1], "1");
+    assert.equal(lire([fSt, fMk], MKT).rows[0][1], "1");
+    assert.equal(lire([fMk, fSt], { ...SITE, colonnes: SITE.colonnes }).rows[0][1], "9");
+    // Un résultat de l'autre boutique seulement : manquant (code 3), jamais substitué
+    assert.throws(() => lire([fSt], MKT), (e) => e instanceof Echec && e.code === 3 && /marketplaces/.test(e.message));
+    assert.throws(() => lire([fMk], SITE), (e) => e instanceof Echec && e.code === 3 && /site/.test(e.message));
+    // Sans shopDomain : toléré pour les marketplaces, refusé pour le site
+    assert.equal(lire([fSans], MKT).rows[0][1], "5");
+    assert.throws(() => lire([fSans], SITE), (e) => e instanceof Echec && e.code === 3);
+    // Le résultat de la bonne boutique prime sur celui qui n'indique pas la boutique
+    assert.equal(lire([fSans, fMk], MKT).rows[0][1], "1");
+    // Fichier illisible : échec d'utilisation net
+    const fMauvais = path.join(dir, "mauvais.json"); fs.writeFileSync(fMauvais, "{pas du json");
+    assert.throws(() => lire([fMauvais], SITE), (e) => e instanceof Echec && e.code === 1 && /illisible/.test(e.message));
+    // Résultats rangés dans une transcription de session (format .jsonl)
+    const ligne = (r) => JSON.stringify({ message: { content: [{ type: "tool_result", content: [{ type: "text", text: JSON.stringify(r) }] }] } });
+    const tr = path.join(dir, "session.jsonl"); fs.writeFileSync(tr, [ligne(st), ligne(mk)].join("\n") + "\n");
+    assert.equal(collecter(planDeux, { results: [], transcript: [tr] }, MKT).get(q("jours")).rows[0][1], "1");
+    assert.equal(collecter(planDeux, { results: [], transcript: [tr] }, SITE).get(q("jours")).rows[0][1], "9");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 console.log(`SELFTEST_OK · ${n} groupes de contrôles`);
