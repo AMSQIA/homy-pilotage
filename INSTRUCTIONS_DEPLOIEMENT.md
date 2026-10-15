@@ -1,50 +1,94 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
-## Mise à jour du 15 octobre 2026 — connecteur MCP de la boutique du site (lecture seule)
+## Mise à jour du 15 octobre 2026 — Flash Shopify du site web (bestherm.fr)
 
-Le connecteur Shopify de Claude ne sert qu'**une boutique à la fois** (changer de boutique coupe la première). Pour lire
-aussi la boutique du **site web** sans toucher à la connexion BESTHERM, `api/mcp-site.mjs` est un **second connecteur**,
-indépendant, hébergé sur ce projet Vercel. Il ne fait que lire : requêtes ShopifyQL (jeux `sales`, `sessions`, `products`),
-des agrégats uniquement. Aucune écriture, aucune donnée de client (e-mail, téléphone, nom, adresse : les requêtes qui les
-visent sont refusées).
+Le bloc « Flash Shopify » couvre désormais **les deux boutiques Shopify** : les marketplaces (BESTHERM) et le **site web**
+(bestherm.fr). La tâche planifiée de 6 h 58 (heure de Paris) actualise les deux chaque matin, jusqu'à la veille.
 
-**Mise en place (une seule fois)**
+**Dans l'application** (haut de « Vue d'ensemble », avec « Toutes marketplaces » ou avec le filtre « Site Web »)
 
-1. **Shopify, boutique du site** : Dev Dashboard → créer une application en lecture seule, droit **`read_reports`** seul,
-   installée sur la boutique du site. Noter l'identifiant client et le secret (ne jamais les coller dans une conversation).
-2. **Vercel** (projet `homy-pilotage` → Settings → Environment Variables, tous les environnements) : quatre variables.
+- Trois onglets : **Total** (affiché par défaut : somme exacte des deux boutiques, barres empilées marketplaces + site),
+  **Marketplaces** et **Site web**. Avec le filtre « Site Web » en haut de l'application, la carte ne montre que le site.
+- Dans chaque onglet : CA HT, commandes, unités, panier moyen, évolution vs mêmes dates 2025, courbe jour par jour et cumul
+  2026 estimé (Total : ODP + les deux boutiques ; Site web : ventes « Site Web » de l'ODP + flash du site, comparées à
+  l'objectif du site de 1,4 M€). Pays et produits les plus vendus dans les onglets par boutique.
+- Textes en français, anglais, espagnol et chinois.
+
+**Premier bloc réel (4 → 14 octobre 2026)**
+
+| | Marketplaces | Site web | Total |
+|---|---|---|---|
+| CA HT | 515 215 € | 56 411 € | **571 626 €** |
+| Commandes | 3 108 | 215 | 3 323 |
+| Unités | 5 244 | 476 | 5 720 |
+| Panier moyen | 166 € | 262 € | 172 € |
+| Évolution vs mêmes dates 2025 | +10,9 % (464 722 €) | +27,2 % (44 351 €) | **+12,3 %** (509 073 €) |
+
+Cumul 2026 estimé : **8,08 M€**, soit 53,9 % de l'objectif de 15 M€ (fichier ODP au 3 octobre + les deux boutiques).
+
+**Base de calcul du site** : les **ventes brutes hors taxes** de Shopify (`gross_sales`, avant remises et retours). C'est la
+base du canal « Site Web » de l'ODP : sur 10 semaines (26/07 → 03/10/2026), l'ODP vaut 1,000 × les ventes brutes du site
+(entre 0,89 et 1,05 selon la semaine). Les ventes nettes sont 8,6 % plus basses et ne s'additionneraient pas à l'ODP. Les
+marketplaces gardent leur règle : (ventes nettes + taxes) ÷ 1,2. Contrôle du site contre l'ODP « Site Web », 20/09 → 03/10 :
+Shopify 62 651 € contre 62 412 € (+0,4 %). Seuils : avertissement à 5 %, refus d'écrire à 12 % (marketplaces : 3 % et 8 %).
+
+**Garde-fous** : les deux boutiques sont indépendantes (si l'une échoue, l'autre est quand même mise à jour ; l'application
+garde les chiffres de la veille pour la boutique en échec, avec la pastille « Non actualisé depuis N j » à partir de
+2 jours) ; boutique vérifiée à chaque extraction ; lecture seule ; aucune donnée de client ; `switch-shop` n'est jamais
+appelé. Détail, procédure et codes de sortie : `scripts/flash/README.md`.
+
+### Comment le site est lu : un relais en lecture seule
+
+Le connecteur Shopify de Claude ne sert qu'**une boutique à la fois** (changer de boutique coupe la première). Le site passe
+donc par `api/mcp-site.mjs`, une porte à part hébergée sur ce projet Vercel, qui ne fait que lire : requêtes ShopifyQL
+(jeux `sales`, `sessions`, `products`), des agrégats uniquement ; les requêtes qui visent des données de client (e-mail,
+téléphone, nom, adresse) sont refusées. Le script `scripts/flash/site_query.mjs` l'appelle directement avec la clé du relais.
+Un connecteur personnalisé côté Claude est possible mais **facultatif** : l'actualisation du matin n'en dépend pas.
+
+**Mise en place (une seule fois, déjà faite)**
+
+1. **Shopify, boutique du site** : Dev Dashboard → application en lecture seule (« HOM'Y Pilotage - lecture »), droit
+   **`read_reports`** seul. Puis **Installer l'application** sur la boutique du site (Accueil de l'application → Installer
+   l'application) : sans cette étape, Shopify refuse le jeton. Noter l'identifiant client et le secret (ne jamais les coller
+   dans une conversation).
+2. **Vercel** (projet `homy-pilotage` → Settings → Environment Variables, tous les environnements) : quatre variables,
+   chacune avec **sa** valeur.
 
    | Variable | Contenu |
    |---|---|
-   | `SHOPIFY_SITE_SHOP` | la partie `xxxx` de `xxxx.myshopify.com` (boutique du site) |
-   | `SHOPIFY_SITE_CLIENT_ID` | identifiant client de l'application |
-   | `SHOPIFY_SITE_CLIENT_SECRET` | secret de l'application |
-   | `MCP_SITE_KEY` | chaîne aléatoire longue, choisie par vous : elle sert de mot de passe du connecteur. 24 caractères minimum (40 conseillés), **lettres et chiffres uniquement** (elle se place dans une adresse web : pas de `#`, `&`, `+`, `%`, espace) |
+   | `SHOPIFY_SITE_SHOP` | la partie `xxxx` de `xxxx.myshopify.com` (boutique du site : `besthermshop`), sans le reste |
+   | `SHOPIFY_SITE_CLIENT_ID` | identifiant client de l'application (32 caractères) |
+   | `SHOPIFY_SITE_CLIENT_SECRET` | secret de l'application (il commence par `shpss_`) |
+   | `MCP_SITE_KEY` | clé du relais, choisie par vous : c'est son mot de passe. 24 caractères minimum (40 conseillés), **lettres et chiffres uniquement** (elle se place dans une adresse web : pas de `#`, `&`, `+`, `%`, espace) |
 
-   Puis **Redeploy** (Vercel n'applique pas une variable à un déploiement déjà en ligne).
-   Variante : `SHOPIFY_SITE_TOKEN` (jeton d'administration fixe) à la place de l'identifiant et du secret ;
-   `SHOPIFY_SITE_API_VERSION` facultative (défaut `2026-04`).
+   Puis **Redeploy** (Vercel n'applique pas une variable à un déploiement déjà en ligne). Variante : `SHOPIFY_SITE_TOKEN`
+   (jeton d'administration fixe) à la place de l'identifiant et du secret ; `SHOPIFY_SITE_API_VERSION` facultative (défaut
+   `2026-04`). Facultatif : marquer ces variables « Sensitive » dans Vercel (leur valeur n'est alors plus affichée).
 3. **Vérifier** : ouvrir `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` dans le navigateur →
-   `"configured": true` et la boutique du site. Si `false`, la liste `manque` donne les variables à saisir, et
-   `cle_assez_longue` / `cle_url_sure` signalent une clé trop courte ou contenant des caractères spéciaux. Sans la clé, la
-   page ne révèle que `cle_definie` et `cle_valide` (jamais la clé elle-même).
-4. **Claude** : Customize → Connectors → **Add custom connector** (Team ou Enterprise : un Owner l'ajoute dans
-   Organization settings → Connectors). Nom : `Shopify Site` ; adresse :
+   `"configured": true` et la boutique du site. Si `false` : `manque` liste les variables absentes, `identiques` celles qui
+   portent la même valeur (erreur de collage), `formes_plausibles` indique si chaque valeur a la forme attendue,
+   `cle_assez_longue` et `cle_url_sure` signalent une clé trop courte ou avec des caractères spéciaux. Sans la clé, la page
+   ne révèle que `cle_definie` et `cle_valide` (jamais la clé elle-même).
+4. **Contrôle en ligne de commande** : `export MCP_SITE_KEY=...` puis `node scripts/flash/site_query.mjs --info` → la
+   boutique `besthermshop.myshopify.com`.
+5. **Facultatif, connecteur Claude** : Customize → Connectors → **Add custom connector** (Team ou Enterprise : un Owner
+   l'ajoute dans Organization settings → Connectors). Nom : `Shopify Site` ; adresse :
    `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` ; authentification : **No sign-in** (la clé est dans
-   l'adresse).
-5. **Contrôle** : appeler `get-shop-info` sur chacun des deux connecteurs : `Shopify Site` doit renvoyer la boutique du
-   site, le connecteur Shopify de Claude doit toujours renvoyer BESTHERM (`46a3f9-2.myshopify.com`).
+   l'adresse). Il permet d'interroger le site depuis une conversation, sans toucher à la connexion BESTHERM.
 
-**Sécurité** : l'adresse du connecteur contient la clé : à traiter comme un mot de passe. Pour la changer : modifier
-`MCP_SITE_KEY` dans Vercel, redéployer, puis corriger l'adresse du connecteur dans Claude. Vingt clés fausses depuis une même
-adresse bloquent celle-ci pendant 5 minutes. Pour couper l'accès : supprimer `MCP_SITE_KEY` (le connecteur répond alors 503)
-ou désinstaller l'application dans Shopify.
+**Clé du relais** : la tâche planifiée du matin la contient dans son propre texte (elle l'exporte avant d'appeler
+`site_query.mjs`) ; elle n'est jamais écrite dans le dépôt, et l'adresse du connecteur facultatif est à traiter comme un
+mot de passe. *Pour la changer* : modifier `MCP_SITE_KEY` dans Vercel, redéployer, puis remplacer la clé dans le texte de la
+tâche planifiée (et dans l'adresse du connecteur Claude s'il est installé). Vingt clés fausses depuis une même adresse
+bloquent celle-ci pendant 5 minutes. *Pour couper l'accès* : supprimer `MCP_SITE_KEY` (le relais répond alors 503) ou
+désinstaller l'application dans Shopify.
 
-**Test** : `node scripts/flash/test_mcp_site.mjs` → `TEST_MCP_SITE_OK` (Shopify simulé, aucun réseau). Ce test ne fait pas
-partie de l'actualisation du matin : un défaut ici ne la bloque jamais.
+**Tests** (aucun ne touche aux boutiques) :
 
-Ce connecteur n'alimente pas encore le bloc « Flash Shopify » ni les KPI : l'intégration de la boutique du site à
-l'actualisation du matin est une étape suivante.
+- `node scripts/flash/selftest.mjs` → `SELFTEST_OK` : calculs et contrôles des deux boutiques, sur données synthétiques ;
+- `node scripts/flash/smoke.mjs` → `SMOKE_OK` : affichage des trois onglets, filtre « Site Web », 4 langues, mobile ;
+- `node scripts/flash/test_mcp_site.mjs` → `TEST_MCP_SITE_OK` : relais avec Shopify simulé, sans réseau. Il ne fait pas
+  partie de l'actualisation du matin : un défaut ici ne la bloque jamais.
 
 ## Mise à jour du 14 octobre 2026 (nuit) — écran de conversation retiré
 
@@ -82,8 +126,8 @@ chaque matin** par une tâche planifiée, et exprimé sur la **même base que l'
 - **Données** : fichier `shopify_flash.json` (importé par `App.jsx`), écrit uniquement par `scripts/flash/refresh_flash.mjs`.
   `App.jsx` n'est jamais modifié par l'actualisation quotidienne. Détail et procédure : `scripts/flash/README.md`.
 - **Bloc à part** : les KPI, courbes, plan, estimations et autres onglets restent calculés sur le fichier ODP (site web
-  compris, jusqu'au 3 octobre). Ils ne bougent qu'avec un nouvel export ODP. La boutique Shopify du site web n'est pas
-  lisible en même temps que BESTHERM.
+  compris, jusqu'au 3 octobre). Ils ne bougent qu'avec un nouvel export ODP. (Ce soir-là, la boutique Shopify du site web
+  n'était pas lisible en même temps que BESTHERM ; depuis le 15 octobre elle a son propre bloc : voir la note du 15 octobre.)
 - **Garde-fous** : boutique vérifiée à chaque extraction, couverture des listes contrôlée, pas de régression, contrôle
   d'écart avec l'ODP (refus d'écrire au-delà de 8 %). Dans l'application : les jours déjà couverts par l'ODP sont ignorés
   (pas de doublon après une mise à jour de l'ODP), et une pastille « Non actualisé depuis N j » apparaît après 2 jours.
@@ -93,11 +137,13 @@ chaque matin** par une tâche planifiée, et exprimé sur la **même base que l'
 ## Contenu du dépôt
 
 - `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré, plus le
-  composant « Flash Shopify ».
-- `shopify_flash.json` — données du bloc « Flash Shopify », actualisées chaque matin.
-- `scripts/flash/` — script d'actualisation, auto-test, test d'affichage et mode d'emploi (`README.md`), plus le test du
-  connecteur du site (`test_mcp_site.mjs`).
-- `api/mcp-site.mjs` — connecteur MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
+  composant « Flash Shopify » (onglets Total, Marketplaces, Site web).
+- `shopify_flash.json` — données du « Flash Shopify », boutique des marketplaces (BESTHERM), actualisées chaque matin.
+- `shopify_flash_site.json` — données du « Flash Shopify », boutique du site web (bestherm.fr), actualisées chaque matin.
+- `scripts/flash/` — script d'actualisation (`refresh_flash.mjs`, une entrée par boutique), lecture du site par le relais
+  (`site_query.mjs`), auto-test, test d'affichage et mode d'emploi (`README.md`), plus le test du relais
+  (`test_mcp_site.mjs`).
+- `api/mcp-site.mjs` — relais MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
 
 ## Mise en ligne
