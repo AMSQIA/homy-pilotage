@@ -19,14 +19,15 @@ visent sont refusées).
    | `SHOPIFY_SITE_SHOP` | la partie `xxxx` de `xxxx.myshopify.com` (boutique du site) |
    | `SHOPIFY_SITE_CLIENT_ID` | identifiant client de l'application |
    | `SHOPIFY_SITE_CLIENT_SECRET` | secret de l'application |
-   | `MCP_SITE_KEY` | chaîne aléatoire longue (24 caractères minimum, 40 conseillés), choisie par vous : elle sert de mot de passe du connecteur |
+   | `MCP_SITE_KEY` | chaîne aléatoire longue, choisie par vous : elle sert de mot de passe du connecteur. 24 caractères minimum (40 conseillés), **lettres et chiffres uniquement** (elle se place dans une adresse web : pas de `#`, `&`, `+`, `%`, espace) |
 
    Puis **Redeploy** (Vercel n'applique pas une variable à un déploiement déjà en ligne).
    Variante : `SHOPIFY_SITE_TOKEN` (jeton d'administration fixe) à la place de l'identifiant et du secret ;
    `SHOPIFY_SITE_API_VERSION` facultative (défaut `2026-04`).
 3. **Vérifier** : ouvrir `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` dans le navigateur →
-   `"configured": true` et la boutique du site. Si `false`, la liste `manque` donne les variables à saisir. Sans la clé, la
-   page ne révèle rien.
+   `"configured": true` et la boutique du site. Si `false`, la liste `manque` donne les variables à saisir, et
+   `cle_assez_longue` / `cle_url_sure` signalent une clé trop courte ou contenant des caractères spéciaux. Sans la clé, la
+   page ne révèle que `cle_definie` et `cle_valide` (jamais la clé elle-même).
 4. **Claude** : Customize → Connectors → **Add custom connector** (Team ou Enterprise : un Owner l'ajoute dans
    Organization settings → Connectors). Nom : `Shopify Site` ; adresse :
    `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` ; authentification : **No sign-in** (la clé est dans

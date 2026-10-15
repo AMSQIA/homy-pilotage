@@ -121,11 +121,12 @@ const LIGNES = [["2026-10-04", "225", "357", "35370.6", "6185.05"], ["2026-10-05
 await scenario("A", async () => {
   env();
   let r = await appeler(requete({ methode: "GET", cle: "" }));
-  check("A · GET sans clé : 200, aucune information sur la configuration", r.statusCode === 200 && r.corps.service === "mcp-site" && r.corps.cle_definie === true && !("configured" in r.corps) && !("boutique" in r.corps), JSON.stringify(r.corps));
+  check("A · GET sans clé : 200, aucune information sur la configuration", r.statusCode === 200 && r.corps.service === "mcp-site" && r.corps.cle_definie === true && r.corps.cle_valide === true && !("configured" in r.corps) && !("boutique" in r.corps), JSON.stringify(r.corps));
+  check("A · GET sans clé : la valeur de la clé n'apparaît nulle part", !JSON.stringify(r.corps).includes(CLE));
   r = await appeler(requete({ methode: "GET", cle: "mauvaise-cle" }));
   check("A · GET avec une mauvaise clé : même réponse que sans clé", r.corps?.cle_definie === true && !("configured" in r.corps), JSON.stringify(r.corps));
   r = await appeler(requete({ methode: "GET" }));
-  check("A · GET avec la bonne clé : configurée, boutique et lecture seule", r.corps.configured === true && r.corps.boutique === "site-test.myshopify.com" && egal(r.corps.manque, []) && r.corps.lecture_seule === true && r.corps.version_api === "2026-04", JSON.stringify(r.corps));
+  check("A · GET avec la bonne clé : configurée, boutique et lecture seule", r.corps.configured === true && r.corps.boutique === "site-test.myshopify.com" && egal(r.corps.manque, []) && r.corps.lecture_seule === true && r.corps.version_api === "2026-04" && r.corps.cle_assez_longue === true && r.corps.cle_url_sure === true, JSON.stringify(r.corps));
   check("A · la sonde ne renvoie ni la clé ni le secret", !JSON.stringify(r.corps).includes(CLE) && !JSON.stringify(r.corps).includes(SECRET));
   check("A · en-tête Cache-Control: no-store", r.entetes["cache-control"] === "no-store");
   r = await appeler(requete({ methode: "GET", cle: "", entetes: { authorization: `Bearer ${CLE}` } }));
@@ -149,10 +150,27 @@ await scenario("A", async () => {
   env({ MCP_SITE_KEY: "trop-courte" });
   r = await appeler(requete({ methode: "GET", cle: "trop-courte" }));
   check("A · clé trop courte : configured=false et cle_assez_longue=false", r.corps.configured === false && r.corps.cle_assez_longue === false, JSON.stringify(r.corps));
+  r = await appeler(requete({ methode: "GET", cle: "" }));
+  check("A · clé trop courte : signalée sans la clé (cle_valide=false)", r.corps.cle_definie === true && r.corps.cle_valide === false, JSON.stringify(r.corps));
+
+  const cleAvecDieseEtPlus = "abcdefghij0123456789#klmnopqrst+uv"; // ne survit pas à une adresse web saisie telle quelle
+  env({ MCP_SITE_KEY: cleAvecDieseEtPlus });
+  r = await appeler(requete({ methode: "GET", cle: "" }));
+  check("A · clé avec des caractères spéciaux : signalée sans la clé (cle_valide=false)", r.corps.cle_valide === false, JSON.stringify(r.corps));
+  r = await appeler(requete({ methode: "GET", cle: cleAvecDieseEtPlus }));
+  check("A · clé avec des caractères spéciaux : configured=false et cle_url_sure=false", r.corps.configured === false && r.corps.cle_url_sure === false && r.corps.cle_assez_longue === true, JSON.stringify(r.corps));
+  r = await envoyer(rpc("ping"), { cle: cleAvecDieseEtPlus });
+  check("A · clé avec des caractères spéciaux : reste utilisable si l'adresse est correctement codée", r.statusCode === 200);
+
+  env({ MCP_SITE_KEY: `${CLE}\n` });
+  r = await appeler(requete({ methode: "GET" }));
+  check("A · retour à la ligne collé après la clé dans Vercel : ignoré", r.corps.configured === true, JSON.stringify(r.corps));
+  r = await envoyer(rpc("ping"));
+  check("A · retour à la ligne collé après la clé dans Vercel : le connecteur répond", r.statusCode === 200);
 
   env({ MCP_SITE_KEY: undefined });
   r = await appeler(requete({ methode: "GET", cle: "n-importe-quoi" }));
-  check("A · MCP_SITE_KEY absente : cle_definie=false, aucune clé ne passe", r.corps.cle_definie === false && !("configured" in r.corps), JSON.stringify(r.corps));
+  check("A · MCP_SITE_KEY absente : cle_definie=false, aucune clé ne passe", r.corps.cle_definie === false && r.corps.cle_valide === false && !("configured" in r.corps), JSON.stringify(r.corps));
 
   // saisie de la boutique : normalisation, et refus de tout ce qui n'est pas un domaine myshopify (les identifiants ne partent jamais ailleurs)
   const boutique = async (valeur) => { env({ SHOPIFY_SITE_SHOP: valeur }); return (await appeler(requete({ methode: "GET" }))).corps.boutique; };

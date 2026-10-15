@@ -11,7 +11,7 @@
 // de client (adresses e-mail, téléphones, noms, adresses : les requêtes qui les visent sont refusées).
 //
 // Variables d'environnement Vercel (jamais dans le code, ni dans GitHub, ni dans une conversation) :
-//   MCP_SITE_KEY                clé secrète longue (24 caractères minimum), placée dans l'adresse du connecteur
+//   MCP_SITE_KEY                clé secrète longue (24 caractères minimum, lettres et chiffres), placée dans l'adresse du connecteur
 //   SHOPIFY_SITE_SHOP           boutique du site : « xxxx » ou « xxxx.myshopify.com »
 //   SHOPIFY_SITE_CLIENT_ID      identifiant de l'application (Dev Dashboard de Shopify)
 //   SHOPIFY_SITE_CLIENT_SECRET  secret de l'application
@@ -36,6 +36,7 @@ const INSTRUCTIONS =
   "connecteur Shopify de Claude (boutique BESTHERM) : ne jamais appeler switch-shop sur celui-ci pour lire le site.";
 
 const LONGUEUR_CLE_MIN = 24;
+const CLE_SURE_POUR_UNE_ADRESSE = /^[A-Za-z0-9._~-]+$/; // la clé est placée dans une adresse web : lettres, chiffres, . _ ~ - seulement
 const MAX_REQUETE = 1500;
 const JEUX_AUTORISES = new Set(["sales", "sessions", "products"]);
 // Défense en profondeur : même sans le droit sur les clients, on refuse toute requête qui vise des données personnelles
@@ -90,7 +91,7 @@ function lireConfig() {
   const complet = brut ? (brut.endsWith(".myshopify.com") ? brut : `${brut}.myshopify.com`) : "";
   const domaine = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(complet) ? complet : "";
   const cfg = {
-    cle: String(process.env.MCP_SITE_KEY || ""),
+    cle: String(process.env.MCP_SITE_KEY || "").trim(),
     domaine,
     clientId: String(process.env.SHOPIFY_SITE_CLIENT_ID || "").trim(),
     clientSecret: String(process.env.SHOPIFY_SITE_CLIENT_SECRET || "").trim(),
@@ -358,10 +359,13 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: "methode_non_autorisee" });
     }
     // Sonde de configuration pour le navigateur : rien n'est révélé sans la clé.
+    const cleLongue = cfg.cle.length >= LONGUEUR_CLE_MIN;
+    const cleSure = CLE_SURE_POUR_UNE_ADRESSE.test(cfg.cle);
     if (cleAcceptee(req, cfg.cle)) {
-      return res.status(200).json({ ok: true, service: "mcp-site", configured: cfg.pret && cfg.cle.length >= LONGUEUR_CLE_MIN, boutique: cfg.domaine || null, manque: cfg.manque, cle_assez_longue: cfg.cle.length >= LONGUEUR_CLE_MIN, version_api: versionApi(), lecture_seule: true });
+      return res.status(200).json({ ok: true, service: "mcp-site", configured: cfg.pret && cleLongue && cleSure, boutique: cfg.domaine || null, manque: cfg.manque, cle_assez_longue: cleLongue, cle_url_sure: cleSure, version_api: versionApi(), lecture_seule: true });
     }
-    return res.status(200).json({ ok: true, service: "mcp-site", cle_definie: Boolean(cfg.cle) });
+    // Sans la clé : seulement de quoi diagnostiquer une clé mal choisie (jamais sa valeur).
+    return res.status(200).json({ ok: true, service: "mcp-site", cle_definie: Boolean(cfg.cle), cle_valide: cleLongue && cleSure });
   }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
