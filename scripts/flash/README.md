@@ -60,6 +60,8 @@ de ce bloc. Le site est traité à part (étape 5) : son échec n'empêche pas l
    node scripts/flash/selftest.mjs             # SELFTEST_OK
    node scripts/flash/refresh_flash.mjs check --today $TODAY    # vérifie les deux boutiques
    ```
+   Pour garder les deux blocs indépendants, la tâche planifiée lance plutôt `check --boutique marketplaces` au début de
+   l'étape 4 et `check --boutique site` au début de l'étape 5 : un défaut qui ne touche qu'une boutique ne bloque pas l'autre.
 4. **Marketplaces** :
    - `node scripts/flash/refresh_flash.mjs plan --today $TODAY` affiche les requêtes ShopifyQL (5 en général).
      `"vide": true` signifie que l'ODP couvre déjà jusqu'à hier : sauter l'extraction (le bloc sera vidé à l'application).
