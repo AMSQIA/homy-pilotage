@@ -1,5 +1,50 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 15 octobre 2026 — connecteur MCP de la boutique du site (lecture seule)
+
+Le connecteur Shopify de Claude ne sert qu'**une boutique à la fois** (changer de boutique coupe la première). Pour lire
+aussi la boutique du **site web** sans toucher à la connexion BESTHERM, `api/mcp-site.mjs` est un **second connecteur**,
+indépendant, hébergé sur ce projet Vercel. Il ne fait que lire : requêtes ShopifyQL (jeux `sales`, `sessions`, `products`),
+des agrégats uniquement. Aucune écriture, aucune donnée de client (e-mail, téléphone, nom, adresse : les requêtes qui les
+visent sont refusées).
+
+**Mise en place (une seule fois)**
+
+1. **Shopify, boutique du site** : Dev Dashboard → créer une application en lecture seule, droit **`read_reports`** seul,
+   installée sur la boutique du site. Noter l'identifiant client et le secret (ne jamais les coller dans une conversation).
+2. **Vercel** (projet `homy-pilotage` → Settings → Environment Variables, tous les environnements) : quatre variables.
+
+   | Variable | Contenu |
+   |---|---|
+   | `SHOPIFY_SITE_SHOP` | la partie `xxxx` de `xxxx.myshopify.com` (boutique du site) |
+   | `SHOPIFY_SITE_CLIENT_ID` | identifiant client de l'application |
+   | `SHOPIFY_SITE_CLIENT_SECRET` | secret de l'application |
+   | `MCP_SITE_KEY` | chaîne aléatoire longue (24 caractères minimum, 40 conseillés), choisie par vous : elle sert de mot de passe du connecteur |
+
+   Puis **Redeploy** (Vercel n'applique pas une variable à un déploiement déjà en ligne).
+   Variante : `SHOPIFY_SITE_TOKEN` (jeton d'administration fixe) à la place de l'identifiant et du secret ;
+   `SHOPIFY_SITE_API_VERSION` facultative (défaut `2026-04`).
+3. **Vérifier** : ouvrir `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` dans le navigateur →
+   `"configured": true` et la boutique du site. Si `false`, la liste `manque` donne les variables à saisir. Sans la clé, la
+   page ne révèle rien.
+4. **Claude** : Customize → Connectors → **Add custom connector** (Team ou Enterprise : un Owner l'ajoute dans
+   Organization settings → Connectors). Nom : `Shopify Site` ; adresse :
+   `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` ; authentification : **No sign-in** (la clé est dans
+   l'adresse).
+5. **Contrôle** : appeler `get-shop-info` sur chacun des deux connecteurs : `Shopify Site` doit renvoyer la boutique du
+   site, le connecteur Shopify de Claude doit toujours renvoyer BESTHERM (`46a3f9-2.myshopify.com`).
+
+**Sécurité** : l'adresse du connecteur contient la clé : à traiter comme un mot de passe. Pour la changer : modifier
+`MCP_SITE_KEY` dans Vercel, redéployer, puis corriger l'adresse du connecteur dans Claude. Vingt clés fausses depuis une même
+adresse bloquent celle-ci pendant 5 minutes. Pour couper l'accès : supprimer `MCP_SITE_KEY` (le connecteur répond alors 503)
+ou désinstaller l'application dans Shopify.
+
+**Test** : `node scripts/flash/test_mcp_site.mjs` → `TEST_MCP_SITE_OK` (Shopify simulé, aucun réseau). Ce test ne fait pas
+partie de l'actualisation du matin : un défaut ici ne la bloque jamais.
+
+Ce connecteur n'alimente pas encore le bloc « Flash Shopify » ni les KPI : l'intégration de la boutique du site à
+l'actualisation du matin est une étape suivante.
+
 ## Mise à jour du 14 octobre 2026 (nuit) — écran de conversation retiré
 
 Après l'écran d'accès (mot de passe), l'app ouvre **directement le dashboard** (Vue d'ensemble, toutes marketplaces).
@@ -49,7 +94,9 @@ chaque matin** par une tâche planifiée, et exprimé sur la **même base que l'
 - `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré, plus le
   composant « Flash Shopify ».
 - `shopify_flash.json` — données du bloc « Flash Shopify », actualisées chaque matin.
-- `scripts/flash/` — script d'actualisation, auto-test, test d'affichage et mode d'emploi (`README.md`).
+- `scripts/flash/` — script d'actualisation, auto-test, test d'affichage et mode d'emploi (`README.md`), plus le test du
+  connecteur du site (`test_mcp_site.mjs`).
+- `api/mcp-site.mjs` — connecteur MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
 
 ## Mise en ligne

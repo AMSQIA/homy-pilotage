@@ -20,8 +20,10 @@ sur GitHub, et un commit quotidien de quelques ko seulement.
 | Cumul estimé | Calculé dans l'application : `kpi.ca_total_2026` (ODP) + flash. Le site web n'est pas inclus depuis `DMAX` |
 
 Ce que le bloc **ne fait pas** : les KPI, courbes, plan, estimations et autres onglets restent calculés sur le fichier
-ODP (site web compris). La boutique Shopify du site web n'est pas lisible en même temps que BESTHERM (le connecteur ne
-sert qu'une boutique à la fois ; `switch-shop` révoque l'autre : ne jamais l'appeler).
+ODP (site web compris). La boutique Shopify du site web n'est pas lisible avec le connecteur Shopify de Claude en même
+temps que BESTHERM (il ne sert qu'une boutique à la fois ; `switch-shop` révoque l'autre : ne jamais l'appeler). Depuis le
+15 octobre, un second connecteur en lecture seule existe pour cette boutique (`api/mcp-site.mjs`, mise en place dans
+`INSTRUCTIONS_DEPLOIEMENT.md`) ; il n'alimente pas encore ce bloc.
 
 ## Garde-fous
 
