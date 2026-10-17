@@ -2,14 +2,14 @@
 /**
  * Test du connecteur MCP « boutique du site » (api/mcp-site.mjs), sans réseau : Shopify est simulé.
  *
- *   node scripts/flash/test_mcp_site.mjs [--verbose]
+ *   node scripts/extension/test_mcp_site.mjs [--verbose]
  *
  * Vérifie : protocole MCP (initialize, tools/list, tools/call, lots, notifications), accès (clé, limite d'essais),
- * outils (get-shop-info, run-analytics-query), format de sortie lu par le script du Flash, refus de requêtes
+ * outils (get-shop-info, run-analytics-query), format de sortie lu par refresh_extension.mjs, refus de requêtes
  * (données personnelles, jeux non autorisés), reprises (jeton expiré, limitation de débit, erreurs 5xx) et absence
  * de fuite de secret dans les réponses et dans le journal.
  *
- * Séparé de selftest.mjs : un défaut ici ne doit jamais bloquer le rafraîchissement quotidien du Flash.
+ * Séparé de selftest.mjs : un défaut ici ne doit jamais bloquer l'actualisation quotidienne.
  * Codes de sortie : 0 ok · 2 échec.
  */
 import path from "node:path";
@@ -359,10 +359,10 @@ await scenario("E", async () => {
   check("E · lignes en tableaux de textes : renvoyées telles quelles", r.statusCode === 200 && !r.corps.result.isError && egal(s?.rows, LIGNES), texteOutil(r)?.slice(0, 200));
   check("E · colonnes réduites à {name, dataType}", egal(s?.columns, COLS.map(({ name, dataType }) => ({ name, dataType }))));
   check("E · query renvoyée à l'identique, shopDomain de la boutique du site", s?.query === Q_JOURS && s.shopDomain === "site-test.myshopify.com");
-  check("E · texte du résultat commençant par {\"query\" (condition de lecture du script du Flash)", texteOutil(r)?.startsWith('{"query"'));
+  check("E · texte du résultat commençant par {\"query\" (condition de lecture de refresh_extension.mjs)", texteOutil(r)?.startsWith('{"query"'));
   check("E · ordre des clés : query, columns, rows, shopDomain", egal(Object.keys(s), ["query", "columns", "rows", "shopDomain"]));
-  // mêmes conditions que lireResultatsJsonl (scripts/flash/refresh_flash.mjs)
-  check("E · format lisible par le script du Flash (query texte, columns et rows tableaux, cellules en texte)", typeof s.query === "string" && Array.isArray(s.columns) && Array.isArray(s.rows) && s.rows.every((l) => Array.isArray(l) && l.length === COLS.length && l.every((c) => typeof c === "string")));
+  // mêmes conditions que lireJsonl (scripts/extension/refresh_extension.mjs)
+  check("E · format lisible par refresh_extension.mjs (query texte, columns et rows tableaux, cellules en texte)", typeof s.query === "string" && Array.isArray(s.columns) && Array.isArray(s.rows) && s.rows.every((l) => Array.isArray(l) && l.length === COLS.length && l.every((c) => typeof c === "string")));
   const corpsGql = JSON.parse(appels[1].corps);
   check("E · la requête ShopifyQL passe en variable GraphQL (jamais collée dans le texte GraphQL)", corpsGql.variables?.q === Q_JOURS && !corpsGql.query.includes("SINCE 2026") && /shopifyqlQuery\(query: \$q\)/.test(corpsGql.query), corpsGql.query);
   check("E · le texte GraphQL n'est pas une mutation", !/mutation/i.test(corpsGql.query));

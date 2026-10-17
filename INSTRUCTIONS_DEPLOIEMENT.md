@@ -1,53 +1,82 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
-## Mise à jour du 15 octobre 2026 — Flash Shopify du site web (bestherm.fr)
+## Mise à jour du 17 octobre 2026 — toute l'application à jour avec les deux boutiques Shopify
 
-Le bloc « Flash Shopify » couvre désormais **les deux boutiques Shopify** : les marketplaces (BESTHERM) et le **site web**
-(bestherm.fr). La tâche planifiée de 6 h 58 (heure de Paris) actualise les deux chaque matin, jusqu'à la veille.
+**Constat** : les KPI ne correspondaient pas à Shopify. Le fichier ODP s'arrête au 3 octobre, et le bloc « Flash Shopify » des
+14-15 octobre n'ajoutait les ventes suivantes que dans une carte à part : le chiffre d'affaires cumulé, les courbes, les
+marketplaces, les marques, les produits, les pays, le plan et les comparaisons avec 2025 restaient arrêtés au 3 octobre.
 
-**Dans l'application** (haut de « Vue d'ensemble », avec « Toutes marketplaces » ou avec le filtre « Site Web »)
+**Maintenant** : les ventes des deux boutiques (marketplaces BESTHERM + site bestherm.fr) du 4 au 16 octobre sont **ajoutées à
+tous les tableaux** : toute l'application s'arrête au même jour (16 octobre), et la tâche planifiée du matin (6 h 58, heure de
+Paris) la prolonge chaque jour jusqu'à la veille. Un bandeau « **Données à jour · jusqu'au 16 oct.** » (haut de « Vue
+d'ensemble ») indique d'où viennent les chiffres : fichier ODP jusqu'au 3 octobre, puis les deux boutiques Shopify, avec le CA
+HT de chaque jour. Le bloc « Flash Shopify » est supprimé (ses chiffres sont désormais dans les KPI).
 
-- Trois onglets : **Total** (affiché par défaut : somme exacte des deux boutiques, barres empilées marketplaces + site),
-  **Marketplaces** et **Site web**. Avec le filtre « Site Web » en haut de l'application, la carte ne montre que le site.
-- Dans chaque onglet : CA HT, commandes, unités, panier moyen, évolution vs mêmes dates 2025, courbe jour par jour et cumul
-  2026 estimé (Total : ODP + les deux boutiques ; Site web : ventes « Site Web » de l'ODP + flash du site, comparées à
-  l'objectif du site de 1,4 M€). Pays et produits les plus vendus dans les onglets par boutique.
-- Textes en français, anglais, espagnol et chinois.
+| Indicateur | Fichier ODP au 3 oct. | Avec Shopify au 16 oct. |
+|---|---|---|
+| CA HT 2026 à date | 7 509 326 € | **8 155 665 €** (+646 339 € : marketplaces 580 334 €, site web 66 005 €) |
+| Unités vendues | 80 787 | **87 233** |
+| Part de l'objectif annuel (15 M€) | 50,06 % | **54,37 %** |
+| Panier moyen (CA ÷ lignes ODP) | 100,62 € | **102,10 €** |
+| Plan cumulé attendu à date | S40 : 55,2 % | S42 (6 jours sur 7) : **61,1 %**, soit −6,7 pt |
+| Évolution à période comparable | +40,2 % (vs 5 356 876 €) | **+36,9 %** (vs 5 957 343 €, 1er janv. → 16 oct. 2025) |
+| Octobre 2026 à date | 132 316 € (1er → 3) | **778 655 €** (1er → 16) |
+| Semaines | S40 : 333 274 € | S41 : 333 319 € · S42 (partielle, 6 jours) : 313 020 € |
+| Marketplaces (CA HT) | Leroy Merlin 3,15 M€ · Amazon FR 1,60 M€ · Site Web 0,80 M€ · ManoMano 0,70 M€ | Leroy Merlin **3,43 M€** · Amazon FR **1,74 M€** · Site Web **0,86 M€** · ManoMano **0,75 M€** |
 
-**Premier bloc réel (4 → 14 octobre 2026)**
+**Ce qui est recalculé avec Shopify** : KPI (CA, unités, panier, % de l'objectif), courbes mensuelles et hebdomadaires, marketplaces
+et objectifs, marques, produits (classements, meilleures ventes, courbes), pays, catégories et normes, suivi des prix, plan et
+écart au plan, comparaisons avec la même période de 2025 (du 1er janvier au jour de la dernière donnée, coupe N-1 du mois en
+cours relue dans l'ODP 2025), export Excel et assistant. **Ce qui reste calculé sur le fichier ODP** (donc arrêté au 3 octobre) :
+publicité, concurrence, élasticité-prix et simulations, associations de produits, catalogue, transporteurs et entrepôts.
 
-| | Marketplaces | Site web | Total |
-|---|---|---|---|
-| CA HT | 515 215 € | 56 411 € | **571 626 €** |
-| Commandes | 3 108 | 215 | 3 323 |
-| Unités | 5 244 | 476 | 5 720 |
-| Panier moyen | 166 € | 262 € | 172 € |
-| Évolution vs mêmes dates 2025 | +10,9 % (464 722 €) | +27,2 % (44 351 €) | **+12,3 %** (509 073 €) |
+**Règles de calcul** (détail : `scripts/extension/README.md`)
 
-Cumul 2026 estimé : **8,08 M€**, soit 53,9 % de l'objectif de 15 M€ (fichier ODP au 3 octobre + les deux boutiques).
+- Marketplaces : CA HT = (ventes nettes + taxes) ÷ 1,2, comme la colonne « CA HT » de l'ODP ; la marketplace d'une commande est
+  celle de sa passerelle de paiement. **Bricoman n'est pas séparable de Leroy Merlin dans Shopify** : depuis le 4 octobre ses
+  ventes sont comptées dans Leroy Merlin. Passerelles inconnues (Carrefour, bricodepotes…) et commandes à 0 € : « Autre ».
+- Site web : ventes brutes hors taxes (`gross_sales`), base du canal « Site Web » de l'ODP (mesuré : 1,000 × l'ODP sur 10
+  semaines).
+- Les lignes de port ne sont pas comptées (l'ODP n'en contient presque pas). L'ancien « Flash » les incluait : +115 € de TVA.
+- Marque et norme des produits : table `data/produits_meta.json` (reproduit les courbes de l'ODP, même quand la marque du
+  vendeur Shopify diffère : ALMA, MIRA, FIFTY BLANC, LILA, AZRA, VAIL, LISA, ALOA CONNECT restent Bestherm).
+- Références absentes du catalogue : conservées sous leur code (EAN 3760381650252 : 123 €, GD20-20RC-24RC-FILTRE-HEPA : 96 €) ;
+  `HT15-24FERL` est rattachée à STELLINA 1500W (déduction).
+- Panier moyen = CA ÷ lignes de l'ODP (une ligne par unité pour Amazon, Cdiscount, site web… ; une ligne par commande et
+  référence pour Leroy Merlin, ManoMano, « Autre »), **pas** le panier par commande de Shopify (≈ 170 €). Les lignes Shopify
+  sont comptées selon la même règle.
+- La semaine et le mois en cours sont partiels : le plan est calculé au prorata des jours écoulés.
 
-**Base de calcul du site** : les **ventes brutes hors taxes** de Shopify (`gross_sales`, avant remises et retours). C'est la
-base du canal « Site Web » de l'ODP : sur 10 semaines (26/07 → 03/10/2026), l'ODP vaut 1,000 × les ventes brutes du site
-(entre 0,89 et 1,05 selon la semaine). Les ventes nettes sont 8,6 % plus basses et ne s'additionneraient pas à l'ODP. Les
-marketplaces gardent leur règle : (ventes nettes + taxes) ÷ 1,2. Contrôle du site contre l'ODP « Site Web », 20/09 → 03/10 :
-Shopify 62 651 € contre 62 412 € (+0,4 %). Seuils : avertissement à 5 %, refus d'écrire à 12 % (marketplaces : 3 % et 8 %).
+**Garde-fous** : application atomique (extraction invalide ou incohérente : l'application garde le fichier ODP seul et le bandeau
+le dit), total de chaque jour contrôlé contre Shopify, boutiques indépendantes (si l'une échoue, l'autre est mise à jour et
+l'écran s'arrête au dernier jour couvert par les deux, avec « Non actualisé depuis N j » après 2 jours), lecture seule, aucune
+donnée de client. Un nouvel export ODP qui couvre les jours Shopify les remplace automatiquement (aucun doublon).
 
-**Garde-fous** : les deux boutiques sont indépendantes (si l'une échoue, l'autre est quand même mise à jour ; l'application
-garde les chiffres de la veille pour la boutique en échec, avec la pastille « Non actualisé depuis N j » à partir de
-2 jours) ; boutique vérifiée à chaque extraction ; lecture seule ; aucune donnée de client ; `switch-shop` n'est jamais
-appelé. Détail, procédure et codes de sortie : `scripts/flash/README.md`.
+**Tâche planifiée du matin** : elle clone le dépôt, lance `selftest.mjs`, lit les ventes de la veille (connecteur Shopify pour
+les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fichier modifié), contrôle (`selftest.mjs`, build,
+`smoke.mjs`), publie sur `main` et vérifie le site en ligne. Procédure complète : `scripts/extension/README.md`.
 
-**Bloc retiré** : « Aperçu de la semaine » (semaine du 27 septembre au 3 octobre : synthèse, CA, quantité, prix moyen,
-cumul, objectif de semaine, répartition par marketplace) ne s'affiche plus dans « Vue d'ensemble ». Figé sur la dernière
-semaine du fichier ODP, il était dépassé par le « Flash Shopify », qui couvre jusqu'à la veille. Rien d'autre ne change
-dans cet onglet. Pour le remettre : annuler le commit « Retire le bloc obsolète Aperçu de la semaine » (`git revert`).
+**Tests** (aucun ne touche aux boutiques) :
 
-### Comment le site est lu : un relais en lecture seule
+- `node scripts/extension/selftest.mjs` → `SELFTEST_OK` : sur les vraies données du dépôt, chaque tableau augmente exactement du CA,
+  des unités et des lignes de l'extraction ; totaux identiques entre KPI, courbes, marketplaces, marques, pays, semaines ;
+  extraction invalide ou marketplace inconnue (rien n'est modifié) ; extraction déjà couverte par l'ODP ; chevauchement ;
+  déterminisme ;
+- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bandeau (4 langues, pastille de fraîcheur), chiffres affichés
+  = chiffres calculés, filtres marketplace, 7 onglets sans erreur JavaScript, mobile.
+
+**Retiré** : bloc « Flash Shopify », `shopify_flash.json`, `shopify_flash_site.json`, `scripts/flash/` (le relais et son test ont été
+déplacés dans `scripts/extension/`). Pour revenir en arrière : `git revert` du commit « Toute l'application prolongée avec les ventes Shopify ».
+
+**Limites** : voir `scripts/extension/README.md` (Bricoman dans Leroy Merlin, passerelles hypothétiques EPMM/Monechelle → ManoMano
+et CLogistique → Cdiscount, lignes de commande estimées, année 2026 seulement).
+
+## Relais en lecture seule de la boutique du site (mis en place le 15 octobre 2026)
 
 Le connecteur Shopify de Claude ne sert qu'**une boutique à la fois** (changer de boutique coupe la première). Le site passe
 donc par `api/mcp-site.mjs`, une porte à part hébergée sur ce projet Vercel, qui ne fait que lire : requêtes ShopifyQL
 (jeux `sales`, `sessions`, `products`), des agrégats uniquement ; les requêtes qui visent des données de client (e-mail,
-téléphone, nom, adresse) sont refusées. Le script `scripts/flash/site_query.mjs` l'appelle directement avec la clé du relais.
+téléphone, nom, adresse) sont refusées. Le script `scripts/extension/refresh_extension.mjs` l'appelle directement avec la clé du relais (`scripts/extension/site_query.mjs`).
 Un connecteur personnalisé côté Claude est possible mais **facultatif** : l'actualisation du matin n'en dépend pas.
 
 **Mise en place (une seule fois, déjà faite)**
@@ -74,7 +103,7 @@ Un connecteur personnalisé côté Claude est possible mais **facultatif** : l'a
    portent la même valeur (erreur de collage), `formes_plausibles` indique si chaque valeur a la forme attendue,
    `cle_assez_longue` et `cle_url_sure` signalent une clé trop courte ou avec des caractères spéciaux. Sans la clé, la page
    ne révèle que `cle_definie` et `cle_valide` (jamais la clé elle-même).
-4. **Contrôle en ligne de commande** : `export MCP_SITE_KEY=...` puis `node scripts/flash/site_query.mjs --info` → la
+4. **Contrôle en ligne de commande** : `export MCP_SITE_KEY=...` puis `node scripts/extension/site_query.mjs --info` → la
    boutique `besthermshop.myshopify.com`.
 5. **Facultatif, connecteur Claude** : Customize → Connectors → **Add custom connector** (Team ou Enterprise : un Owner
    l'ajoute dans Organization settings → Connectors). Nom : `Shopify Site` ; adresse :
@@ -82,7 +111,7 @@ Un connecteur personnalisé côté Claude est possible mais **facultatif** : l'a
    l'adresse). Il permet d'interroger le site depuis une conversation, sans toucher à la connexion BESTHERM.
 
 **Clé du relais** : la tâche planifiée du matin la contient dans son propre texte (elle l'exporte avant d'appeler
-`site_query.mjs`) ; elle n'est jamais écrite dans le dépôt, et l'adresse du connecteur facultatif est à traiter comme un
+`refresh_extension.mjs apply`) ; elle n'est jamais écrite dans le dépôt, et l'adresse du connecteur facultatif est à traiter comme un
 mot de passe. *Pour la changer* : modifier `MCP_SITE_KEY` dans Vercel, redéployer, puis remplacer la clé dans le texte de la
 tâche planifiée (et dans l'adresse du connecteur Claude s'il est installé). Vingt clés fausses depuis une même adresse
 bloquent celle-ci pendant 5 minutes. *Pour couper l'accès* : supprimer `MCP_SITE_KEY` (le relais répond alors 503) ou
@@ -90,10 +119,9 @@ désinstaller l'application dans Shopify.
 
 **Tests** (aucun ne touche aux boutiques) :
 
-- `node scripts/flash/selftest.mjs` → `SELFTEST_OK` : calculs et contrôles des deux boutiques, sur données synthétiques ;
-- `node scripts/flash/smoke.mjs` → `SMOKE_OK` : affichage des trois onglets, filtre « Site Web », 4 langues, mobile ;
-- `node scripts/flash/test_mcp_site.mjs` → `TEST_MCP_SITE_OK` : relais avec Shopify simulé, sans réseau. Il ne fait pas
-  partie de l'actualisation du matin : un défaut ici ne la bloque jamais.
+- `node scripts/extension/test_mcp_site.mjs` → `TEST_MCP_SITE_OK` : relais avec Shopify simulé, sans réseau. Il ne fait pas
+  partie de l'actualisation du matin : un défaut ici ne la bloque jamais. Les tests du prolongement (`selftest.mjs`,
+  `smoke.mjs`) sont décrits dans la note du 17 octobre.
 
 ## Mise à jour du 14 octobre 2026 (nuit) — écran de conversation retiré
 
@@ -108,48 +136,19 @@ ne s'affichent plus.
   dans `App.jsx`) et le relais `api/chat.mjs` restent dans le dépôt, inutilisés. La clé `ANTHROPIC_API_KEY` n'a donc plus
   d'effet visible tant que l'écran n'est pas remis.
 - Pour remettre l'écran : annuler le commit « Retire les deux étapes de conversation » (`git revert`).
-- Le test d'affichage de la tâche du matin (`scripts/flash/smoke.mjs`) accepte les deux parcours.
-
-## Mise à jour du 14 octobre 2026 (soir) — Flash Shopify actualisé chaque matin
-
-Le bloc « Flash Shopify » (haut de l'onglet « Vue d'ensemble », avec « Toutes marketplaces ») est désormais **recalculé
-chaque matin** par une tâche planifiée, et exprimé sur la **même base que l'Excel**.
-
-| Indicateur (4 → 13 octobre 2026) | Valeur |
-|---|---|
-| CA HT comparable | **474 788 €** = (ventes nettes + taxes) ÷ 1,2 |
-| Commandes / unités | 2 851 / 4 826 |
-| Panier moyen | 167 € |
-| Évolution vs mêmes dates 2025 | **+15,3 %** (411 651 € mesurés dans Shopify 2025, même convention) |
-| Cumul 2026 estimé | **7,98 M€**, soit 53,2 % de l'objectif de 15 M€ (fichier ODP au 3 octobre + flash, site web non inclus depuis le 4) |
-| Contrôle ODP, 20/09 → 03/10 | Shopify 524 070 € contre 524 086 € dans l'ODP hors site web (écart de 16 €) |
-
-- **Pourquoi « HT comparable »** : la version précédente affichait les ventes nettes Shopify, qui restent en TTC pour les
-  commandes sans taxe enregistrée (surévaluation d'environ 2 %). Sur la base HT comparable, Shopify et l'ODP concordent à
-  16 € près sur les deux dernières semaines complètes.
-- **N-1** : mesuré dans Shopify (mêmes dates calendaires 2025) et non plus dans l'Excel : même périmètre, même convention.
-- **Données** : fichier `shopify_flash.json` (importé par `App.jsx`), écrit uniquement par `scripts/flash/refresh_flash.mjs`.
-  `App.jsx` n'est jamais modifié par l'actualisation quotidienne. Détail et procédure : `scripts/flash/README.md`.
-- **Bloc à part** : les KPI, courbes, plan, estimations et autres onglets restent calculés sur le fichier ODP (site web
-  compris, jusqu'au 3 octobre). Ils ne bougent qu'avec un nouvel export ODP. (Ce soir-là, la boutique Shopify du site web
-  n'était pas lisible en même temps que BESTHERM ; depuis le 15 octobre elle a son propre bloc : voir la note du 15 octobre.)
-- **Garde-fous** : boutique vérifiée à chaque extraction, couverture des listes contrôlée, pas de régression, contrôle
-  d'écart avec l'ODP (refus d'écrire au-delà de 8 %). Dans l'application : les jours déjà couverts par l'ODP sont ignorés
-  (pas de doublon après une mise à jour de l'ODP), et une pastille « Non actualisé depuis N j » apparaît après 2 jours.
-- **Après un nouvel export ODP** : relancer l'actualisation le jour même (étapes 3 à 8 du README) ; sinon les listes
-  pays et produits restent masquées jusqu'au lendemain matin.
 
 ## Contenu du dépôt
 
-- `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40), plan 2026 (15 M€) intégré, plus le
-  composant « Flash Shopify » (onglets Total, Marketplaces, Site web).
-- `shopify_flash.json` — données du « Flash Shopify », boutique des marketplaces (BESTHERM), actualisées chaque matin.
-- `shopify_flash_site.json` — données du « Flash Shopify », boutique du site web (bestherm.fr), actualisées chaque matin.
-- `scripts/flash/` — script d'actualisation (`refresh_flash.mjs`, une entrée par boutique), lecture du site par le relais
-  (`site_query.mjs`), auto-test, test d'affichage et mode d'emploi (`README.md`), plus le test du relais
-  (`test_mcp_site.mjs`).
+- `App.jsx` — ventes du 1er janvier au **03/10/2026** (fin de la semaine Excel 40, fichier ODP), plan 2026 (15 M€) intégré ; au
+  chargement, les ventes Shopify de `shopify_extension.json` sont ajoutées à tous les tableaux (voir la note du 17 octobre).
+- `extension.js` — module qui ajoute ces ventes aux constantes de `App.jsx` et recalcule ce qui en dérive.
+- `shopify_extension.json` — ventes des deux boutiques Shopify après la fin du fichier ODP, actualisées chaque matin.
+- `data/n1_2025.json` — ventes 2025 d'octobre à décembre, pour la comparaison « même période 2025 » ; `data/produits_meta.json` —
+  marque, norme et attributs des produits, correspondances de références.
+- `scripts/extension/` — actualisation (`refresh_extension.mjs`), relais du site (`site_query.mjs`), tests (`selftest.mjs`,
+  `smoke.mjs`, `test_mcp_site.mjs`), construction du fichier N-1 (`build_n1.mjs`) et mode d'emploi (`README.md`).
 - `api/mcp-site.mjs` — relais MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
-- `api/chat.mjs` — relais de l'assistant IA (le texte de contexte indique maintenant le 3 octobre comme dernière donnée).
+- `api/chat.mjs` — relais de l'assistant IA (le texte de contexte ne fige plus aucune date : il suit `donnees_jusqu_au`).
 
 ## Mise en ligne
 

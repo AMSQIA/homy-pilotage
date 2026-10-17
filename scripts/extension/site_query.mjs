@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Lance des requêtes ShopifyQL sur la boutique du SITE WEB, via le relais en lecture seule (api/mcp-site.mjs
- * déployé sur Vercel), et écrit les résultats au format lu par refresh_flash.mjs (--results).
+ * déployé sur Vercel). Bibliothèque de refresh_extension.mjs (qui s'en sert tout seul pour la boutique du site) et
+ * petit outil de diagnostic en ligne de commande ; les résultats s'écrivent au format lu par
+ * refresh_extension.mjs (--results-site).
  *
  * Pourquoi un script et pas le connecteur Shopify de Claude : ce connecteur ne sert qu'UNE boutique à la fois
  * (BESTHERM, les marketplaces) ; changer de boutique révoque l'autre. Le relais est une porte à part, uniquement
@@ -9,11 +11,9 @@
  *
  * Utilisation :
  *   export MCP_SITE_KEY=...                       clé du relais (jamais écrite dans le dépôt)
- *   node scripts/flash/site_query.mjs --info                                   identité de la boutique
- *   node scripts/flash/site_query.mjs --query "FROM sales SHOW net_sales SINCE 2026-10-04 UNTIL 2026-10-14"
+ *   node scripts/extension/site_query.mjs --info                               identité de la boutique
+ *   node scripts/extension/site_query.mjs --query "FROM sales SHOW net_sales SINCE 2026-10-04 UNTIL 2026-10-14"
  *                                     [--query ...] [--out resultats.json]     requêtes libres
- *   node scripts/flash/site_query.mjs --plan --today AAAA-MM-JJ --out resultats.json
- *                                                    exécute le plan du Flash « site » (refresh_flash.mjs plan)
  *
  * Variables : MCP_SITE_KEY (obligatoire) · MCP_SITE_URL (facultatif, défaut : l'adresse de production).
  * La clé voyage dans un en-tête Authorization lu depuis un fichier temporaire (mode 600) : elle n'apparaît ni dans
@@ -113,9 +113,7 @@ function args(argv) {
     const a = argv[i];
     if (a === "--query") o.queries.push(argv[++i]);
     else if (a === "--out") o.out = argv[++i];
-    else if (a === "--today") o.today = argv[++i];
     else if (a === "--info") o.info = true;
-    else if (a === "--plan") o.plan = true;
     else throw new ErreurRelais(`Option inconnue : ${a}`, 1);
   }
   return o;
@@ -128,16 +126,8 @@ async function main() {
     console.log(JSON.stringify(i, null, 2));
     return 0;
   }
-  let requetes = o.queries;
-  if (o.plan) {
-    // Le plan du Flash « site » vient de refresh_flash.mjs (même fenêtre de dates que la boutique des marketplaces)
-    const { lirePlan, Echec } = await import("./refresh_flash.mjs");
-    let plan;
-    try { plan = lirePlan("site", o.today); } catch (e) { if (e instanceof Echec) throw new ErreurRelais(e.message, 1); throw e; }
-    if (plan.vide) { console.log(`Plan vide : l'ODP couvre déjà jusqu'à hier (${plan.au}). Aucune requête.`); if (o.out) fs.writeFileSync(o.out, "[]\n"); return 0; }
-    requetes = plan.queries.map((q) => q.query);
-  }
-  if (!requetes.length) throw new ErreurRelais("Rien à faire : --info, --query ou --plan attendu.", 1);
+  const requetes = o.queries;
+  if (!requetes.length) throw new ErreurRelais("Rien à faire : --info ou --query attendu.", 1);
   await infoBoutique(); // vérifie la boutique avant toute lecture
   const resultats = await lancerRequetes(requetes);
   const texte = JSON.stringify(resultats);
