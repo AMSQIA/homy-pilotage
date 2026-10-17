@@ -71,6 +71,10 @@ période ou, en touchant une barre, sur ce seul jour. Il suit le filtre marketpl
 **Commandes et panier moyen** : sous le chiffre en tête, le nombre de commandes (champ `commandes`, commandes à CA > 0 par jour et marketplace) et le panier moyen
 (CA HT ÷ commandes) de la période ou du jour, avec leur variation par rapport aux mêmes dates de l'an dernier (mode « total » seulement, comme le chiffre en tête).
 
+**Jour touché : même date ou même jour de la semaine** : par défaut un jour touché est comparé à la même date l'an dernier (`suiviAnAvant`), comme tout le reste du bloc ;
+le choix « Même jour de semaine » le compare au jour 364 jours avant (`suiviCalc(…, semaine = true)`), de même jour de la semaine. Mémorisé dans `localStorage`
+(clé `homy_suivi_jour_semaine`) ; l'étiquette « vs … » d'un jour touché indique le jour de la semaine comparé.
+
 **Écart en € et mobile** : à côté de la variation en %, chaque produit du top 10 et le chiffre en tête affichent l'écart en euros avec les mêmes dates de l'an dernier
 (« +19k€ », « -4.2k€ », « +840€ »), sur la même base que le % ; « nouveau » = produit absent l'an dernier (écart = son CA) ; rien sur un seul jour ni sans base de
 comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Top 10 | % par pays », choix mémorisé dans `localStorage`,
