@@ -62,6 +62,17 @@ les avertissements d'extraction (produit absent du référentiel, ligne hors pé
 matin les lit dans sa sortie et les traite (voir la procédure). Interrupteur : `const SOUS_INFOS = false;` dans `App.jsx` (à `true`, tout
 revient, y compris les notes du bloc « Données à jour »). Le top des produits, le « % obj. » par pays et les comparaisons « vs 2025 » sont conservés.
 
+## Suivi quotidien (premier bloc de la Vue d'ensemble)
+
+Le bloc « Données à jour » est un suivi du quotidien : puces de période (`7 j · 14 j · 30 j · 90 j`), CA HT de la période avec sa variation par rapport aux mêmes dates de
+l'an dernier, histogramme par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier, top 10 des produits et part du CA par pays — sur la
+période ou, en touchant une barre, sur ce seul jour. Il suit le filtre marketplace global. `suiviDonnees()` dans `App.jsx` lit `shopify_extension.json` (schéma 2 : lignes jour × marketplace × produit, et `pays_jour` pour les pays) : les mêmes jours de l'an dernier sont lus dans le même historique, au même format, avec le même calcul.
+
+**« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète : le site web n'existe dans Shopify que depuis sa première vente (fin mai 2025) ; pour une période dont l'an dernier commence avant cette date, la comparaison se fait sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; si l'historique ne remonte pas assez loin, aucune comparaison. Les variations par pays sont des écarts de part du CA, en points.
+
+Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
+contre un calcul indépendant fait dans le test.
+
 ## Garde-fous
 
 - Boutique vérifiée à chaque extraction (`shopDomain`) : rien n'est écrit si un résultat vient de l'autre boutique. Les résultats sont

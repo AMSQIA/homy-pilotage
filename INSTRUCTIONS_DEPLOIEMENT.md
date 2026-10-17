@@ -1,5 +1,32 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 17 octobre 2026 (nuit) — premier bloc « Données à jour » : suivi quotidien
+
+**Demande** : dans le premier bloc, le top 10 des produits sur la date, le % par pays sur la date de l'histogramme et le suivi, sur l'histogramme, de
+la performance de l'année précédente sur le même exercice pour une donnée comparable — un vrai suivi du quotidien.
+
+**Ce que montre le bloc** (haut de « Vue d'ensemble », ouvert par défaut ; un clic sur l'en-tête le replie) :
+
+- **Période** : puces `7 j · 14 j · 30 j · 90 j` ; le choix est mémorisé sur l'appareil.
+- **Chiffre en tête** : CA HT de la période et variation par rapport aux mêmes dates de l'an dernier, dates comparées indiquées (« vs 4–16 oct. 2025 »).
+- **Histogramme** du CA HT par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier aux mêmes dates. **Toucher une barre** sélectionne
+  ce jour : le chiffre en tête, le top 10 et les pays passent à ce seul jour ; « Période entière » revient à la période.
+- **Top 10 produits** de la période ou du jour : CA HT, part du CA, unités, variation par rapport à l'an dernier (« nouveau » pour un produit absent l'an
+  dernier ; pas de variation sur un seul jour).
+- **Part du CA par pays** sur les mêmes dates : les 6 premiers pays puis « Autres », avec l'écart de part en points par rapport à l'an dernier quand il existe.
+- Le bloc suit le filtre marketplace global (Site Web, Leroy Merlin…) : barres, top 10 et pays se limitent à cette marketplace.
+
+**Interprétation de « % par pays »** : part du CA HT de chaque pays sur la période affichée (le « % obj. » du bloc Pays de l'onglet Marketplaces, qui rapporte le
+CA de l'année à l'objectif annuel du pays, n'a pas de sens sur quelques jours ; il reste inchangé dans son onglet).
+
+**« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète : le site web n'existe dans Shopify que depuis sa première vente (fin mai 2025) ; pour une période dont l'an dernier commence avant cette date, la comparaison se fait sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; si l'historique ne remonte pas assez loin, aucune comparaison. Les variations par pays sont des écarts de part du CA, en points.
+
+**Données** : `suiviDonnees()` dans `App.jsx` lit `shopify_extension.json` (schéma 2 : lignes jour × marketplace × produit, et `pays_jour` pour les pays) : les mêmes jours de l'an dernier sont lus dans le même historique, au même format, avec le même calcul.
+
+**Tests** : `smoke.mjs` recalcule dans le test, directement depuis les fichiers du dépôt et sans passer par le code de l'application, le CA de la période et de
+chaque jour, la variation par rapport à l'an dernier, le top 10 (produits, montants, ordre), la part de chaque pays, avec les puces de période, le jour touché et
+son retour, les filtres Leroy Merlin et Site Web, les quatre langues et l'absence de débordement sur mobile (390 et 360 px).
+
 ## Mise à jour du 17 octobre 2026 (soir) — tableau de bord allégé : « garde l'essentiel »
 
 **Demande** : « trop de sous-info », en gardant le top produits, le % par pays et le « vs 2025 » sur les courbes.
@@ -92,7 +119,7 @@ les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fi
   des unités et des lignes de l'extraction ; totaux identiques entre KPI, courbes, marketplaces, marques, pays, semaines ;
   extraction invalide ou marketplace inconnue (rien n'est modifié) ; extraction déjà couverte par l'ODP ; chevauchement ;
   déterminisme ;
-- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son graphique journalier (4 langues, pastille de fraîcheur),
+- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son suivi quotidien (période, jour touché, mêmes jours l'an dernier, top 10 produits, part du CA par pays ; 4 langues, pastille de fraîcheur),
   sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres affichés = chiffres calculés, filtres marketplace,
   7 onglets sans erreur JavaScript, mobile (tableaux défilables).
 
