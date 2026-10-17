@@ -1,10 +1,10 @@
 {
   "boutique": "BESTHERM",
-  "extrait_le": "2026-10-15",
-  "extrait_a": "2026-10-15T13:47:49.417Z",
+  "extrait_le": "2026-10-17",
+  "extrait_a": "2026-10-17T04:59:24.603Z",
   "annee": 2026,
   "du": "2026-10-04",
-  "au": "2026-10-14",
+  "au": "2026-10-16",
   "base": "ht_comparable",
   "jours": [
     {"d":"2026-10-04","ca":34629.71,"cmd":225,"qte":357,"n1":33116.51},
@@ -17,32 +17,34 @@
     {"d":"2026-10-11","ca":46592.43,"cmd":267,"qte":454,"n1":31773.75},
     {"d":"2026-10-12","ca":65492.44,"cmd":353,"qte":613,"n1":35057.03},
     {"d":"2026-10-13","ca":61517.78,"cmd":336,"qte":594,"n1":54506.23},
-    {"d":"2026-10-14","ca":40426.82,"cmd":257,"qte":418,"n1":53071}
+    {"d":"2026-10-14","ca":40426.82,"cmd":257,"qte":418,"n1":53071},
+    {"d":"2026-10-15","ca":36763.04,"cmd":227,"qte":366,"n1":43395.83},
+    {"d":"2026-10-16","ca":28470.71,"cmd":160,"qte":275,"n1":43233.54}
   ],
-  "n1": {"ca":464722.09,"qte":4725,"cmd":2626},
+  "n1": {"ca":551351.46,"qte":5590,"cmd":3095},
   "pays": [
-    {"nom":"France","ca":467262.08,"qte":4774},
-    {"nom":"Belgique","ca":20147.71,"qte":170},
-    {"nom":"Espagne","ca":14367.55,"qte":136},
-    {"nom":"Italie","ca":8550.75,"qte":100},
-    {"nom":"Pays-Bas","ca":2141.75,"qte":19},
+    {"nom":"France","ca":524926.28,"qte":5337},
+    {"nom":"Belgique","ca":22542.11,"qte":195},
+    {"nom":"Espagne","ca":16757.3,"qte":159},
+    {"nom":"Italie","ca":9568.03,"qte":110},
+    {"nom":"Pays-Bas","ca":2271.52,"qte":20},
+    {"nom":"Allemagne","ca":1676.83,"qte":36},
     {"nom":"Portugal","ca":1347.17,"qte":14},
-    {"nom":"Allemagne","ca":952.58,"qte":24},
-    {"nom":"Suisse","ca":296.22,"qte":4},
-    {"nom":"Croatie","ca":52.43,"qte":1},
-    {"nom":"Grèce","ca":49.42,"qte":1}
+    {"nom":"Suisse","ca":573.83,"qte":6},
+    {"nom":"Pologne","ca":519.77,"qte":4},
+    {"nom":"Royaume-Uni","ca":116.72,"qte":1}
   ],
   "produits": [
-    {"nom":"ARIA 1000W","ca":26959.63,"qte":383},
-    {"nom":"TANIN 1000W","ca":24820.76,"qte":469},
-    {"nom":"ARIA 1500W","ca":22341.92,"qte":226},
-    {"nom":"ARIA 2000W","ca":19001.92,"qte":138},
-    {"nom":"ARIA VERTICAL 1500W","ca":18587.9,"qte":116},
-    {"nom":"ARIA 500W BLANC","ca":17692.48,"qte":298},
-    {"nom":"ARIA PLINTHE 1500W","ca":17399.67,"qte":94},
-    {"nom":"TANIN 1500W","ca":15763.66,"qte":179},
-    {"nom":"MILLA 1000W BLANC","ca":15459.65,"qte":186},
-    {"nom":"COSMO 1500W BLANC","ca":11439.88,"qte":62}
+    {"nom":"ARIA 1000W","ca":28603.85,"qte":403},
+    {"nom":"TANIN 1000W","ca":27733.26,"qte":519},
+    {"nom":"ARIA 1500W","ca":24961.2,"qte":251},
+    {"nom":"ARIA VERTICAL 1500W","ca":21353.18,"qte":133},
+    {"nom":"ARIA 2000W","ca":21313.61,"qte":155},
+    {"nom":"ARIA PLINTHE 1500W","ca":20113.45,"qte":109},
+    {"nom":"ARIA 500W BLANC","ca":20049.04,"qte":333},
+    {"nom":"TANIN 1500W","ca":19526.58,"qte":224},
+    {"nom":"MILLA 1000W BLANC","ca":16933.23,"qte":203},
+    {"nom":"NESSA CONNECT 1500W","ca":13674.75,"qte":132}
   ],
   "recoupement": {"du":"2026-09-20","au":"2026-10-03","shopify":524070.47,"excel":524085.94}
 }

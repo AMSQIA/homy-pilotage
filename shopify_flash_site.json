@@ -1,10 +1,10 @@
 {
   "boutique": "bestherm.fr",
-  "extrait_le": "2026-10-15",
-  "extrait_a": "2026-10-15T13:47:49.559Z",
+  "extrait_le": "2026-10-17",
+  "extrait_a": "2026-10-17T04:59:24.675Z",
   "annee": 2026,
   "du": "2026-10-04",
-  "au": "2026-10-14",
+  "au": "2026-10-16",
   "base": "ventes_brutes_ht",
   "jours": [
     {"d":"2026-10-04","ca":3972.21,"cmd":16,"qte":32,"n1":5737.65},
@@ -17,26 +17,28 @@
     {"d":"2026-10-11","ca":6176.39,"cmd":26,"qte":55,"n1":2723.72},
     {"d":"2026-10-12","ca":5852.56,"cmd":26,"qte":50,"n1":936.97},
     {"d":"2026-10-13","ca":7251.55,"cmd":24,"qte":61,"n1":2641.2},
-    {"d":"2026-10-14","ca":4945.69,"cmd":17,"qte":42,"n1":2294.53}
+    {"d":"2026-10-14","ca":4945.69,"cmd":17,"qte":42,"n1":2294.53},
+    {"d":"2026-10-15","ca":4423.81,"cmd":20,"qte":42,"n1":1411.55},
+    {"d":"2026-10-16","ca":5170.34,"cmd":12,"qte":43,"n1":2557}
   ],
-  "n1": {"ca":44351.28,"qte":344,"cmd":133},
+  "n1": {"ca":48319.83,"qte":371,"cmd":141},
   "pays": [
-    {"nom":"France","ca":48677.28,"qte":417},
-    {"nom":"Espagne","ca":4109.64,"qte":33},
-    {"nom":"Belgique","ca":2621.07,"qte":19},
+    {"nom":"France","ca":57733.83,"qte":496},
+    {"nom":"Espagne","ca":4357.4,"qte":35},
+    {"nom":"Belgique","ca":2910.91,"qte":23},
     {"nom":"Italie","ca":1002.9,"qte":7}
   ],
   "produits": [
+    {"nom":"ARIA 1500W","ca":4078.41,"qte":35},
     {"nom":"PACK MILLA (3 radiateurs)","ca":3996.05,"qte":13},
-    {"nom":"LISA 1000W","ca":3291.65,"qte":58},
+    {"nom":"LISA 1000W","ca":3404.82,"qte":60},
     {"nom":"ARIA VERTICAL 2000W","ca":3253.6,"qte":17},
-    {"nom":"ARIA 1500W","ca":2796.01,"qte":24},
-    {"nom":"LISA 1500W","ca":2008.26,"qte":26},
-    {"nom":"ARIA VERTICAL 1500W","ca":1862.92,"qte":11},
+    {"nom":"LISA 1500W","ca":2317.93,"qte":30},
+    {"nom":"ARIA 1000W","ca":2247.01,"qte":27},
+    {"nom":"ARIA VERTICAL 1500W","ca":2196.08,"qte":13},
+    {"nom":"NESSA CONNECT 1500W","ca":2093.83,"qte":14},
     {"nom":"NESSA CONNECT 1000W","ca":1846.67,"qte":14},
-    {"nom":"NESSA CONNECT 1500W","ca":1644.09,"qte":11},
-    {"nom":"COSMO 1500W BLANC","ca":1532.64,"qte":8},
-    {"nom":"MOLY 2000W BLANC","ca":1531.08,"qte":8}
+    {"nom":"ARIA 2000W","ca":1798.95,"qte":12}
   ],
   "recoupement": {"du":"2026-09-20","au":"2026-10-03","shopify":62650.81,"excel":62412.34}
 }
