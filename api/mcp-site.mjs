@@ -242,6 +242,11 @@ function conseilJeton(statut, code, cfg) {
       "application non installée sur cette boutique (Dev Dashboard > application > Accueil > Installer l'application), ou application et boutique " +
       `dans deux organisations différentes.${heritee}${indices}`;
   }
+  if (code === "app_not_installed") {
+    // La boutique et l'application sont reconnues : il ne manque que l'installation (rien d'autre à saisir)
+    return `L'application n'est pas installée sur la boutique ${cfg.domaine} : Dev Dashboard > l'application > Accueil > Installer l'application, ` +
+      `en choisissant la boutique ${cfg.libelle}.${heritee}${indices}`;
+  }
   if (code === "shop_not_permitted") {
     return "L'application et la boutique ne sont pas dans la même organisation Shopify : créer l'application depuis l'administration de la boutique " +
       `${cfg.libelle} (Paramètres > Applications > Développer des applications), puis renseigner ses identifiants dans ${pre}_CLIENT_ID et ${pre}_CLIENT_SECRET.${indices}`;
