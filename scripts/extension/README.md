@@ -49,6 +49,17 @@ quelques ko par jour.
 « Données à jour » de l'onglet Vue d'ensemble le rappelait ; ce rappel a été retiré de l'écran le 17 octobre 2026 (« garde l'essentiel ») :
 il reste ici, et `SOUS_INFOS = true` dans `App.jsx` le fait revenir.
 
+## Suivi quotidien (premier bloc de la Vue d'ensemble)
+
+Le bloc « Données à jour » est un suivi du quotidien : puces de période (`7 j · 13 j` (les jours de ventes Shopify disponibles après la fin du fichier ODP ; avec un historique plus long : 7 / 14 / 30 / 90 j)), CA HT de la période avec sa variation par rapport aux mêmes dates de
+l'an dernier, histogramme par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier, top 10 des produits et part du CA par pays — sur la
+période ou, en touchant une barre, sur ce seul jour. Il suit le filtre marketplace global. `suiviDonnees()` dans `App.jsx` lit les lignes Shopify qui prolongent le fichier ODP (après `DMAX_ODP`, schéma 1 : jour × marketplace × produit × pays) et `data/n1_2025.json` pour les mêmes jours de 2025 (par marketplace et par produit, sans détail par pays).
+
+**« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète. Le « Site Web » 2025 du fichier ODP ne contient qu'une petite partie des ventes réelles du site (la boutique du site n'était pas encore dans ces chiffres) : tant que cette version est en ligne, la comparaison se fait donc sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; pour une marketplace absente du fichier 2025 (Boulanger, Brico Bravo, Maxeda, Worten) ou pour le site web seul, aucune comparaison. Le fichier 2025 n'a pas de détail par pays : pas de variation par pays. Ces limites disparaissent avec la version « tout vient de Shopify » (historique complet des deux boutiques).
+
+Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
+contre un calcul indépendant fait dans le test.
+
 ## Garde-fous
 
 - Boutique vérifiée à chaque extraction (`shopDomain`) : rien n'est écrit si un résultat vient de l'autre boutique. Les
