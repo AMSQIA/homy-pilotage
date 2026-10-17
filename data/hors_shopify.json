@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "note": "Chiffres qui n'existent pas dans Shopify (budgets et résultats publicitaires fournis par les régies). Repris tels quels : à mettre à jour à la main.",
+  "ads": [
+    {"marketplace":"LEROY MERLIN FR","spend":93651.66,"ca_genere":689725.85,"roas":7.36,"acos":13.58,"budget_annuel":264068,"pct_budget":35.5},
+    {"marketplace":"AMAZON FR","spend":47804.91,"ca_genere":469037.67,"roas":9.81,"acos":10.19,"budget_annuel":140000,"pct_budget":34.1},
+    {"marketplace":"SITE WEB","spend":25009.95,"ca_genere":328763,"roas":13.15,"acos":7.61,"budget_annuel":60000,"pct_budget":41.7},
+    {"marketplace":"MANO MANO","spend":24896.03,"ca_genere":176962.9,"roas":7.11,"acos":14.07,"budget_annuel":72000,"pct_budget":34.6},
+    {"marketplace":"CDISCOUNT","spend":10037.37,"ca_genere":167509.43,"roas":16.69,"acos":5.99,"budget_annuel":38000,"pct_budget":26.4},
+    {"marketplace":"CASTORAMA","spend":10331.1,"ca_genere":101610,"roas":9.84,"acos":10.17,"budget_annuel":30240,"pct_budget":34.2},
+    {"marketplace":"LEROY MERLIN ES","spend":2357.62,"ca_genere":15673.8,"roas":6.65,"acos":15.04,"budget_annuel":10000,"pct_budget":23.6},
+    {"marketplace":"AMAZON ES","spend":1610.38,"ca_genere":12407.47,"roas":7.7,"acos":12.98,"budget_annuel":null,"pct_budget":null},
+    {"marketplace":"AMAZON IT","spend":928.9,"ca_genere":4928.6,"roas":5.31,"acos":18.85,"budget_annuel":null,"pct_budget":null},
+    {"marketplace":"BOL","spend":142.85,"ca_genere":3058.9,"roas":21.41,"acos":4.67,"budget_annuel":2160,"pct_budget":6.6},
+    {"marketplace":"LEROY MERLIN IT","spend":884.39,"ca_genere":2554.7,"roas":2.89,"acos":34.62,"budget_annuel":10000,"pct_budget":8.8},
+    {"marketplace":"LEROY MERLIN PL","spend":1492.16,"ca_genere":1316.13,"roas":0.88,"acos":113.38,"budget_annuel":10000,"pct_budget":14.9},
+    {"marketplace":"DARTY","spend":149.9,"ca_genere":649.4,"roas":4.33,"acos":23.08,"budget_annuel":2000,"pct_budget":7.5},
+    {"marketplace":"AMAZON DE","spend":0,"ca_genere":0,"roas":null,"acos":null,"budget_annuel":null,"pct_budget":null}
+  ],
+  "country_ads": [
+    {"pays":"France","spend":211881,"ca":1934258,"roas":9.13},
+    {"pays":"Espagne","spend":3968,"ca":28081,"roas":7.08},
+    {"pays":"Italie","spend":1813,"ca":7483,"roas":4.13},
+    {"pays":"Belgique/Pays-Bas","spend":143,"ca":3059,"roas":21.41},
+    {"pays":"Pologne","spend":1492,"ca":1316,"roas":0.88},
+    {"pays":"Allemagne","spend":0,"ca":0,"roas":null}
+  ]
+}

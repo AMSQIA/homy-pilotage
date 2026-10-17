@@ -1,107 +1,58 @@
 #!/usr/bin/env node
 /**
- * Actualisation quotidienne du prolongement Shopify : écrit shopify_extension.json (racine du dépôt), lu par
- * App.jsx / extension.js pour prolonger TOUT le tableau de bord (KPI, courbes, marketplaces, marques, produits,
- * pays, plan, N-1…) au-delà de la dernière ligne du fichier ODP (DMAX_ODP).
+ * Actualisation de shopify_extension.json (racine du dépôt) : TOUTES les ventes du tableau de bord (2024 → hier) viennent
+ * des deux boutiques Shopify. socle.js recalcule à partir de ce fichier chaque chiffre, courbe et tableau de l'application ;
+ * aucun fichier Excel / ODP n'intervient.
  *
- * Deux boutiques Shopify, deux bases de calcul, toutes deux alignées sur la colonne « CA HT » de l'ODP :
+ * Deux boutiques, deux bases de calcul (détail dans scripts/extension/README.md) :
  *   marketplaces (BESTHERM, 46a3f9-2.myshopify.com) : CA HT = (ventes nettes + taxes) ÷ 1,2 ligne par ligne ;
  *       la marketplace de chaque commande est donnée par sa passerelle de paiement (jeu `payments`)
- *   site web (bestherm.fr, besthermshop.myshopify.com) : CA HT = ventes brutes hors taxes (avant remises et retours),
- *       marketplace « Site Web »
+ *   site web (bestherm.fr, besthermshop.myshopify.com) : CA HT = ventes nettes (remises et retours déduits), marketplace « Site Web »
  *
- * Utilisation (voir scripts/extension/README.md) :
+ * Utilisation :
  *   node scripts/extension/refresh_extension.mjs check
  *   node scripts/extension/refresh_extension.mjs plan  [--today AAAA-MM-JJ] [--du AAAA-MM-JJ] [--reprendre N]
- *   node scripts/extension/refresh_extension.mjs apply [--today ..] [--du ..] [--reprendre N] [--boutique marketplaces|site]
- *                      [--transcript f.jsonl] [--results-site f.json] [--out fichier.json] [--dry-run] [--force]
+ *   node scripts/extension/refresh_extension.mjs apply [--today ..] [--du ..] [--au ..] [--reprendre N] [--boutique marketplaces|site]
+ *                      [--transcript f.jsonl] [--results f.json] [--cache dossier] [--concurrence N] [--out fichier.json] [--dry-run] [--force]
  *   node scripts/extension/refresh_extension.mjs status
  *
- * Marketplaces : les requêtes du « plan » sont lancées avec le connecteur Shopify de Claude (outil run-analytics-query,
- * texte exact) ; apply relit les résultats tels quels dans la transcription de la session (aucune recopie à la main).
- * Site web : apply interroge lui-même le relais en lecture seule (api/mcp-site.mjs, variable MCP_SITE_KEY), ou lit un
- * fichier --results-site écrit par scripts/extension/site_query.mjs.
+ * Sources des résultats ShopifyQL (voir collecte.mjs) : le relais en lecture seule (api/mcp-site.mjs, variable MCP_SITE_KEY)
+ * pour les deux boutiques ; à défaut de relais configuré pour BESTHERM, les résultats du connecteur Shopify de Claude, relus
+ * tels quels dans la transcription de la session (lancer exactement les requêtes de « plan »).
  * Aucune donnée client : uniquement des agrégats (jour, commande, référence, pays, passerelle).
+ *
+ * Par défaut, la fenêtre va du dernier jour déjà extrait (repris, corrections tardives) à hier, heure de Paris ; sans fichier
+ * valide, tout l'historique de chaque boutique est extrait (BESTHERM depuis 2024-01-01, site depuis 2025-05-01).
  *
  * Codes de sortie : 0 ok · 2 contrôle de cohérence échoué (rien n'est écrit) · 3 résultats manquants · 1 erreur d'utilisation.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SCHEMA, validerExtension } from "../../extension.js";
+import { SCHEMA, AN_DEFAUT, validerExtension, auExtension, construire } from "../../socle.js";
+import { CFG, Echec, MP_SITE, addDays, r2, fenetres, requetesFenetre, controlerSortie, avertissementsDe, marqueDominante } from "./transformer.mjs";
+import { BOUTIQUES, lireResultats, jeuxDepuisIndex, jeuxRelais, etatRelais, collecterBoutique } from "./collecte.mjs";
 
+export { CFG, BOUTIQUES, Echec };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const RACINE = path.resolve(__dirname, "..", "..");
-const APP = path.join(RACINE, "App.jsx");
+// Racine du dépôt ; HOMY_RACINE désigne une copie (tests : jeu de données de développement, dossier temporaire)
+export const RACINE = path.resolve(process.env.HOMY_RACINE || path.join(__dirname, "..", ".."));
 const FICHIER = path.join(RACINE, "shopify_extension.json");
-const META = path.join(RACINE, "data", "produits_meta.json");
-const N1 = path.join(RACINE, "data", "n1_2025.json");
-
-/* ------------------------------------------------------------------ réglages */
-export const CFG = {
-  tva: 1.2, // même convention que l'ODP : CA HT = TTC ÷ 1,2
-  limiteLignes: 3000, // lignes par requête et par jour (une journée en compte ~200)
-  tolerance: 0.011, // écart toléré (€ ou unités) entre les lignes d'un jour et le total du jour
-  sansPaiementMax: 0.02, // part maximale des commandes sans passerelle (hors commandes à 0 €)
-  inconnuAvert: 0.03, // part du CA (références ou passerelles inconnues) au-delà de laquelle on avertit
-  ecartTotalEchec: 0.15, // jours repris : variation relative du total au-delà de laquelle on refuse
-};
-
-export const BOUTIQUES = {
-  marketplaces: { id: "marketplaces", nom: "BESTHERM", domaine: "46a3f9-2.myshopify.com", domaineObligatoire: false },
-  site: { id: "site", nom: "bestherm.fr", domaine: "besthermshop.myshopify.com", domaineObligatoire: true },
-};
-
-// Passerelle de paiement Shopify (« xxx via Shopping Feed ») → marketplace de l'ODP. Clés en minuscules, sans le suffixe.
-// « leroymerlin » couvre Leroy Merlin ET Bricoman : la boutique Shopify ne les distingue pas (voir README).
-export const PASSERELLES = {
-  leroymerlin: "Leroy Merlin", amazon: "Amazon FR", "amazon fba": "Amazon FR",
-  epmm: "ManoMano", monechelle: "ManoMano", manomano: "ManoMano", manomanopro: "ManoMano",
-  cdiscount: "Cdiscount", clogistique: "Cdiscount", maxeda: "Maxeda", castoramafr: "Castorama",
-  bricomarche: "Bricomarché", dartybomp: "Darty", darty: "Darty", boulanger: "Boulanger", bricobravo: "Brico Bravo",
-  but: "But", worten: "Worten", bol: "Bol.com",
-};
-const MP_SITE = "Site Web", MP_AUTRE = "Autre";
-
-// Noms de pays Shopify (anglais) → noms de l'application (français)
-const PAYS_EN_FR = {
-  "France": "France", "Belgium": "Belgique", "Spain": "Espagne", "Italy": "Italie",
-  "Netherlands": "Pays-Bas", "Germany": "Allemagne", "Portugal": "Portugal",
-  "Switzerland": "Suisse", "Austria": "Autriche", "Croatia": "Croatie",
-  "Luxembourg": "Luxembourg", "United Kingdom": "Royaume-Uni", "Poland": "Pologne",
-  "Ireland": "Irlande", "Greece": "Grèce", "Bulgaria": "Bulgarie", "Estonia": "Estonie",
-  "Latvia": "Lettonie", "Lithuania": "Lituanie", "Monaco": "Monaco", "Denmark": "Danemark",
-  "Sweden": "Suède", "Finland": "Finlande", "Norway": "Norvège", "Czechia": "Tchéquie",
-  "Czech Republic": "Tchéquie", "Slovakia": "Slovaquie", "Slovenia": "Slovénie",
-  "Hungary": "Hongrie", "Romania": "Roumanie", "Malta": "Malte", "Cyprus": "Chypre",
-  "Andorra": "Andorre", "Canary Islands": "Canaries, îles", "United States": "États-Unis",
-  "Canada": "Canada", "Morocco": "Maroc", "Tunisia": "Tunisie", "Algeria": "Algérie",
-  "Réunion": "La Réunion", "Reunion": "La Réunion", "Martinique": "Martinique",
-  "Guadeloupe": "Guadeloupe", "French Guiana": "Guyane", "Liechtenstein": "Liechtenstein",
-};
-const PAYS_INCONNU = "Non renseigné";
-const MARQUES_VENDEUR = { bestherm: "Bestherm", thomson: "Thomson", "hom'y": "HOM'Y", homy: "HOM'Y" };
+const REF = path.join(RACINE, "data", "referentiel.json");
+const HORS = path.join(RACINE, "data", "hors_shopify.json");
 
 /* ------------------------------------------------------------------ utilitaires */
-const D = (s) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
-const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
-export const addDays = (s, n) => iso(D(s) + n * 864e5);
-const r2 = (x) => Math.round(x * 100) / 100;
 const pct = (x) => (Math.abs(x) < 0.0005 ? "0.0 %" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)} %`);
 const eur = (x) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(x)) + " €";
-const jours = (du, au) => { const l = []; for (let d = du; d <= au; d = addDays(d, 1)) l.push(d); return l; };
-
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
 export function parisToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
-
-export class Echec extends Error {
-  constructor(msg, code = 2) { super(msg); this.code = code; }
-}
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const estSiteMp = (mp) => mp === MP_SITE;
 
 function args(argv) {
-  const o = { _: [], transcript: [], resultsSite: [], reprendre: 0 };
+  const o = { _: [], transcript: [], results: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--today") o.today = argv[++i];
@@ -110,413 +61,140 @@ function args(argv) {
     else if (a === "--reprendre") o.reprendre = Number(argv[++i]);
     else if (a === "--boutique") o.boutique = argv[++i];
     else if (a === "--transcript") o.transcript.push(argv[++i]);
-    else if (a === "--results-site") o.resultsSite.push(argv[++i]);
+    else if (a === "--results" || a === "--results-site") o.results.push(argv[++i]);
+    else if (a === "--cache") o.cache = argv[++i];
+    else if (a === "--concurrence") o.concurrence = Number(argv[++i]);
     else if (a === "--out") o.out = argv[++i];
     else if (a === "--dry-run") o.dry = true;
     else if (a === "--force") o.force = true;
-    else if (a === "--garder-odp") o.garderOdp = true; // jours déjà couverts par l'ODP conservés (contrôle ODP / Shopify)
     else if (a.startsWith("--")) throw new Echec(`Option inconnue : ${a}`, 1);
     else o._.push(a);
   }
-  for (const k of ["today", "du", "au"]) if (o[k] && !/^\d{4}-\d{2}-\d{2}$/.test(o[k])) throw new Echec(`--${k} attend AAAA-MM-JJ`, 1);
-  if (!Number.isInteger(o.reprendre) || o.reprendre < 0 || o.reprendre > 14) throw new Echec("--reprendre attend un entier entre 0 et 14", 1);
+  for (const k of ["today", "du", "au"]) if (o[k] && !ISO.test(o[k])) throw new Echec(`--${k} attend AAAA-MM-JJ`, 1);
+  if (o.reprendre !== undefined && (!Number.isInteger(o.reprendre) || o.reprendre < 0 || o.reprendre > 31)) throw new Echec("--reprendre attend un entier entre 0 et 31", 1);
+  if (o.concurrence !== undefined && (!Number.isInteger(o.concurrence) || o.concurrence < 1 || o.concurrence > 8)) throw new Echec("--concurrence attend un entier entre 1 et 8", 1);
   if (o.boutique !== undefined && !Object.hasOwn(BOUTIQUES, o.boutique)) throw new Echec(`--boutique attend ${Object.keys(BOUTIQUES).join(" ou ")}`, 1);
   return o;
 }
 
-/* ------------------------------------------------------------------ lecture de App.jsx et des tables */
-function grabConst(src, name) {
-  const m = new RegExp("^const " + name + " = (.*);[ \\t]*$", "m").exec(src);
-  if (!m) throw new Echec(`Constante ${name} introuvable dans App.jsx`, 1);
-  try { return JSON.parse(m[1]); } catch { throw new Echec(`Constante ${name} illisible (JSON attendu)`, 1); }
+/* ------------------------------------------------------------------ tables */
+const lire = (f, nom) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { throw new Echec(`${nom} illisible ou absent (${path.relative(RACINE, f)})`, 1); } };
+
+// Contrôle de structure de la table de référence : une table incohérente fausserait tout le tableau de bord
+export function validerReferentiel(ref) {
+  const e = [];
+  if (!ref || typeof ref !== "object") return ["table de référence absente"];
+  for (const k of ["skus", "produits", "passerelles", "objectifs_mp"]) if (!ref[k] || typeof ref[k] !== "object") e.push(`« ${k} » absent`);
+  if (e.length) return e;
+  if (!Number.isFinite(ref.objectif_annuel)) e.push("objectif_annuel absent");
+  for (const [sku, nom] of Object.entries(ref.skus)) {
+    if (sku !== sku.toUpperCase()) e.push(`SKU « ${sku} » : majuscules attendues`);
+    if (!ref.produits[nom]) e.push(`SKU « ${sku} » : produit « ${nom} » absent de la table`);
+  }
+  for (const [t, nom] of Object.entries(ref.titres ?? {})) if (!ref.produits[nom]) e.push(`titre « ${t.slice(0, 40)} » : produit « ${nom} » absent de la table`);
+  for (const [nom, p] of Object.entries(ref.produits)) {
+    for (const k of ["marque", "famille", "sous_famille", "sous_sous_famille"]) if (typeof p[k] !== "string" && !(k !== "marque" && p[k] === null)) e.push(`produit « ${nom} » : « ${k} » illisible`);
+    for (const k of ["wifi", "plinthe", "vertical", "destockage"]) if (typeof p[k] !== "boolean") e.push(`produit « ${nom} » : « ${k} » booléen attendu`);
+  }
+  return e.slice(0, 20);
 }
 
-export function lireApp() {
-  const src = fs.readFileSync(APP, "utf8");
-  const dm = /const DMIN = "(\d{4}-\d{2}-\d{2})", DMAX_ODP = "(\d{4}-\d{2}-\d{2})";/.exec(src);
-  if (!dm) throw new Echec("DMIN / DMAX_ODP introuvables dans App.jsx", 1);
-  if (!src.includes('from "./shopify_extension.json"')) throw new Echec("App.jsx n'importe plus shopify_extension.json : le prolongement ne s'afficherait pas", 1);
-  const lire = (f, nom) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { throw new Echec(`${nom} illisible ou absent (${path.relative(RACINE, f)})`, 1); } };
-  const meta = lire(META, "table des produits");
-  const abc = grabConst(src, "ABC_BY_SKU");
-  const codes = new Map();
-  for (const [code, nom] of abc) codes.set(String(code).toUpperCase(), nom);
-  for (const [code, nom] of Object.entries(meta.skus || {})) codes.set(code.toUpperCase(), nom);
-  const i18n = grabConst(src, "PAYS_I18N");
-  const enFr = new Map(Object.entries(PAYS_EN_FR));
-  for (const [fr, v] of Object.entries(i18n)) if (v?.en && !enFr.has(v.en)) enFr.set(v.en, fr);
+export function lireTables() {
+  const ref = lire(REF, "table de référence");
+  const hors = lire(HORS, "chiffres hors Shopify");
+  const e = validerReferentiel(ref);
+  if (e.length) throw new Echec(`data/referentiel.json invalide : ${e.join(" ; ")}`, 1);
   let precedent = null;
   if (fs.existsSync(FICHIER)) precedent = lire(FICHIER, "shopify_extension.json");
-  return {
-    src, dmaxOdp: dm[2], meta, codes, enFr, precedent,
-    produits: new Set(grabConst(src, "SKU_PRODUIT")), mps: new Set(grabConst(src, "SKU_MPS")),
-    n1: fs.existsSync(N1) ? JSON.parse(fs.readFileSync(N1, "utf8")) : null,
-  };
+  return { ref, hors, precedent };
 }
 
 /* ------------------------------------------------------------------ plan des requêtes */
-export const REQ = {
-  ventes: (d) => `FROM sales SHOW quantity_ordered, net_sales, taxes GROUP BY order_name, product_variant_sku, shipping_country, product_vendor WHERE line_type = 'product' SINCE ${d} UNTIL ${d} ORDER BY order_name LIMIT ${CFG.limiteLignes}`,
-  paiements: (d) => `FROM payments SHOW gross_payments GROUP BY order_name, payment_gateway SINCE ${d} UNTIL ${d} ORDER BY order_name LIMIT ${CFG.limiteLignes}`,
-  controle: (du, au) => `FROM sales SHOW orders, quantity_ordered, net_sales TIMESERIES day SINCE ${du} UNTIL ${au}`,
-  ventesSite: (d) => `FROM sales SHOW quantity_ordered, gross_sales GROUP BY order_name, product_variant_sku, shipping_country, product_vendor WHERE line_type = 'product' SINCE ${d} UNTIL ${d} ORDER BY order_name LIMIT ${CFG.limiteLignes}`,
-  controleSite: (du, au) => `FROM sales SHOW orders, quantity_ordered, gross_sales TIMESERIES day SINCE ${du} UNTIL ${au}`,
-};
-
-// Fenêtre à extraire : du lendemain de la dernière donnée connue jusqu'à hier (heure de Paris).
-// --du force le début ; --reprendre N reprend les N derniers jours déjà extraits (corrections tardives).
-export function fenetre(app, today, o = {}, boutique) {
+// Fenêtre à extraire : du dernier jour déjà extrait (repris) jusqu'à hier. Sans extraction valide : tout l'historique.
+export function fenetre(precedent, today, o = {}, boutique) {
   const au = o.au ?? addDays(today, -1);
   let du;
   if (o.du) du = o.du;
   else {
-    const prec = app.precedent?.boutiques?.[boutique]?.au;
-    const dernier = prec && prec > app.dmaxOdp ? prec : app.dmaxOdp;
-    du = addDays(dernier, 1 - (o.reprendre || 0));
-    if (du <= app.dmaxOdp) du = addDays(app.dmaxOdp, 1);
+    const valide = precedent && validerExtension(precedent).ok;
+    const prec = valide ? precedent.boutiques?.[boutique]?.au : null;
+    du = prec ? addDays(prec, 1 - (o.reprendre ?? 1)) : BOUTIQUES[boutique].debut;
+    if (du < BOUTIQUES[boutique].debut) du = BOUTIQUES[boutique].debut;
   }
   return { du, au, vide: du > au };
 }
 
-export function planifier(app, today, o = {}, boutique = "marketplaces") {
-  const f = fenetre(app, today, o, boutique);
-  const p = { boutique, today, dmaxOdp: app.dmaxOdp, ...f, queries: [] };
+export function planifier(precedent, today, o = {}, boutique = "marketplaces") {
+  const f = fenetre(precedent, today, o, boutique);
+  const p = { boutique, today, ...f, queries: [] };
   if (p.vide) return p;
-  const q = (id, query) => p.queries.push({ id, query });
-  if (boutique === "marketplaces") {
-    for (const d of jours(f.du, f.au)) { q(`ventes ${d}`, REQ.ventes(d)); q(`paiements ${d}`, REQ.paiements(d)); }
-    q("controle", REQ.controle(f.du, f.au));
-  } else {
-    for (const d of jours(f.du, f.au)) q(`ventes ${d}`, REQ.ventesSite(d));
-    q("controle", REQ.controleSite(f.du, f.au));
-  }
+  for (const w of fenetres(f.du, f.au)) p.queries.push(...requetesFenetre(boutique, w, today));
   return p;
 }
 
-/* ------------------------------------------------------------------ résultats ShopifyQL */
-function* fichiersTranscription(explicites) {
-  if (explicites.length) { yield* explicites; return; }
-  const racines = [...new Set([
-    process.env.CLAUDE_CONFIG_DIR, path.join(os.homedir(), ".claude"), "/root/.claude", "/home/claude/.claude",
-  ].filter(Boolean).map((d) => path.join(d, "projects")))];
-  const trouves = [];
-  const parcourir = (d, prof = 0) => {
-    let ents = [];
-    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const e of ents) {
-      const p = path.join(d, e.name);
-      if (e.isDirectory() && prof < 3) parcourir(p, prof + 1);
-      else if (e.isFile() && e.name.endsWith(".jsonl")) trouves.push([p, fs.statSync(p).mtimeMs]);
-    }
-  };
-  for (const r of racines) parcourir(r);
-  trouves.sort((a, b) => b[1] - a[1]);
-  for (const [p] of trouves) yield p;
-}
-
-// Résultats rangés par boutique ET texte de requête : deux boutiques ne s'écrasent jamais
-const cle = (domaine, query) => `${domaine ?? ""}\u0000${query}`;
-const ranger = (res, r) => res.set(cle(r.shopDomain, r.query), r);
-
-function lireJsonl(fichier, res) {
-  let lignes;
-  try { lignes = fs.readFileSync(fichier, "utf8").split("\n"); } catch { return; }
-  for (const l of lignes) {
-    if (!l.includes('"tool_result"') || !l.includes("rows")) continue;
-    let o; try { o = JSON.parse(l); } catch { continue; }
-    const c = o?.message?.content;
-    if (!Array.isArray(c)) continue;
-    for (const b of c) {
-      if (b?.type !== "tool_result") continue;
-      const texte = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x?.text ?? "").join("") : "";
-      if (!texte.startsWith('{"query"')) continue;
-      let j; try { j = JSON.parse(texte); } catch { continue; }
-      if (typeof j.query === "string" && Array.isArray(j.rows) && Array.isArray(j.columns)) ranger(res, j);
-    }
-  }
-}
-
-function lireJson(fichier, res) {
-  let j;
-  try { j = JSON.parse(fs.readFileSync(fichier, "utf8")); } catch { throw new Echec(`Fichier de résultats illisible : ${fichier}`, 1); }
-  for (const r of Array.isArray(j) ? j : [j]) if (typeof r?.query === "string" && Array.isArray(r.rows)) ranger(res, r);
-}
-
-// Renvoie Map(query → résultat) pour LA boutique, ou lève Echec(3) avec la liste des requêtes manquantes
-export function collecter(plan, o, boutique, resultatsSite = []) {
-  const b = BOUTIQUES[boutique];
-  const trouver = (res, q) => res.get(cle(b.domaine, q.query)) ?? (b.domaineObligatoire ? undefined : res.get(cle(undefined, q.query)));
-  const manquants = (res) => plan.queries.filter((q) => !trouver(res, q));
-  const brut = new Map();
-  for (const f of resultatsSite) lireJson(f, brut);
-  if (!resultatsSite.length) {
-    for (const f of fichiersTranscription(o.transcript)) {
-      const r = new Map();
-      lireJsonl(f, r);
-      for (const [k, v] of r) if (!brut.has(k)) brut.set(k, v); // le fichier le plus récent prime
-      if (manquants(brut).length === 0) break;
-    }
-  }
-  const absents = manquants(brut);
-  if (absents.length) {
-    throw new Echec(
-      `Résultats ShopifyQL manquants (boutique ${boutique}, ${b.domaine}) pour : ${absents.slice(0, 12).map((q) => q.id).join(", ")}${absents.length > 12 ? ` … (+${absents.length - 12})` : ""}. ` +
-      "Lancer exactement les requêtes affichées par la commande « plan » (même --today, mêmes options).", 3);
-  }
-  const out = new Map();
-  for (const q of plan.queries) {
-    const r = trouver(brut, q);
-    const ok = b.domaineObligatoire ? r.shopDomain === b.domaine : !r.shopDomain || r.shopDomain === b.domaine;
-    if (!ok) throw new Echec(`Boutique inattendue (${r.shopDomain ?? "non indiquée"}) : ${b.domaine} attendu. Aucune écriture.`);
-    out.set(q.query, r);
-  }
-  return out;
-}
-
-const colonne = (res, nom) => {
-  const i = res.columns.findIndex((c) => c.name === nom);
-  if (i < 0) throw new Echec(`Colonne « ${nom} » absente du résultat « ${res.query.slice(0, 80)} »`);
-  return i;
-};
-const nombre = (v, ctx) => {
-  const x = Number(v);
-  if (!Number.isFinite(x)) throw new Echec(`Valeur non numérique (${ctx}) : ${JSON.stringify(v)}`);
-  return x;
-};
-
-/* ------------------------------------------------------------------ correspondances */
-export function normaliserSku(s) {
-  return s.trim().replace(/(_never_used| never used)$/i, "").replace(/-FLM$/i, "").replace(/\//g, "-");
-}
-
-export function marketplaceDe(passerelle) {
-  if (!passerelle) return null;
-  const k = passerelle.toLowerCase().replace(/\s+via\s+shopping\s+feed\s*$/i, "").trim();
-  return PASSERELLES[k] ?? null;
-}
-
-// Rattache une référence Shopify à un produit de l'application ; renvoie { nom, connu }
-function produitDe(brut, app) {
-  const code = normaliserSku(brut);
-  const nom = app.codes.get(code.toUpperCase());
-  if (nom) return { nom, connu: true, code };
-  return { nom: code, connu: false, code };
-}
-
-// Marque et norme d'un produit : table de l'application, sinon marque du vendeur Shopify
-function metaDe(nom, vendeur, app) {
-  const m = app.meta.produits?.[nom];
-  if (m) return { marque: m[0], norme: m[1] ?? null, connu: true };
-  return { marque: MARQUES_VENDEUR[String(vendeur || "").toLowerCase()] ?? "Bestherm", norme: null, connu: false };
-}
-
-/* ------------------------------------------------------------------ construction des lignes d'un jour */
-// Agrège (jour, marketplace, produit, pays) → { qte, ca, nl }. `stats` reçoit les contrôles du jour.
-class Cumul {
-  constructor() { this.m = new Map(); }
-  ajouter(d, mp, produit, pays, qte, ca) {
-    const k = `${d}\u0000${mp}\u0000${produit}\u0000${pays}`;
-    const a = this.m.get(k) ?? { d, mp, produit, pays, qte: 0, ca: 0, nl: 0 };
-    a.qte += qte; a.ca += ca; a.nl += 1;
-    this.m.set(k, a);
-  }
-  lignes() { return [...this.m.values()]; }
-}
-
-function lignesMarketplaces(d, ventes, paiements, app, cum, st) {
-  const iO = colonne(ventes, "order_name"), iS = colonne(ventes, "product_variant_sku"), iC = colonne(ventes, "shipping_country");
-  const iV = colonne(ventes, "product_vendor"), iQ = colonne(ventes, "quantity_ordered"), iN = colonne(ventes, "net_sales"), iT = colonne(ventes, "taxes");
-  if (ventes.rows.length >= CFG.limiteLignes) throw new Echec(`${d} : limite de ${CFG.limiteLignes} lignes atteinte (liste tronquée)`);
-  if (paiements.rows.length >= CFG.limiteLignes) throw new Echec(`${d} : limite de ${CFG.limiteLignes} paiements atteinte (liste tronquée)`);
-  // commande → passerelle dominante (plus gros montant payé)
-  const jO = colonne(paiements, "order_name"), jG = colonne(paiements, "payment_gateway"), jP = colonne(paiements, "gross_payments");
-  const pass = new Map();
-  for (const r of paiements.rows) {
-    const o = String(r[jO]), g = String(r[jG] ?? ""), v = nombre(r[jP], "paiements");
-    const a = pass.get(o) ?? [];
-    a.push({ g, v });
-    pass.set(o, a);
-  }
-  const dominante = new Map();
-  for (const [o, l] of pass) {
-    l.sort((x, y) => y.v - x.v);
-    dominante.set(o, l[0].g);
-    if (new Set(l.map((x) => marketplaceDe(x.g) ?? x.g)).size > 1) st.multiPasserelle.push(o);
-  }
-  const commandes = new Map(); // commande → { ca, lignes: [...] }
-  for (const r of ventes.rows) {
-    const o = String(r[iO]);
-    const qte = nombre(r[iQ], "quantité"), net = nombre(r[iN], "ventes nettes"), tax = nombre(r[iT], "taxes");
-    st.qte += qte; st.net += net;
-    if (qte === 0 && net === 0 && tax === 0) continue; // ligne vide
-    const c = commandes.get(o) ?? { ca: 0, lignes: [] };
-    const ht = (net + tax) / CFG.tva;
-    c.ca += ht;
-    c.lignes.push({ sku: String(r[iS] ?? "").trim(), pays: String(r[iC] ?? "").trim(), vendeur: String(r[iV] ?? ""), qte, ht });
-    commandes.set(o, c);
-  }
-  st.commandes = commandes.size;
-  for (const [o, c] of commandes) {
-    const g = dominante.get(o);
-    let mp = marketplaceDe(g);
-    if (g === undefined) {
-      st.sansPaiement++;
-      if (Math.abs(c.ca) > 0.005) { st.sansPaiementCa += c.ca; st.sansPaiementListe.push(o); }
-      mp = MP_AUTRE; // commandes à 0 € (envois de remplacement) : sans paiement, classées « Autre »
-    } else if (!mp) {
-      st.passerellesInconnues.set(g, (st.passerellesInconnues.get(g) ?? 0) + c.ca);
-      mp = MP_AUTRE;
-    }
-    for (const l of c.lignes) rattacher(d, mp, l, app, cum, st);
-  }
-}
-
-function lignesSite(d, ventes, app, cum, st) {
-  const iO = colonne(ventes, "order_name"), iS = colonne(ventes, "product_variant_sku"), iC = colonne(ventes, "shipping_country");
-  const iV = colonne(ventes, "product_vendor"), iQ = colonne(ventes, "quantity_ordered"), iG = colonne(ventes, "gross_sales");
-  if (ventes.rows.length >= CFG.limiteLignes) throw new Echec(`${d} : limite de ${CFG.limiteLignes} lignes atteinte (liste tronquée)`);
-  const cmd = new Set();
-  for (const r of ventes.rows) {
-    const qte = nombre(r[iQ], "quantité"), brut = nombre(r[iG], "ventes brutes");
-    st.qte += qte; st.net += brut;
-    if (qte <= 0 && Math.abs(brut) < 0.005) { st.lignesVides++; continue; } // ligne retirée de la commande
-    cmd.add(String(r[iO]));
-    rattacher(d, MP_SITE, { sku: String(r[iS] ?? "").trim(), pays: String(r[iC] ?? "").trim(), vendeur: String(r[iV] ?? ""), qte, ht: brut }, app, cum, st);
-  }
-  st.commandes = cmd.size;
-}
-
-function rattacher(d, mp, l, app, cum, st) {
-  if (!l.sku) { st.sansReference += l.ht; return; }
-  const p = produitDe(l.sku, app);
-  if (!p.connu) { const a = st.skuInconnus.get(p.code) ?? { ca: 0, qte: 0, vendeur: l.vendeur }; a.ca += l.ht; a.qte += l.qte; st.skuInconnus.set(p.code, a); }
-  const m = metaDe(p.nom, l.vendeur, app);
-  if (m.connu) { // contrôle de cohérence marque produit / vendeur Shopify (information)
-    const mv = MARQUES_VENDEUR[String(l.vendeur || "").toLowerCase()];
-    if (mv && mv !== m.marque) st.marqueDivergente.set(p.nom, `${m.marque} (table) ≠ ${mv} (Shopify)`);
-  }
-  if (!app.meta.produits?.[p.nom]) st.produitsNouveaux.set(p.nom, { marque: m.marque, norme: m.norme });
-  let pays = app.enFr.get(l.pays);
-  if (!pays) { pays = l.pays ? l.pays : PAYS_INCONNU; if (l.pays) st.paysInconnus.add(l.pays); }
-  st.ca += l.ht;
-  cum.ajouter(d, mp, p.nom, pays, l.qte, l.ht);
-}
-
-const statsVides = () => ({
-  qte: 0, net: 0, ca: 0, commandes: 0, sansPaiement: 0, sansPaiementCa: 0, sansPaiementListe: [], multiPasserelle: [],
-  passerellesInconnues: new Map(), skuInconnus: new Map(), marqueDivergente: new Map(), produitsNouveaux: new Map(),
-  paysInconnus: new Set(), sansReference: 0, lignesVides: 0,
-});
-
-/* ------------------------------------------------------------------ une boutique : fenêtre → lignes */
-export function construireBoutique(app, plan, resultats, boutique, avert) {
-  const rs = (q) => resultats.get(q);
-  const cum = new Cumul();
-  const ctrlQ = plan.queries.find((q) => q.id === "controle").query;
-  const ctrl = rs(ctrlQ);
-  const cd = colonne(ctrl, "day"), cq = colonne(ctrl, "quantity_ordered");
-  const cn = colonne(ctrl, boutique === "site" ? "gross_sales" : "net_sales");
-  const attendu = new Map(ctrl.rows.map((r) => [String(r[cd]).slice(0, 10), { qte: nombre(r[cq], "contrôle"), v: nombre(r[cn], "contrôle") }]));
-  const parJour = [];
-  const globaux = statsVides();
-  for (const d of jours(plan.du, plan.au)) {
-    const st = statsVides();
-    if (boutique === "marketplaces") lignesMarketplaces(d, rs(REQ.ventes(d)), rs(REQ.paiements(d)), app, cum, st);
-    else lignesSite(d, rs(REQ.ventesSite(d)), app, cum, st);
-    const a = attendu.get(d) ?? { qte: 0, v: 0 };
-    if (Math.abs(st.qte - a.qte) > CFG.tolerance || Math.abs(st.net - a.v) > Math.max(CFG.tolerance, 0.00001 * a.v)) {
-      throw new Echec(`${boutique} ${d} : lignes (${st.qte} u., ${r2(st.net)} €) ≠ total du jour Shopify (${a.qte} u., ${r2(a.v)} €) : extraction incomplète ou filtre inattendu. Aucune écriture.`);
-    }
-    if (boutique === "marketplaces" && st.commandes > 0) {
-      const part = (st.sansPaiement - st.sansPaiementListe.length) >= 0 ? st.sansPaiementListe.length / st.commandes : 0;
-      if (part > CFG.sansPaiementMax) throw new Echec(`${d} : ${st.sansPaiementListe.length} commandes avec CA sans passerelle de paiement sur ${st.commandes} (${(part * 100).toFixed(1)} %) : jeu « payments » incomplet. Aucune écriture.`);
-    }
-    parJour.push({ d, ...st });
-    for (const k of ["qte", "net", "ca", "commandes", "sansPaiement", "sansPaiementCa", "sansReference", "lignesVides"]) globaux[k] += st[k];
-    globaux.sansPaiementListe.push(...st.sansPaiementListe); globaux.multiPasserelle.push(...st.multiPasserelle);
-    for (const [k, v] of st.passerellesInconnues) globaux.passerellesInconnues.set(k, (globaux.passerellesInconnues.get(k) ?? 0) + v);
-    for (const [k, v] of st.skuInconnus) { const a = globaux.skuInconnus.get(k) ?? { ca: 0, qte: 0, vendeur: v.vendeur }; a.ca += v.ca; a.qte += v.qte; globaux.skuInconnus.set(k, a); }
-    for (const [k, v] of st.marqueDivergente) globaux.marqueDivergente.set(k, v);
-    for (const [k, v] of st.produitsNouveaux) globaux.produitsNouveaux.set(k, v);
-    for (const p of st.paysInconnus) globaux.paysInconnus.add(p);
-  }
-  const lignes = cum.lignes();
-  if (!lignes.some((l) => l.qte > 0)) throw new Echec(`${boutique} : aucune vente sur ${plan.du} → ${plan.au} : extraction suspecte. Aucune écriture.`);
-  // avertissements
-  if (globaux.passerellesInconnues.size) {
-    const tot = [...globaux.passerellesInconnues.values()].reduce((a, b) => a + b, 0);
-    avert.push(`Passerelles de paiement inconnues, classées « Autre » (${eur(tot)}) : ${[...globaux.passerellesInconnues].map(([g, v]) => `${g} ${eur(v)}`).join(", ")}`);
-  }
-  if (globaux.sansPaiementListe.length) avert.push(`${globaux.sansPaiementListe.length} commande(s) avec CA sans passerelle (classées « Autre », ${eur(globaux.sansPaiementCa)}) : ${globaux.sansPaiementListe.slice(0, 6).join(", ")}`);
-  if (globaux.skuInconnus.size) {
-    const tot = [...globaux.skuInconnus.values()].reduce((a, b) => a + b.ca, 0);
-    avert.push(`Références non rattachées à un produit (${eur(tot)}, ${((tot / (globaux.ca || 1)) * 100).toFixed(1)} % du CA) : ${[...globaux.skuInconnus].slice(0, 8).map(([c, v]) => `${c} ${eur(v.ca)}`).join(", ")}`);
-  }
-  if (globaux.marqueDivergente.size) avert.push(`Marque de la table ≠ marque Shopify pour : ${[...globaux.marqueDivergente].slice(0, 6).map(([p, t]) => `${p} ${t}`).join(" ; ")}`);
-  if (globaux.paysInconnus.size) avert.push(`Pays sans traduction (conservés tels quels) : ${[...globaux.paysInconnus].join(", ")}`);
-  if (globaux.multiPasserelle.length) avert.push(`${globaux.multiPasserelle.length} commande(s) payée(s) via plusieurs marketplaces (passerelle dominante retenue)`);
-  if (globaux.sansReference > 0.5) avert.push(`Lignes sans référence (${eur(globaux.sansReference)}) ignorées`);
-  return { lignes, parJour, globaux, produitsNouveaux: globaux.produitsNouveaux };
-}
-
 /* ------------------------------------------------------------------ fusion et écriture */
-// Fusionne les lignes des boutiques traitées avec celles de l'extraction précédente (par marketplace : « Site Web »
-// pour la boutique du site, toutes les autres pour la boutique des marketplaces) et reconstruit les dictionnaires.
-export function fusionner(app, precedent, blocs, today, garderOdp = false) {
-  const ancien = precedent && validerExtension(precedent, app.dmaxOdp).ok ? decoderAncien(precedent) : [];
-  const boutiques = { ...(precedent?.boutiques ?? {}) };
-  const nouvelles = [];
-  const traitees = new Set();
-  for (const [id, b] of Object.entries(blocs)) {
-    traitees.add(id);
-    boutiques[id] = { au: b.plan.au, nom: BOUTIQUES[id].nom, domaine: BOUTIQUES[id].domaine, extrait_a: new Date().toISOString() };
-    for (const l of b.lignes) nouvelles.push(l);
+const ouvrir = () => ({ lignes: [], pays: [], commandes: [], paires: [], marques: new Map() });
+
+export function decoder(ext) {
+  const o = ouvrir();
+  const nom = (i) => ext.produits[i][0];
+  for (const [d, im, ip, qte, ca] of ext.lignes) o.lignes.push({ d, mp: ext.mp[im], produit: nom(ip), qte, ca });
+  for (const [d, ic, im, ca] of ext.pays_jour) o.pays.push({ d, pays: ext.pays[ic], mp: ext.mp[im], ca });
+  for (const [d, im, n] of ext.commandes) o.commandes.push({ d, mp: ext.mp[im], n });
+  for (const [d, ia, ib, n, s] of ext.paires) o.paires.push({ d, a: nom(ia), b: nom(ib), n, s: s ? 1 : 0 });
+  for (const [n, m] of ext.produits) o.marques.set(n, m ?? null);
+  return o;
+}
+
+// Fusionne les boutiques traitées avec le contenu précédent : pour chaque boutique, ses jours (re)extraits sont remplacés.
+// `blocs` = { id: sortie agrégée de collecterBoutique }.
+export function fusionner(precedent, blocs, today, an = AN_DEFAUT) {
+  const ancien = precedent && validerExtension(precedent).ok ? decoder(precedent) : ouvrir();
+  const boutiques = precedent && validerExtension(precedent).ok ? { ...(precedent.boutiques ?? {}) } : {};
+  const dansFenetre = (d, b) => blocs[b] && d >= blocs[b].du && d <= blocs[b].au;
+  const lignes = ancien.lignes.filter((l) => !dansFenetre(l.d, estSiteMp(l.mp) ? "site" : "marketplaces"));
+  const pays = ancien.pays.filter((l) => !dansFenetre(l.d, estSiteMp(l.mp) ? "site" : "marketplaces"));
+  const commandes = ancien.commandes.filter((l) => !dansFenetre(l.d, estSiteMp(l.mp) ? "site" : "marketplaces"));
+  const paires = ancien.paires.filter((l) => !dansFenetre(l.d, l.s ? "site" : "marketplaces"));
+  const marques = new Map(ancien.marques);
+  for (const [id, s] of Object.entries(blocs)) {
+    boutiques[id] = { au: s.au, nom: BOUTIQUES[id].nom, domaine: BOUTIQUES[id].domaine, extrait_a: new Date().toISOString() };
+    lignes.push(...s.lignes); pays.push(...s.pays); commandes.push(...s.commandes);
+    for (const x of s.paires) paires.push({ ...x, s: id === "site" ? 1 : 0 });
+    for (const [n, m] of s.vendeurs) { const b = marqueDominante(m); if (b) marques.set(n, b); }
   }
-  const estSite = (mp) => mp === MP_SITE;
-  const garde = [];
-  for (const l of ancien) {
-    const id = estSite(l.mp) ? "site" : "marketplaces";
-    const b = blocs[id];
-    if (b && l.d >= b.plan.du && l.d <= b.plan.au) continue; // jour (re)extrait : remplacé
-    garde.push(l);
-  }
-  let toutes = [...garde, ...nouvelles];
-  if (!garderOdp) toutes = toutes.filter((l) => l.d > app.dmaxOdp);
-  toutes.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.mp < b.mp ? -1 : a.mp > b.mp ? 1 : a.produit < b.produit ? -1 : a.produit > b.produit ? 1 : a.pays < b.pays ? -1 : a.pays > b.pays ? 1 : 0));
+  // conservation : détail pays et commandes depuis l'année précédente, paires de produits pour l'année en cours seulement
+  const depuisN1 = `${an - 1}-01-01`, depuisAn = `${an}-01-01`;
+  const paysK = pays.filter((x) => x.d >= depuisN1), cmdK = commandes.filter((x) => x.d >= depuisN1), pairesK = paires.filter((x) => x.d >= depuisAn);
   // dictionnaires
-  const mp = [...new Set(toutes.map((l) => l.mp))].sort();
-  const pays = [...new Set(toutes.map((l) => l.pays))].sort();
-  const noms = [...new Set(toutes.map((l) => l.produit))].sort();
-  const produits = noms.map((nom) => {
-    const m = app.meta.produits?.[nom];
-    const nv = blocs && Object.values(blocs).map((b) => b.produitsNouveaux.get(nom)).find(Boolean);
-    const avantDico = precedent?.produits?.find((p) => p[0] === nom);
-    const marque = m ? m[0] : nv?.marque ?? avantDico?.[1] ?? "Bestherm";
-    const norme = m ? m[1] ?? null : nv?.norme ?? avantDico?.[2] ?? null;
-    const e = [nom, marque, norme];
-    if (!app.produits.has(nom)) e.push(avantDico?.[3] ?? app.meta.attributs?.[nom] ?? {}); // produit inconnu de l'application
-    return e;
-  });
-  const iMp = new Map(mp.map((x, i) => [x, i])), iPays = new Map(pays.map((x, i) => [x, i])), iProd = new Map(noms.map((x, i) => [x, i]));
+  const noms = [...new Set([...lignes.map((l) => l.produit), ...pairesK.flatMap((x) => [x.a, x.b])])].sort();
+  const mp = [...new Set([...lignes.map((l) => l.mp), ...paysK.map((l) => l.mp), ...cmdK.map((l) => l.mp)])].sort();
+  const paysNoms = [...new Set(paysK.map((l) => l.pays))].sort();
+  const iMp = new Map(mp.map((x, i) => [x, i])), iPays = new Map(paysNoms.map((x, i) => [x, i])), iProd = new Map(noms.map((x, i) => [x, i]));
+  const tri = (a, b) => cmp(a.d, b.d);
+  lignes.sort((a, b) => tri(a, b) || cmp(a.mp, b.mp) || cmp(a.produit, b.produit));
+  paysK.sort((a, b) => tri(a, b) || cmp(a.pays, b.pays) || cmp(a.mp, b.mp));
+  cmdK.sort((a, b) => tri(a, b) || cmp(a.mp, b.mp));
+  pairesK.sort((a, b) => tri(a, b) || cmp(a.a, b.a) || cmp(a.b, b.b) || a.s - b.s);
   const auDates = Object.values(boutiques).map((b) => b.au);
-  const au = auDates.reduce((a, b) => (a < b ? a : b));
   return {
     schema: SCHEMA,
     extrait_le: today,
     extrait_a: new Date().toISOString(),
-    du: toutes.length ? toutes[0].d : addDays(app.dmaxOdp, 1),
-    au,
-    base: { marketplaces: "ca_ht = (ventes nettes + taxes) / 1,2", site: "ca_ht = ventes brutes hors taxes" },
+    du: lignes.length ? lignes[0].d : today,
+    au: auDates.reduce((a, b) => (a < b ? a : b)),
+    base: { marketplaces: "ca_ht = (ventes nettes + taxes) / 1,2", site: "ca_ht = ventes nettes (hors taxes, remises et retours déduits)" },
     boutiques,
-    mp, pays, produits,
-    lignes: toutes.map((l) => [l.d, iMp.get(l.mp), iProd.get(l.produit), iPays.get(l.pays), l.qte, r2(l.ca), l.nl]),
+    mp, pays: paysNoms,
+    produits: noms.map((n) => [n, marques.get(n) ?? null]),
+    lignes: lignes.map((l) => [l.d, iMp.get(l.mp), iProd.get(l.produit), l.qte, r2(l.ca)]),
+    pays_jour: paysK.map((l) => [l.d, iPays.get(l.pays), iMp.get(l.mp), r2(l.ca)]),
+    commandes: cmdK.map((l) => [l.d, iMp.get(l.mp), l.n]),
+    paires: pairesK.map((l) => [l.d, iProd.get(l.a), iProd.get(l.b), l.n, l.s]),
   };
 }
 
-function decoderAncien(ext) {
-  return ext.lignes.map(([d, im, ip, ic, qte, ca, nl]) => ({ d, mp: ext.mp[im], produit: ext.produits[ip][0], pays: ext.pays[ic], qte, ca, nl }));
-}
-
+const TABLEAUX = ["lignes", "produits", "pays_jour", "commandes", "paires"];
 // Une ligne par enregistrement : diffs Git lisibles
 export function serialiser(e) {
   const l = ["{"];
@@ -524,7 +202,7 @@ export function serialiser(e) {
   cles.forEach((k, i) => {
     const v = e[k];
     const vg = i < cles.length - 1 ? "," : "";
-    if (k === "lignes" || k === "produits") {
+    if (TABLEAUX.includes(k)) {
       l.push(`  ${JSON.stringify(k)}: [`);
       v.forEach((x, j) => l.push(`    ${JSON.stringify(x)}${j < v.length - 1 ? "," : ""}`));
       l.push(`  ]${vg}`);
@@ -543,105 +221,143 @@ function ecrire(ext, fichier, dry) {
 }
 
 // Contrôle avec l'extraction précédente : les jours communs ne doivent pas varier de plus de 15 % au total
-function comparerAuPrecedent(neuf, prec, force, avert) {
-  if (!prec || !Array.isArray(prec.lignes)) return;
-  const somme = (e) => { const m = new Map(); for (const [d, , , , , ca] of e.lignes) m.set(d, (m.get(d) ?? 0) + ca); return m; };
+export function comparerAuPrecedent(neuf, prec, force, avert) {
+  if (!prec || !Array.isArray(prec.lignes) || prec.schema !== SCHEMA) return;
+  const somme = (e) => { const m = new Map(); for (const [d, , , , ca] of e.lignes) m.set(d, (m.get(d) ?? 0) + ca); return m; };
   const a = somme(prec), b = somme(neuf);
   let sa = 0, sb = 0;
-  for (const [d, v] of a) if (b.has(d)) { sa += v; sb += b.get(d); const e = b.get(d) / v - 1; if (Math.abs(e) > 0.25) avert.push(`Jour ${d} : ${pct(e)} par rapport à l'extraction précédente (${eur(v)} → ${eur(b.get(d))})`); }
+  for (const [d, v] of a) if (b.has(d)) { sa += v; sb += b.get(d); const e = b.get(d) / v - 1; if (Math.abs(e) > 0.25 && Math.abs(v) > 500) avert.push(`Jour ${d} : ${pct(e)} par rapport à l'extraction précédente (${eur(v)} → ${eur(b.get(d))})`); }
   if (sa > 0 && Math.abs(sb / sa - 1) > CFG.ecartTotalEchec && !force) {
     throw new Echec(`Les jours communs avec l'extraction précédente ont varié de ${pct(sb / sa - 1)} (${eur(sa)} → ${eur(sb)}) : vérifier l'extraction (--force pour passer outre)`);
   }
-  if (prec.au > neuf.au && !force) throw new Echec(`Régression : l'extraction actuelle va jusqu'au ${prec.au}, la nouvelle seulement jusqu'au ${neuf.au} (--force pour passer outre)`);
+  const auPrec = auExtension(prec), auNeuf = auExtension(neuf);
+  if (auPrec && auNeuf && auPrec > auNeuf && !force) throw new Echec(`Régression : l'extraction actuelle va jusqu'au ${auPrec}, la nouvelle seulement jusqu'au ${auNeuf} (--force pour passer outre)`);
 }
 
-/* ------------------------------------------------------------------ commandes */
-function resume(ext, app) {
-  const t = ext.lignes.reduce((a, [, , , , q, ca, nl]) => ({ ca: a.ca + ca, q: a.q + q, nl: a.nl + nl }), { ca: 0, q: 0, nl: 0 });
+/* ------------------------------------------------------------------ compte rendu */
+export function resume(ext) {
+  const t = ext.lignes.reduce((a, [, , , q, ca]) => ({ ca: a.ca + ca, q: a.q + q }), { ca: 0, q: 0 });
   const parMp = new Map();
-  for (const [, im, , , , ca] of ext.lignes) parMp.set(ext.mp[im], (parMp.get(ext.mp[im]) ?? 0) + ca);
+  for (const [, im, , , ca] of ext.lignes) parMp.set(ext.mp[im], (parMp.get(ext.mp[im]) ?? 0) + ca);
+  const parAn = new Map();
+  for (const [d, , , , ca] of ext.lignes) parAn.set(d.slice(0, 4), (parAn.get(d.slice(0, 4)) ?? 0) + ca);
   return [
-    `Fenêtre        : ${ext.du} → ${ext.au} (ODP jusqu'au ${app.dmaxOdp})`,
-    `CA HT          : ${eur(t.ca)} · ${t.q} unités · ${t.nl} lignes · ${ext.lignes.length} enregistrements`,
+    `Période        : ${ext.du} → ${ext.au}`,
+    `CA HT          : ${eur(t.ca)} · ${t.q} unités · ${ext.lignes.length} enregistrements (jour × marketplace × produit)`,
+    `Par année      : ${[...parAn].sort().map(([y, v]) => `${y} ${eur(v)}`).join(" · ")}`,
     `Par marketplace: ${[...parMp].sort((a, b) => b[1] - a[1]).map(([m, v]) => `${m} ${eur(v)}`).join(" · ")}`,
     `Boutiques      : ${Object.entries(ext.boutiques).map(([k, b]) => `${k} jusqu'au ${b.au}`).join(" · ")}`,
   ].join("\n");
 }
 
-// Lit la boutique du site par le relais. Toute erreur du relais (clé absente ou refusée, relais ou Shopify injoignable,
-// boutique inattendue) devient un échec DE CETTE BOUTIQUE : les marketplaces sont quand même mises à jour.
-async function relaisSite(plan, o) {
-  const { infoBoutique, lancerRequetes, ErreurRelais } = await import("./site_query.mjs");
-  try {
-    await infoBoutique();
-    const res = await lancerRequetes(plan.queries.map((q) => q.query));
-    const f = path.join(os.tmpdir(), `extension_site_${process.pid}.json`);
-    fs.writeFileSync(f, JSON.stringify(res), { mode: 0o600 });
-    return f;
-  } catch (e) {
-    if (e instanceof ErreurRelais) throw new Echec(`Site web (relais) : ${e.message}`, 2);
-    throw e;
-  }
+// Le tableau de bord est reconstruit exactement comme l'application le fera : un échec ici interdit l'écriture
+function verifierConstruction(ext, tables) {
+  const r = construire(ext, tables.ref, { horsShopify: tables.hors });
+  if (!r.appliquee) throw new Echec(`Le tableau de bord ne peut pas être construit avec cette extraction : ${(r.erreurs ?? []).join(" ; ")}`, 2);
+  return r;
 }
 
+/* ------------------------------------------------------------------ collecte d'une boutique */
+async function collecter(id, plan, o, tables, log) {
+  const ctx = { ref: tables.ref, aujourdhui: plan.today, concurrence: o.concurrence ?? 3, depuisPaires: `${AN_DEFAUT}-01-01`, log };
+  const eff = { du: plan.du, au: plan.au };
+  const surIndex = (index) => { ctx.jeux = async (w) => jeuxDepuisIndex(index, id, w, plan.today); ctx.decoupable = false; ctx.concurrence = 1; };
+  const requetes = () => plan.queries.map((q) => q.query);
+  if (o.results.length) {
+    surIndex(lireResultats({ fichiers: o.results }, id, requetes()));
+    return { source: "fichiers", sortie: await collecterBoutique(id, eff, ctx) };
+  }
+  const etat = await etatRelais(id);
+  if (etat.ok) {
+    ctx.jeux = (w) => jeuxRelais(id, w, plan.today, { cache: o.cache, concurrence: 1 });
+    ctx.decoupable = true;
+    return { source: "relais", sortie: await collecterBoutique(id, eff, ctx) };
+  }
+  if (id === "marketplaces" && etat.absent) {
+    // relais non configuré pour BESTHERM : résultats du connecteur Shopify de Claude relus dans la transcription
+    surIndex(lireResultats({ transcripts: o.transcript }, id, requetes()));
+    return { source: "transcription", sortie: await collecterBoutique(id, eff, ctx) };
+  }
+  throw new Echec(`${id} (relais) : ${etat.raison}`, 2);
+}
+
+/* ------------------------------------------------------------------ commandes */
 async function main() {
   const o = args(process.argv.slice(2));
   const cmd = o._[0];
   const today = o.today ?? parisToday();
-  const app = lireApp();
+  const tables = lireTables();
+  const { precedent } = tables;
   if (cmd === "check") {
     for (const id of Object.keys(BOUTIQUES)) {
-      const p = planifier(app, today, o, id);
-      console.log(`OK · ${id} · DMAX_ODP ${app.dmaxOdp} · extraction actuelle : ${app.precedent ? `${app.precedent.du} → ${app.precedent.au} (${id} jusqu'au ${app.precedent.boutiques?.[id]?.au ?? "—"})` : "vide"} · fenêtre du jour : ${p.vide ? "vide" : `${p.du} → ${p.au} (${p.queries.length} requêtes)`}`);
+      const p = planifier(precedent, today, o, id);
+      const prec = precedent && validerExtension(precedent).ok ? precedent.boutiques?.[id]?.au : null;
+      console.log(`OK · ${id} · extraction actuelle : ${prec ? `jusqu'au ${prec}` : "vide ou ancien format (historique complet à extraire)"} · fenêtre du jour : ${p.vide ? "vide" : `${p.du} → ${p.au} (${p.queries.length} requêtes)`}`);
     }
-    if (app.precedent) { const v = validerExtension(app.precedent, app.dmaxOdp); if (!v.ok) throw new Echec(`shopify_extension.json invalide : ${v.erreurs.join(" ; ")}`, 1); }
-    console.log(`OK · table des produits : ${Object.keys(app.meta.produits).length} produits · N-1 : ${app.n1 ? `${app.n1.du} → ${app.n1.au}` : "absent"}`);
+    for (const id of Object.keys(BOUTIQUES)) {
+      const e = await etatRelais(id).catch((x) => ({ ok: false, raison: x.message }));
+      if (e.ok) console.log(`OK · relais ${id} : joignable`);
+      else if (id === "marketplaces") console.log(`INFO · relais ${id} indisponible (${e.raison}) : repli sur les résultats du connecteur Shopify (README, étape 3)`);
+      else console.log(`AVERTISSEMENT · relais ${id} indisponible (${e.raison}) : l'actualisation de cette boutique échouera`);
+    }
+    if (precedent) {
+      const v = validerExtension(precedent);
+      if (!v.ok) console.log(`AVERTISSEMENT · shopify_extension.json inutilisable en l'état : ${v.erreurs.join(" ; ")}`);
+      else { const r = verifierConstruction(precedent, tables); console.log(`OK · le tableau de bord se construit : ${r.jours} jours en ${r.an}, CA HT ${eur(r.ca)}, jusqu'au ${r.dmax}`); for (const a of r.avertissements) console.log(`AVERTISSEMENT · ${a}`); }
+    }
+    console.log(`OK · table de référence : ${Object.keys(tables.ref.produits).length} produits, ${Object.keys(tables.ref.skus).length} références`);
     return 0;
   }
   if (cmd === "status") {
-    if (!app.precedent) { console.log(`Extraction vide (ODP jusqu'au ${app.dmaxOdp})`); return 0; }
-    console.log(resume(app.precedent, app) + `\nExtrait le ${app.precedent.extrait_a}`);
+    if (!precedent || !validerExtension(precedent).ok) { console.log("Extraction vide ou ancien format."); return 0; }
+    console.log(resume(precedent) + `\nExtrait le ${precedent.extrait_a}`);
     return 0;
   }
   if (cmd === "plan") {
     const ids = o.boutique ? [o.boutique] : Object.keys(BOUTIQUES);
-    console.log(JSON.stringify(ids.map((id) => planifier(app, today, o, id)), null, 2));
+    console.log(JSON.stringify(ids.map((id) => planifier(precedent, today, o, id)), null, 2));
     return 0;
   }
   if (cmd === "apply") {
     const ids = o.boutique ? [o.boutique] : Object.keys(BOUTIQUES);
-    const blocs = {}, avert = [], erreurs = [];
+    const blocs = {}, avert = [], erreurs = [], echecs = [];
+    const log = (m) => console.log(m);
     for (const id of ids) {
-      const plan = planifier(app, today, o, id);
+      const plan = planifier(precedent, today, o, id);
       if (plan.vide) { console.log(`Boutique ${id} : déjà à jour (fenêtre vide : ${plan.du} → ${plan.au}).`); continue; }
       try {
-        const res = id === "site"
-          ? collecter(plan, o, id, o.resultsSite.length ? o.resultsSite : [await relaisSite(plan, o)])
-          : collecter(plan, o, id);
-        const a = [];
-        const b = construireBoutique(app, plan, res, id, a);
-        blocs[id] = { plan, ...b };
-        for (const x of a) avert.push(`[${id}] ${x}`);
-        const t = b.lignes.reduce((s, l) => ({ ca: s.ca + l.ca, q: s.q + l.qte }), { ca: 0, q: 0 });
-        console.log(`Boutique ${id} : ${plan.du} → ${plan.au} · ${b.lignes.length} enregistrements · ${eur(t.ca)} · ${t.q} unités`);
+        const { source, sortie } = await collecter(id, plan, o, tables, log);
+        controlerSortie(sortie);
+        blocs[id] = sortie;
+        for (const x of avertissementsDe(sortie)) avert.push(`[${id}] ${x}`);
+        console.log(`Boutique ${id} (${source}) : ${plan.du} → ${plan.au} · ${sortie.lignes.length} enregistrements · ${eur(sortie.stats.ca)} · ${sortie.stats.qte} unités · ${sortie.stats.commandes} commandes`);
       } catch (e) {
         if (!(e instanceof Echec)) throw e;
         erreurs.push(`[${id}] ${e.message}`);
+        echecs.push(id);
         console.error(`ÉCHEC · ${id} : ${e.message}`);
         if (e.code === 1) throw e;
       }
     }
+    // Une boutique en échec n'est tolérée que si l'extraction précédente couvre déjà ses ventes (chiffres de la veille conservés) :
+    // sinon le tableau de bord serait publié sans elle.
+    const precedentValide = precedent && validerExtension(precedent).ok;
+    const sansCouverture = echecs.filter((id) => !precedentValide || !precedent.boutiques?.[id]);
+    if (sansCouverture.length) throw new Echec(`Boutique(s) en échec sans extraction antérieure (${sansCouverture.join(", ")}) : rien n'est écrit, un tableau de bord sans elle serait faux. ${erreurs.join(" | ")}`, 3);
     if (!Object.keys(blocs).length) {
       for (const a of avert) console.log(`AVERTISSEMENT · ${a}`);
       if (erreurs.length) throw new Echec(`Aucune boutique mise à jour (${erreurs.length} échec(s)).`, 3);
       console.log("Rien à écrire : tout est déjà à jour.");
       return 0;
     }
-    const neuf = fusionner(app, app.precedent, blocs, today, !!o.garderOdp);
-    const v = validerExtension(neuf, app.dmaxOdp);
+    const neuf = fusionner(precedent, blocs, today);
+    const v = validerExtension(neuf);
     if (!v.ok) throw new Echec(`Extraction produite invalide : ${v.erreurs.join(" ; ")}`, 1);
-    comparerAuPrecedent(neuf, app.precedent, o.force, avert);
-    console.log(resume(neuf, app));
+    comparerAuPrecedent(neuf, precedent, o.force, avert);
+    const r = verifierConstruction(neuf, tables);
+    for (const a of r.avertissements) avert.push(a);
+    console.log(resume(neuf));
+    console.log(`Tableau de bord : jusqu'au ${r.dmax}, CA HT ${eur(r.ca)} sur ${r.jours} jours, ${r.commandes} commandes.`);
     const n = ecrire(neuf, o.out ?? FICHIER, o.dry);
     for (const a of avert) console.log(`AVERTISSEMENT · ${a}`);
     console.log(o.dry ? `Essai à blanc : ${n ? "le fichier changerait" : "aucun changement"}, rien n'est écrit.` : `OK · ${path.relative(RACINE, o.out ?? FICHIER)} ${n ? "mis à jour" : "inchangé"}.`);
