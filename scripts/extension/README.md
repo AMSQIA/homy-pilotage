@@ -45,7 +45,7 @@ quelques ko par jour.
 | `DMAX` | Plus ancienne des deux couvertures (si une boutique n'est pas à jour, tout l'écran s'arrête au dernier jour couvert par les deux) |
 
 **Ce qui n'est pas prolongé** (reste calculé sur le fichier ODP, donc arrêté à `DMAX_ODP`) : publicité, concurrence,
-élasticité-prix et simulations, associations de produits (paniers), catalogue, transporteurs et entrepôts. Le bandeau
+élasticité-prix et simulations, associations de produits (paniers), catalogue, transporteurs et entrepôts. Le bloc
 « Données à jour » de l'onglet Vue d'ensemble le rappelait ; ce rappel a été retiré de l'écran le 17 octobre 2026 (« garde l'essentiel ») :
 il reste ici, et `SOUS_INFOS = true` dans `App.jsx` le fait revenir.
 

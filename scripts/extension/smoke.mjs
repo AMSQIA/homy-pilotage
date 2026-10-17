@@ -5,8 +5,9 @@
  *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier]
  *
  * Lance un petit serveur statique, ouvre l'application dans Chromium (Playwright) et vérifie :
- *   - le bandeau « Données à jour » (une seule ligne : date de dernière donnée, pastille de fraîcheur) en français, anglais,
- *     espagnol et chinois, sans variable de modèle restante, et sans les sous-informations retirées le 17 octobre 2026 ;
+ *   - le bloc « Données à jour » (titre, date de dernière donnée, pastille de fraîcheur, graphique du CA par jour ouvert par défaut
+ *     et repliable) en français, anglais, espagnol et chinois, sans variable de modèle restante, et sans les phrases explicatives
+ *     retirées le 17 octobre 2026 ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
  *     comparaison « vs 2025 » (courbes et pastilles) ;
  *   - les chiffres affichés = ceux que calcule extension.js sur les vrais fichiers du dépôt (CA cumulé, unités,
@@ -109,10 +110,10 @@ async function ouvrirDashboard(page, base, { lang = "fr", tab = "apercu", market
   await page.waitForTimeout(1600); // animations d'entrée (le compteur du CA monte jusqu'à sa valeur finale)
 }
 
-// Texte du bandeau « Données à jour » : une seule ligne, repérée par son attribut data-bandeau (le titre dépend de la langue)
+// Texte du bloc « Données à jour » : repéré par son attribut data-bandeau (le titre dépend de la langue)
 const texteBandeau = (page) => page.evaluate(() => { const el = document.querySelector("[data-bandeau]"); return el ? el.innerText : ""; }).then(norm);
 // Sous-informations retirées du tableau de bord : elles ne doivent pas réapparaître (interrupteur SOUS_INFOS de App.jsx)
-const RETIRE = ["Fichier ODP jusqu'au", "Bricoman ne se distingue", "Restent calculés sur le fichier ODP", "Panier moyen et meilleure vente ne suivent pas",
+const RETIRE = ["Actualisé chaque matin", "Tous les chiffres du tableau de bord", "Fichier ODP jusqu'au", "Bricoman ne se distingue", "Restent calculés sur le fichier ODP", "Panier moyen et meilleure vente ne suivent pas",
   "Zone en pointillés =", "% = part de l'objectif annuel du pays", "Pour actualiser : demande-le directement"];
 
 async function main() {
@@ -136,9 +137,15 @@ async function main() {
       verifier(contient(b, TITRES.fr), `FR · bandeau : titre « ${TITRES.fr} » absent (${b.slice(0, 100)})`);
       verifier(contient(b, `jusqu'au ${jour(dmax, "fr")}`), `FR · bandeau : « jusqu'au ${jour(dmax, "fr")} » absent (${b.slice(0, 100)})`);
       verifier(!/Non actualisé/.test(b), "FR · pastille « non actualisé » affichée alors que l'extraction est fraîche");
-      verifier(b.length < 60, `FR · bandeau : plus d'une ligne de texte (${b.length} caractères) — les sous-informations sont-elles revenues ?`);
-      verifier((await page.locator("[data-bandeau] button").count()) === 0, "FR · bandeau : bloc déroulant revenu");
+      // le bloc garde son graphique du CA par jour (ouvert par défaut) ; ses phrases explicatives sont retirées
+      verifier(contient(b, "CA HT par jour"), `FR · bloc « Données à jour » : titre du graphique absent (${b.slice(0, 160)})`);
+      verifier(contient(b, "Marketplaces") && contient(b, "Site web"), "FR · bloc « Données à jour » : légende (Marketplaces / Site web) absente");
+      const barres = await page.locator("[data-bandeau] .recharts-bar-rectangle").count();
+      verifier(barres >= 10, `FR · bloc « Données à jour » : ${barres} barre(s) de CA par jour (au moins 10 attendues)`);
+      const hauteurPanneau = () => page.evaluate(() => { const el = document.querySelector("[data-bandeau] .fold-panel"); return el ? Math.round(el.getBoundingClientRect().height) : -1; });
+      verifier((await hauteurPanneau()) > 100, `FR · bloc « Données à jour » : graphique replié par défaut (hauteur ${await hauteurPanneau()})`);
       verifier(!PLACEHOLDERS.test(b), "FR · bandeau : variable de modèle non remplacée");
+      verifier(!/ODP|Excel/i.test(b), "FR · bloc « Données à jour » : mention d'un fichier ODP / Excel");
       if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: path.join(shotsDir, "bureau-fr.png") }); }
       const t = norm(await page.evaluate(() => document.body.innerText));
       verifier(t.includes(`${fmtNum(E.cumul)} € HT`), `FR · CA cumulé « ${fmtNum(E.cumul)} € HT » absent`);
@@ -147,6 +154,10 @@ async function main() {
       verifier(t.includes(`+${E.yoy} %`) && t.includes(`${fmtNum(E.n1)} €`), `FR · comparaison 2025 (+${E.yoy} %, ${fmtNum(E.n1)} €) absente`);
       verifier(t.includes("sur la même période 2025"), "FR · base de comparaison « vs … sur la même période 2025 » absente");
       for (const x of RETIRE) verifier(!contient(t, x), `FR · sous-information retirée réapparue : « ${x} »`);
+      await page.locator("[data-bandeau] button").first().click(); await page.waitForTimeout(800);
+      verifier((await hauteurPanneau()) < 5, `FR · bloc « Données à jour » : un clic sur l'en-tête ne replie pas le graphique (hauteur ${await hauteurPanneau()})`);
+      await page.locator("[data-bandeau] button").first().click(); await page.waitForTimeout(800);
+      verifier((await hauteurPanneau()) > 100, `FR · bloc « Données à jour » : un second clic ne rouvre pas le graphique (hauteur ${await hauteurPanneau()})`);
       verifier(erreurs.length === 0, `erreurs JavaScript (bureau) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
@@ -242,7 +253,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bandeau « Données à jour » en une ligne jusqu'au ${dmax} (4 langues, pastille de fraîcheur), sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
+  console.log(`SMOKE_OK · bloc « Données à jour » avec son graphique journalier jusqu'au ${dmax} (4 langues, pastille de fraîcheur), sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
   return 0;
 }
 

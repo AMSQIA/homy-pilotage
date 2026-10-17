@@ -10,13 +10,14 @@ masque ces éléments ; le remettre à `true` les fait tous revenir) :
 - les sous-titres explicatifs sous les titres de section et de bloc (une cinquantaine) ;
 - les notes de méthode sous les graphiques et tableaux (panier moyen et meilleure vente hors filtre de date, zone en pointillés,
   couverture des marques / catégories / puissances, nombre de résultats, « donnée globale 2025+2026 »…) ;
-- le bandeau « Données à jour » déroulant (graphique des 30 derniers jours, règles de calcul, ce qui n'est pas prolongé) : il tient
-  désormais sur **une ligne** — titre et dernier jour de données — avec la pastille ambre « Non actualisé depuis N j » à partir de
-  2 jours et le message d'alerte si l'extraction a été refusée ;
-- la ligne des dates sous le bandeau et les dates de la base de comparaison (« vs 5 957 343 € sur la même période 2025 » remplace
+- dans le premier bloc « Données à jour », la phrase de source sous le titre et les cinq notes du bas (portée des chiffres, règles de
+  calcul, Bricoman, ce qui reste calculé sur l'ODP, dernière extraction) — le bloc lui-même est **conservé** : titre, dernier jour de
+  données, pastille ambre « Non actualisé depuis N j » à partir de 2 jours (message d'alerte si l'extraction a été refusée) et graphique du CA HT par
+  jour (marketplaces / site web) avec ses totaux, **ouvert par défaut** (un clic sur l'en-tête le replie, le choix est mémorisé) ;
+- la ligne des dates sous le bloc « Données à jour » et les dates de la base de comparaison (« vs 5 957 343 € sur la même période 2025 » remplace
   « vs 5 957 343 € · 2025-01-01 → 2025-10-16 »), la pastille verte « Source : Shopify » et le doublon « Tous montants HT » du pied de page.
 
-**Conservé tel quel** : la liste « Tous les produits » classée par CA (avec les badges Top / Flop, la recherche et le détail par produit),
+**Conservé tel quel** : le bloc « Données à jour » avec son graphique du CA par jour, la liste « Tous les produits » classée par CA (avec les badges Top / Flop, la recherche et le détail par produit),
 la répartition par pays avec « NN % obj. », toutes les pastilles et courbes « vs 2025 », les KPI, l'estimation de fin d'année, l'objectif
 du mois, les alertes de couleur (marketplaces en déclin, pays sous l'objectif).
 
@@ -25,7 +26,7 @@ pays, le budget consommé des campagnes et la colonne « vs 2025 » du reste du 
 mensuels (CA par mois des 6 premiers produits, suivi des prix) étaient coupés à partir de juin sans pouvoir défiler ; « Juin » et « Juil »
 s'affichaient tous deux « Jui ». Les barres décoratives de ces tableaux ne s'affichent plus que sur grand écran, tous les chiffres restent.
 
-**Tests** : `smoke.mjs` vérifie désormais le bandeau en une ligne (4 langues), l'absence des sous-informations retirées, la présence des
+**Tests** : `smoke.mjs` vérifie désormais le bloc « Données à jour » (titre, date, graphique journalier ouvert par défaut et repliable, 4 langues), l'absence des sous-informations retirées, la présence des
 trois vues conservées et le défilement du tableau mensuel sur mobile (`SMOKE_OK`). Les explications retirées de l'écran (règles de calcul,
 limites) restent décrites dans `scripts/extension/README.md`.
 
@@ -37,9 +38,9 @@ marketplaces, les marques, les produits, les pays, le plan et les comparaisons a
 
 **Maintenant** : les ventes des deux boutiques (marketplaces BESTHERM + site bestherm.fr) du 4 au 16 octobre sont **ajoutées à
 tous les tableaux** : toute l'application s'arrête au même jour (16 octobre), et la tâche planifiée du matin (6 h 58, heure de
-Paris) la prolonge chaque jour jusqu'à la veille. Un bandeau « **Données à jour · jusqu'au 16 oct.** » (haut de « Vue
-d'ensemble ») indique le dernier jour couvert (la version initiale détaillait aussi d'où viennent les chiffres et le CA HT de chaque
-jour ; ce détail a été retiré le soir même, voir la note du dessus). Le bloc « Flash Shopify » est supprimé (ses chiffres sont désormais dans les KPI).
+Paris) la prolonge chaque jour jusqu'à la veille. Un bloc « **Données à jour · jusqu'au 16 oct.** » (haut de « Vue
+d'ensemble ») indique le dernier jour couvert et montre le CA HT de chaque jour (la version initiale détaillait aussi d'où viennent
+les chiffres ; ces explications ont été retirées le soir même, voir la note du dessus). Le bloc « Flash Shopify » est supprimé (ses chiffres sont désormais dans les KPI).
 
 | Indicateur | Fichier ODP au 3 oct. | Avec Shopify au 16 oct. |
 |---|---|---|
@@ -91,7 +92,7 @@ les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fi
   des unités et des lignes de l'extraction ; totaux identiques entre KPI, courbes, marketplaces, marques, pays, semaines ;
   extraction invalide ou marketplace inconnue (rien n'est modifié) ; extraction déjà couverte par l'ODP ; chevauchement ;
   déterminisme ;
-- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bandeau en une ligne (4 langues, pastille de fraîcheur),
+- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son graphique journalier (4 langues, pastille de fraîcheur),
   sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres affichés = chiffres calculés, filtres marketplace,
   7 onglets sans erreur JavaScript, mobile (tableaux défilables).
 
