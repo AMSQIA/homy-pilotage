@@ -29,7 +29,7 @@ const logReel = console.log.bind(console);
 const lignesJournal = [];
 console.log = (...a) => { lignesJournal.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ")); };
 
-const CLES_ENV = ["MCP_SITE_KEY", "SHOPIFY_SITE_SHOP", "SHOPIFY_SITE_CLIENT_ID", "SHOPIFY_SITE_CLIENT_SECRET", "SHOPIFY_SITE_TOKEN", "SHOPIFY_SITE_API_VERSION", "MCP_SITE_RETRY_MS", "MCP_SITE_BUDGET_MS"];
+const CLES_ENV = ["MCP_SITE_KEY", "SHOPIFY_SITE_SHOP", "SHOPIFY_SITE_CLIENT_ID", "SHOPIFY_SITE_CLIENT_SECRET", "SHOPIFY_SITE_TOKEN", "SHOPIFY_SITE_API_VERSION", "SHOPIFY_MP_SHOP", "SHOPIFY_MP_CLIENT_ID", "SHOPIFY_MP_CLIENT_SECRET", "SHOPIFY_MP_TOKEN", "MCP_SITE_RETRY_MS", "MCP_SITE_BUDGET_MS"];
 const CLE = "cle-de-test-0123456789-abcdefghij-KLMNOP"; // 24 caractères au minimum
 const SECRET = "secret-appli-ZZ-4815162342";
 let nApp = 0;
@@ -748,13 +748,131 @@ await scenario("K", async () => {
   check("K · autre organisation : message guidé", enErreur(r) && /même organisation/.test(texteOutil(r)) && /shop_not_permitted/.test(texteOutil(r)) && /Développer des applications/.test(texteOutil(r)), texteOutil(r));
 });
 
+/* ================================================================== L · deux boutiques (site + marketplaces) */
+await scenario("L", async () => {
+  const SECRET_MP = "secret-mp-ZZ-9988776655";
+  const INFO_MP = { shop: { name: "BESTHERM", myshopifyDomain: "mp-test.myshopify.com", primaryDomain: { host: "mp.example" }, currencyCode: "EUR", ianaTimezone: "Europe/Paris" }, currentAppInstallation: { accessScopes: [{ handle: "read_reports" }] } };
+  const tableauMp = (columns, rows) => () => rep(200, { data: { shop: { myshopifyDomain: "mp-test.myshopify.com" }, shopifyqlQuery: { tableData: { columns, rows }, parseErrors: [] } } });
+  const Q_PAIEMENTS = "FROM payments SHOW gross_payments GROUP BY order_name, payment_gateway SINCE 2026-10-04 UNTIL 2026-10-04 ORDER BY order_name LIMIT 3000";
+  const COLS_P = [{ name: "order_name", dataType: "STRING" }, { name: "payment_gateway", dataType: "STRING" }, { name: "gross_payments", dataType: "MONEY" }];
+
+  // outils : l'argument « boutique » est proposé, avec les deux valeurs permises
+  env({ SHOPIFY_MP_SHOP: "mp-test" });
+  let r = await envoyer(rpc("tools/list"));
+  const outils = r.corps?.result?.tools || [];
+  check("L · tools/list : les deux outils proposent l'argument boutique (site, marketplaces)", outils.length === 2 && outils.every((o) => egal(o.inputSchema?.properties?.boutique?.enum, ["site", "marketplaces"])), JSON.stringify(outils.map((o) => o.inputSchema?.properties)));
+  check("L · tools/list : « boutique » n'est jamais obligatoire (compatibilité)", outils.every((o) => !(o.inputSchema?.required || []).includes("boutique")));
+
+  // sans argument : toujours la boutique du site
+  reset();
+  file = [jeton("jt-site"), repInfo];
+  r = await outil("get-shop-info", {});
+  let j = jsonOutil(r);
+  check("L · sans argument : la boutique du site est lue (site-test)", !enErreur(r) && j?.shopDomain === "site-test.myshopify.com" && j?.boutique === "site" && appels.every((a) => a.url.includes("site-test.myshopify.com")), texteOutil(r));
+
+  // boutique des marketplaces : mêmes identifiants d'application que le site, domaine propre
+  reset();
+  file = [jeton("jt-mp"), () => rep(200, { data: INFO_MP })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  j = jsonOutil(r);
+  check("L · marketplaces : lit mp-test.myshopify.com (jeton et GraphQL)", !enErreur(r) && j?.shopDomain === "mp-test.myshopify.com" && j?.name === "BESTHERM" && j?.boutique === "marketplaces" && j?.readOnly === true && appels.length === 2 && appels.every((a) => a.url.startsWith("https://mp-test.myshopify.com/")), `${texteOutil(r)} ${appels.map((a) => a.url)}`);
+  check("L · marketplaces : l'application du site est réutilisée pour le jeton (même identifiant client)", /client_id=app-test-\d+/.test(appels[0]?.corps || "") && (appels[0]?.corps || "").includes("client_secret="), appels[0]?.corps);
+  check("L · marketplaces : le jeton obtenu est celui envoyé à l'API (en-tête), pas celui du site", appels[1]?.entetes?.["x-shopify-access-token"] === "jt-mp", JSON.stringify(appels[1]?.entetes));
+  consomme("L · info marketplaces");
+
+  // le cache de jetons ne mélange pas les boutiques : un 2e appel à chaque boutique ne redemande pas de jeton
+  reset();
+  file = [tableauMp(COLS_P, [["#1", "amazon via Shopping Feed", "10"]]), repTableau(COLS, LIGNES)];
+  const rMp = await outil("run-analytics-query", { query: Q_PAIEMENTS, boutique: "marketplaces" });
+  const rSite = await outil("run-analytics-query", { query: Q_JOURS });
+  check("L · jetons en cache : chaque boutique réutilise son propre jeton (aucune nouvelle demande)", !enErreur(rMp) && !enErreur(rSite) && appels.length === 2 && appels[0].url.includes("mp-test") && appels[1].url.includes("site-test"), `${appels.map((a) => a.url)} ${texteOutil(rMp)} ${texteOutil(rSite)}`);
+  check("L · requête payments acceptée et rendue au format du connecteur Shopify", jsonOutil(rMp)?.rows?.[0]?.[1] === "amazon via Shopping Feed" && jsonOutil(rMp)?.shopDomain === "mp-test.myshopify.com", texteOutil(rMp));
+  consomme("L · requêtes");
+
+  // identifiants propres à la boutique des marketplaces (autre application)
+  env({ SHOPIFY_MP_SHOP: "mp-test.myshopify.com", SHOPIFY_MP_CLIENT_ID: "app-mp-propre-1", SHOPIFY_MP_CLIENT_SECRET: SECRET_MP });
+  reset();
+  file = [jeton("jt-mp2"), () => rep(200, { data: INFO_MP })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · identifiants propres : ce sont eux (et non ceux du site) qui servent au jeton", !enErreur(r) && (appels[0]?.corps || "").includes("client_id=app-mp-propre-1") && (appels[0]?.corps || "").includes(`client_secret=${SECRET_MP}`) && !(appels[0]?.corps || "").includes(SECRET), `${texteOutil(r)} ${appels[0]?.corps}`);
+
+  // jeton fixe de la boutique des marketplaces
+  env({ SHOPIFY_MP_SHOP: "mp-test", SHOPIFY_MP_TOKEN: "shpat_mp_fixe_test" });
+  reset();
+  file = [() => rep(200, { data: INFO_MP })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · jeton fixe (SHOPIFY_MP_TOKEN) : aucune demande de jeton, l'API reçoit le jeton fixe", !enErreur(r) && appels.length === 1 && appels[0].entetes["x-shopify-access-token"] === "shpat_mp_fixe_test", `${texteOutil(r)} ${appels.length}`);
+
+  // boutique non configurée : message précis, aucun appel sortant, la boutique du site reste utilisable
+  env();
+  reset();
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · marketplaces non configurée : message sur SHOPIFY_MP_SHOP, aucun appel Shopify", enErreur(r) && /marketplaces/.test(texteOutil(r)) && /SHOPIFY_MP_SHOP/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
+  file = [jeton("jt-s2"), repInfo];
+  r = await outil("get-shop-info", {});
+  check("L · … et la boutique du site reste utilisable", !enErreur(r) && jsonOutil(r)?.shopDomain === "site-test.myshopify.com", texteOutil(r));
+
+  // les deux boutiques ne peuvent pas être la même
+  env({ SHOPIFY_MP_SHOP: "site-test" });
+  reset();
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · même boutique saisie deux fois (SHOPIFY_MP_SHOP = SHOPIFY_SITE_SHOP) : refusé, avec les NOMS des variables", enErreur(r) && /SHOPIFY_MP_SHOP = SHOPIFY_SITE_SHOP/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
+
+  // argument invalide : refus net, sans appel
+  env({ SHOPIFY_MP_SHOP: "mp-test" });
+  for (const valeur of ["autre", "SITE", "", 42, ["site"], { x: 1 }, "mp-test.myshopify.com", "../site"]) {
+    reset();
+    r = await outil("run-analytics-query", { query: Q_JOURS, boutique: valeur });
+    check(`L · boutique invalide ${JSON.stringify(valeur)} : refusée, aucun appel`, enErreur(r) && /boutique/i.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
+  }
+
+  // jeu « payments » permis ; les autres jeux et les données personnelles restent refusés
+  reset();
+  for (const q of ["FROM customers SHOW customers SINCE 2026-10-01 UNTIL 2026-10-02", "FROM fulfillments SHOW orders_shipped SINCE 2026-10-01 UNTIL 2026-10-02",
+    "FROM payments SHOW gross_payments GROUP BY customer_email SINCE 2026-10-01 UNTIL 2026-10-02",
+    "FROM sales SHOW net_sales GROUP BY order_name SINCE 2026-10-01 UNTIL 2026-10-02 WITH CURRENT_COMPARE FROM customers SHOW customers"]) {
+    r = await outil("run-analytics-query", { query: q, boutique: "marketplaces" });
+    check(`L · refus conservé : ${q.slice(0, 60)}…`, enErreur(r) && appels.length === 0, texteOutil(r));
+  }
+
+  // sonde GET avec la clé : état des deux boutiques, sans aucune valeur secrète
+  env({ SHOPIFY_MP_SHOP: "mp-test" });
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : site configuré, marketplaces configurées avec l'application du site réutilisée", r.corps?.configured === true && r.corps?.marketplaces?.configured === true && r.corps?.marketplaces?.application_du_site_reutilisee === true && r.corps?.marketplaces?.boutique === "mp-test.myshopify.com" && egal(r.corps?.marketplaces?.manque, []), JSON.stringify(r.corps));
+  check("L · sonde : aucune valeur secrète (clé, secret, identifiants)", !JSON.stringify(r.corps).includes(CLE) && !JSON.stringify(r.corps).includes(SECRET));
+  env();
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : marketplaces non configurées → configured false et SHOPIFY_MP_SHOP à saisir ; le site reste vrai", r.corps?.configured === true && r.corps?.marketplaces?.configured === false && egal(r.corps?.marketplaces?.manque, ["SHOPIFY_MP_SHOP"]) && r.corps?.marketplaces?.boutique === null, JSON.stringify(r.corps?.marketplaces));
+  env({ SHOPIFY_MP_SHOP: "mp-test", SHOPIFY_MP_CLIENT_ID: "app-mp-propre-2", SHOPIFY_MP_CLIENT_SECRET: SECRET_MP });
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : identifiants propres → application du site non réutilisée ; secret jamais affiché", r.corps?.marketplaces?.configured === true && r.corps?.marketplaces?.application_du_site_reutilisee === false && !JSON.stringify(r.corps).includes(SECRET_MP), JSON.stringify(r.corps?.marketplaces));
+  env({ SHOPIFY_MP_SHOP: "site-test" });
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : même boutique pour les deux → marketplaces non configurées, variables signalées", r.corps?.marketplaces?.configured === false && (r.corps?.marketplaces?.identiques || []).includes("SHOPIFY_MP_SHOP = SHOPIFY_SITE_SHOP"), JSON.stringify(r.corps?.marketplaces));
+
+  // erreur d'installation sur la boutique des marketplaces : le conseil nomme les bonnes variables et l'application réutilisée
+  env({ SHOPIFY_MP_SHOP: "mp-test" });
+  reset();
+  file = [() => rep(400, { error: "application_cannot_be_found", error_description: "Could not find application" })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · application non installée sur BESTHERM : message guidé (installer, même organisation, variables SHOPIFY_MP_*)", enErreur(r) && /mp-test\.myshopify\.com/.test(texteOutil(r)) && /SHOPIFY_MP_CLIENT_ID/.test(texteOutil(r)) && /Installer l'application/.test(texteOutil(r)) && /réutilisée/.test(texteOutil(r)) && !texteOutil(r).includes(SECRET), texteOutil(r));
+  env({ SHOPIFY_MP_SHOP: "mp-test" });
+  reset();
+  file = [() => rep(400, { error: "shop_not_permitted", error_description: "Client credentials cannot be performed on this shop." })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · autre organisation (marketplaces) : on demande de créer l'application sur BESTHERM et de saisir SHOPIFY_MP_CLIENT_*", enErreur(r) && /même organisation/.test(texteOutil(r)) && /SHOPIFY_MP_CLIENT_ID et SHOPIFY_MP_CLIENT_SECRET/.test(texteOutil(r)) && /marketplaces/.test(texteOutil(r)), texteOutil(r));
+
+  // le journal nomme la boutique lue
+  check("L · journal : chaque appel d'outil nomme la boutique (site / marketplaces)", lignesJournal.some((l) => l.includes('"boutique":"marketplaces"')) && lignesJournal.some((l) => l.includes('"boutique":"site"')));
+});
+
 /* ================================================================== J · aucune fuite dans le journal */
 await scenario("J", async () => {
-  const jetonsVus = ["jt-1", "jt-2", "jt-A", "jt-B", "jt-C", "jt-ok", "jt-k", "jt-court", "jt-neuf", "shpat_fixe_test"];
+  const jetonsVus = ["jt-1", "jt-2", "jt-A", "jt-B", "jt-C", "jt-ok", "jt-k", "jt-court", "jt-neuf", "shpat_fixe_test", "jt-site", "jt-mp", "jt-mp2", "jt-s2", "shpat_mp_fixe_test"];
   const tout = lignesJournal.join("\n");
   check("J · le journal contient des lignes mcp-site (initialize, appels d'outils)", lignesJournal.some((l) => l.includes('"evt":"mcp-site"') && l.includes('"methode":"initialize"')) && lignesJournal.some((l) => l.includes('"outil":"run-analytics-query"') && l.includes('"ok":true')) && lignesJournal.some((l) => l.includes('"ok":false')), `${lignesJournal.length} lignes`);
   check("J · le journal est composé de lignes JSON valides", lignesJournal.every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));
-  check("J · aucun secret dans le journal (clé du connecteur, secret de l'application)", !tout.includes(CLE) && !tout.includes(SECRET));
+  check("J · aucun secret dans le journal (clé du connecteur, secrets des applications)", !tout.includes(CLE) && !tout.includes(SECRET) && !tout.includes("secret-mp-ZZ-9988776655"));
   check("J · aucun jeton d'accès dans le journal", jetonsVus.every((t) => !tout.includes(t)), jetonsVus.filter((t) => tout.includes(t)).join(","));
   check("J · les requêtes journalisées sont tronquées à 120 caractères", lignesJournal.every((l) => { try { const o = JSON.parse(l); return !o.requete || o.requete.length <= 120; } catch { return false; } }));
   check("J · le nom du client MCP est journalisé (aide au diagnostic)", lignesJournal.some((l) => l.includes('"client":"client-test"')));

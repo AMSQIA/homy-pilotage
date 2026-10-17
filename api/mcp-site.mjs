@@ -18,6 +18,13 @@
 //   (variante : SHOPIFY_SITE_TOKEN = jeton d'administration fixe, à la place du couple identifiant / secret)
 //   SHOPIFY_SITE_API_VERSION    facultatif (défaut 2026-04)
 //
+// Seconde boutique (marketplaces, « BESTHERM »), lue par le même relais avec l'argument « boutique: "marketplaces" » :
+//   SHOPIFY_MP_SHOP             boutique des marketplaces : « xxxx » ou « xxxx.myshopify.com » (46a3f9-2)
+//   SHOPIFY_MP_CLIENT_ID        identifiant de l'application installée sur CETTE boutique ; facultatif : sans lui (ni secret, ni
+//   SHOPIFY_MP_CLIENT_SECRET    jeton), on reprend ceux de la boutique du site (une même application installée sur les deux
+//                               boutiques d'une même organisation Shopify)
+//   SHOPIFY_MP_TOKEN            variante : jeton d'administration fixe de cette boutique
+//
 // Vérification après déploiement : ouvrir /api/mcp-site?key=<MCP_SITE_KEY> dans le navigateur →
 // {"ok":true,"configured":true,…}. Sans la clé, la page ne révèle rien. Si "configured" vaut false, la liste
 // "manque" donne les variables à saisir et "identiques" celles qui portent la même valeur (erreur de collage ; puis
@@ -30,12 +37,20 @@
 import crypto from "crypto";
 
 const VERSIONS_MCP = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVEUR = { name: "homy-shopify-site", title: "HOM'Y - boutique du site (lecture seule)", version: "1.0.0" };
+const SERVEUR = { name: "homy-shopify-site", title: "HOM'Y - boutiques Shopify (lecture seule)", version: "1.1.0" };
 const INSTRUCTIONS =
-  "Boutique Shopify du site web de HOM'Y, en lecture seule. Outils : get-shop-info (identité de la boutique) et " +
-  "run-analytics-query (requête ShopifyQL sur les jeux sales, sessions ou products ; agrégats uniquement, aucune " +
+  "Boutiques Shopify de HOM'Y, en lecture seule : le site web (boutique par défaut) et les marketplaces (boutique BESTHERM, " +
+  "argument boutique = \"marketplaces\"). Outils : get-shop-info (identité de la boutique) et " +
+  "run-analytics-query (requête ShopifyQL sur les jeux sales, sessions, products ou payments ; agrégats uniquement, aucune " +
   "donnée de client). Les jours sont ceux du fuseau horaire de la boutique. Ce connecteur est distinct du " +
-  "connecteur Shopify de Claude (boutique BESTHERM) : ne jamais appeler switch-shop sur celui-ci pour lire le site.";
+  "connecteur Shopify de Claude : ne jamais appeler switch-shop sur celui-ci pour lire une autre boutique.";
+
+// Boutiques lisibles : chacune a son préfixe de variables Vercel. Aucune autre boutique ne peut être demandée par un appel.
+const PROFILS = {
+  site: { prefixe: "SHOPIFY_SITE", libelle: "du site" },
+  marketplaces: { prefixe: "SHOPIFY_MP", libelle: "des marketplaces (BESTHERM)" },
+};
+const BOUTIQUES = Object.keys(PROFILS);
 
 const LONGUEUR_CLE_MIN = 24;
 const CLE_SURE_POUR_UNE_ADRESSE = /^[A-Za-z0-9._~-]+$/; // la clé est placée dans une adresse web : lettres, chiffres, . _ ~ - seulement
@@ -45,7 +60,9 @@ const FORME_ID_CLIENT = /^[0-9a-f]{32}$/i;
 const FORME_SECRET = /^(?:shpss_)?[0-9a-f]{32}$/i;
 const PREFIXE_SECRET = /^shpss_/i;
 const MAX_REQUETE = 1500;
-const JEUX_AUTORISES = new Set(["sales", "sessions", "products"]);
+// « payments » : transactions des commandes (passerelle de paiement), sans donnée de client ; elle sert à rattacher chaque
+// commande des marketplaces à sa marketplace (la passerelle porte le nom de la marketplace).
+const JEUX_AUTORISES = new Set(["sales", "sessions", "products", "payments"]);
 // Défense en profondeur : même sans le droit sur les clients, on refuse toute requête qui vise des données personnelles
 // (identifiants repérés comme mots entiers, « _ » étant un séparateur : customer_email, shipping_postal_code…).
 // Les pays et régions restent permis ; les textes entre apostrophes ne sont pas examinés (WHERE product_title = 'phone case').
@@ -59,27 +76,37 @@ const jetons = new Map(); // "domaine|clientId" -> { valeur, expire }
 
 class ErreurOutil extends Error {}
 
+const PARAM_BOUTIQUE = {
+  type: "string",
+  enum: BOUTIQUES,
+  description: "Boutique à lire : « site » (par défaut, bestherm.fr) ou « marketplaces » (boutique BESTHERM).",
+};
+
 const OUTILS = [
   {
     name: "get-shop-info",
-    title: "Identité de la boutique du site",
+    title: "Identité de la boutique",
     description:
       "Renvoie le nom, le domaine myshopify, le domaine principal, la devise, le fuseau horaire et les droits accordés à " +
-      "l'application de lecture. À appeler en premier pour vérifier qu'on lit bien la boutique du site (et non BESTHERM).",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "l'application de lecture. À appeler en premier pour vérifier qu'on lit la bonne boutique (site par défaut, " +
+      "ou boutique = \"marketplaces\" pour BESTHERM).",
+    inputSchema: { type: "object", properties: { boutique: PARAM_BOUTIQUE }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: "run-analytics-query",
     title: "Requête ShopifyQL (lecture seule)",
     description:
-      "Exécute une requête ShopifyQL sur la boutique du site et renvoie {query, columns, rows, shopDomain}, avec les " +
-      "valeurs en texte, au même format que l'outil du même nom du connecteur Shopify. Jeux autorisés : sales, sessions, " +
-      "products. Exemple : FROM sales SHOW orders, quantity_ordered, net_sales, taxes TIMESERIES day SINCE 2026-10-01 " +
-      "UNTIL 2026-10-14. Agrégats uniquement : les requêtes sur des données personnelles de clients sont refusées.",
+      "Exécute une requête ShopifyQL sur la boutique demandée (le site par défaut) et renvoie {query, columns, rows, shopDomain}, " +
+      "avec les valeurs en texte, au même format que l'outil du même nom du connecteur Shopify. Jeux autorisés : sales, " +
+      "sessions, products, payments. Exemple : FROM sales SHOW orders, quantity_ordered, net_sales, taxes TIMESERIES day " +
+      "SINCE 2026-10-01 UNTIL 2026-10-14. Agrégats uniquement : les requêtes sur des données personnelles de clients sont refusées.",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "Requête ShopifyQL, commençant par FROM sales, FROM sessions ou FROM products." } },
+      properties: {
+        query: { type: "string", description: "Requête ShopifyQL, commençant par FROM sales, FROM sessions, FROM products ou FROM payments." },
+        boutique: PARAM_BOUTIQUE,
+      },
       required: ["query"],
       additionalProperties: false,
     },
@@ -93,30 +120,38 @@ function versionApi() {
   return /^\d{4}-\d{2}$/.test(v) ? v : "2026-04";
 }
 
-function lireConfig() {
-  const brut = String(process.env.SHOPIFY_SITE_SHOP || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/?#].*$/, "");
+function domaineDe(valeur) {
+  const brut = String(valeur || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/?#].*$/, "");
   const complet = brut ? (brut.endsWith(".myshopify.com") ? brut : `${brut}.myshopify.com`) : "";
-  const domaine = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(complet) ? complet : "";
-  const cfg = {
-    cle: String(process.env.MCP_SITE_KEY || "").trim(),
-    domaine,
-    clientId: String(process.env.SHOPIFY_SITE_CLIENT_ID || "").trim(),
-    clientSecret: String(process.env.SHOPIFY_SITE_CLIENT_SECRET || "").trim(),
-    jeton: String(process.env.SHOPIFY_SITE_TOKEN || "").trim(),
-  };
+  return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(complet) ? complet : "";
+}
+
+// Configuration d'une boutique (« site » ou « marketplaces ») d'après les variables Vercel de son préfixe.
+function lireConfig(boutique = "site") {
+  const p = PROFILS[boutique];
+  const pre = p.prefixe;
+  const lire = (nom) => String(process.env[nom] || "").trim();
+  const domaine = domaineDe(process.env[`${pre}_SHOP`]);
+  let clientId = lire(`${pre}_CLIENT_ID`), clientSecret = lire(`${pre}_CLIENT_SECRET`);
+  const jeton = lire(`${pre}_TOKEN`);
+  // Boutique des marketplaces sans identifiants propres : on reprend ceux de l'application de la boutique du site (la même
+  // application peut être installée sur les deux boutiques d'une même organisation Shopify). Jamais de jeton hérité.
+  const herite = boutique !== "site" && !clientId && !clientSecret && !jeton;
+  if (herite) { clientId = lire("SHOPIFY_SITE_CLIENT_ID"); clientSecret = lire("SHOPIFY_SITE_CLIENT_SECRET"); }
+  const cfg = { boutique, libelle: p.libelle, prefixe: pre, cle: lire("MCP_SITE_KEY"), domaine, clientId, clientSecret, jeton, herite };
   const manque = [];
-  if (!domaine) manque.push("SHOPIFY_SITE_SHOP");
+  if (!domaine) manque.push(`${pre}_SHOP`);
   if (!cfg.jeton) {
-    if (!cfg.clientId) manque.push("SHOPIFY_SITE_CLIENT_ID");
-    if (!cfg.clientSecret) manque.push("SHOPIFY_SITE_CLIENT_SECRET");
+    if (!cfg.clientId) manque.push(`${pre}_CLIENT_ID`);
+    if (!cfg.clientSecret) manque.push(`${pre}_CLIENT_SECRET`);
   }
   cfg.manque = manque;
   cfg.pret = manque.length === 0;
   // Erreur de collage classique : la même valeur saisie dans deux variables (la clé du connecteur collée dans le nom de la
   // boutique, par exemple). Seuls les NOMS des variables concernées sont renvoyés, jamais leurs valeurs.
   const comparables = [
-    ["SHOPIFY_SITE_SHOP", domaine.replace(/\.myshopify\.com$/, "")], ["MCP_SITE_KEY", cfg.cle],
-    ["SHOPIFY_SITE_CLIENT_ID", cfg.clientId], ["SHOPIFY_SITE_CLIENT_SECRET", cfg.clientSecret], ["SHOPIFY_SITE_TOKEN", cfg.jeton],
+    [`${pre}_SHOP`, domaine.replace(/\.myshopify\.com$/, "")], ["MCP_SITE_KEY", cfg.cle],
+    [`${pre}_CLIENT_ID`, herite ? "" : cfg.clientId], [`${pre}_CLIENT_SECRET`, herite ? "" : cfg.clientSecret], [`${pre}_TOKEN`, cfg.jeton],
   ].map(([nom, valeur]) => [nom, valeur.toLowerCase()]);
   cfg.identiques = [];
   for (let i = 0; i < comparables.length; i++) {
@@ -124,6 +159,8 @@ function lireConfig() {
       if (comparables[i][1] && comparables[i][1] === comparables[j][1]) cfg.identiques.push(`${comparables[i][0]} = ${comparables[j][0]}`);
     }
   }
+  // Les deux boutiques ne peuvent pas être la même : c'est la faute de collage la plus probable pour la seconde.
+  if (boutique !== "site" && domaine && domaine === domaineDe(process.env.SHOPIFY_SITE_SHOP)) cfg.identiques.push(`${pre}_SHOP = SHOPIFY_SITE_SHOP`);
   // null = variable absente ; sinon : la valeur a-t-elle la forme habituelle ? (indice seulement)
   cfg.formes = {
     id_client: cfg.clientId ? FORME_ID_CLIENT.test(cfg.clientId) : null,
@@ -185,22 +222,25 @@ function delai(echeance, max) {
 
 // Que vérifier quand Shopify refuse la demande de jeton ? (aucune valeur secrète dans ces messages : seulement des noms)
 function conseilJeton(statut, code, cfg) {
+  const pre = cfg.prefixe;
   const formes = [];
-  if (cfg.formes?.id_client === false) formes.push("SHOPIFY_SITE_CLIENT_ID ne ressemble pas à un ID client (32 caractères : chiffres et lettres a à f)");
-  if (cfg.formes?.secret === false) formes.push("SHOPIFY_SITE_CLIENT_SECRET ne ressemble pas à un secret (« shpss_ » suivi de 32 caractères)");
-  else if (cfg.formes?.secret_prefixe_shpss === false) formes.push("SHOPIFY_SITE_CLIENT_SECRET ne commence pas par « shpss_ » (le secret d'une application récente commence ainsi : est-ce l'ID client qui a été collé ici ?)");
+  if (cfg.formes?.id_client === false) formes.push(`${pre}_CLIENT_ID ne ressemble pas à un ID client (32 caractères : chiffres et lettres a à f)`);
+  if (cfg.formes?.secret === false) formes.push(`${pre}_CLIENT_SECRET ne ressemble pas à un secret (« shpss_ » suivi de 32 caractères)`);
+  else if (cfg.formes?.secret_prefixe_shpss === false) formes.push(`${pre}_CLIENT_SECRET ne commence pas par « shpss_ » (le secret d'une application récente commence ainsi : est-ce l'ID client qui a été collé ici ?)`);
   const indices = formes.length ? ` Indice : ${formes.join(" ; ")}.` : "";
-  if (statut === 404) return `Boutique introuvable : ${cfg.domaine} n'existe pas. Vérifier SHOPIFY_SITE_SHOP (le nom qui précède .myshopify.com).${indices}`;
+  // Boutique des marketplaces qui réutilise l'application du site : le plus probable est qu'elle n'y soit pas encore installée
+  const heritee = cfg.herite ? " L'application de la boutique du site est réutilisée ici : elle doit aussi être installée sur cette boutique, de la même organisation Shopify." : "";
+  if (statut === 404) return `Boutique introuvable : ${cfg.domaine} n'existe pas. Vérifier ${pre}_SHOP (le nom qui précède .myshopify.com).${indices}`;
   if (code === "application_cannot_be_found") {
-    return `Shopify ne trouve pas l'application pour la boutique ${cfg.domaine}. Trois causes possibles : ID client faux (SHOPIFY_SITE_CLIENT_ID), ` +
+    return `Shopify ne trouve pas l'application pour la boutique ${cfg.domaine}. Trois causes possibles : ID client faux (${pre}_CLIENT_ID), ` +
       "application non installée sur cette boutique (Dev Dashboard > application > Accueil > Installer l'application), ou application et boutique " +
-      `dans deux organisations différentes.${indices}`;
+      `dans deux organisations différentes.${heritee}${indices}`;
   }
   if (code === "shop_not_permitted") {
     return "L'application et la boutique ne sont pas dans la même organisation Shopify : créer l'application depuis l'administration de la boutique " +
-      `du site (Paramètres > Applications > Développer des applications).${indices}`;
+      `${cfg.libelle} (Paramètres > Applications > Développer des applications), puis renseigner ses identifiants dans ${pre}_CLIENT_ID et ${pre}_CLIENT_SECRET.${indices}`;
   }
-  return "À vérifier : application installée sur la boutique du site, même organisation que la boutique, identifiant et secret recopiés sans espace." + indices;
+  return `À vérifier : application installée sur la boutique ${cfg.libelle}, même organisation que la boutique, identifiant et secret recopiés sans espace.${heritee}${indices}`;
 }
 
 async function recupererJeton(cfg, renouveler, echeance) {
@@ -295,8 +335,21 @@ function verifierRequete(q) {
 const GQL_INFO = `{ shop { name myshopifyDomain primaryDomain { host } currencyCode ianaTimezone } currentAppInstallation { accessScopes { handle } } }`;
 const GQL_QL = `query ShopifyQLSite($q: String!) { shop { myshopifyDomain } shopifyqlQuery(query: $q) { tableData { columns { name dataType displayName } rows } parseErrors } }`;
 
-async function appelerOutil(nom, args, cfg) {
-  if (!cfg.pret) throw new ErreurOutil(`Boutique du site non configurée : variables manquantes côté Vercel (${cfg.manque.join(", ")}). Les saisir, puis redéployer.`);
+// Boutique demandée par l'appel : « site » par défaut ; toute autre valeur est refusée (aucune boutique arbitraire).
+function boutiqueDemandee(args) {
+  const b = args?.boutique ?? "site";
+  if (typeof b !== "string" || !BOUTIQUES.includes(b)) {
+    throw new ErreurOutil(`Paramètre « boutique » invalide (valeurs permises : ${BOUTIQUES.join(", ")}).`);
+  }
+  return b;
+}
+
+// cfgs : { site, marketplaces } (voir lireConfig)
+async function appelerOutil(nom, args, cfgs) {
+  if (nom !== "get-shop-info" && nom !== "run-analytics-query") return null; // outil inconnu : erreur de protocole
+  const boutique = boutiqueDemandee(args);
+  const cfg = cfgs[boutique];
+  if (!cfg.pret) throw new ErreurOutil(`Boutique ${cfg.libelle} non configurée : variables manquantes côté Vercel (${cfg.manque.join(", ")}). Les saisir, puis redéployer.`);
   if (cfg.identiques.length) throw new ErreurOutil(`Variables Vercel mal remplies : la même valeur a été saisie deux fois (${cfg.identiques.join(" ; ")}). Corriger la variable concernée, puis redéployer.`);
   if (nom === "get-shop-info") {
     const d = await graphql(cfg, GQL_INFO, {});
@@ -311,6 +364,7 @@ async function appelerOutil(nom, args, cfg) {
       accessScopes: (d.currentAppInstallation?.accessScopes || []).map((x) => x.handle),
       apiVersion: versionApi(),
       readOnly: true,
+      boutique,
       connector: SERVEUR.name,
     });
   }
@@ -336,7 +390,7 @@ function versionNegociee(demandee) {
   return VERSIONS_MCP.includes(demandee) ? demandee : "2025-06-18";
 }
 
-async function traiter(msg, cfg) {
+async function traiter(msg, cfgs) {
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return ko(null, -32600, "Requête JSON-RPC invalide");
   const { id, method, params } = msg;
   const notification = id === undefined || id === null;
@@ -358,14 +412,16 @@ async function traiter(msg, cfg) {
     case "prompts/list": return ok(id, { prompts: [] });
     case "tools/call": {
       const nom = params?.name;
+      const b = params?.arguments?.boutique;
+      const boutique = typeof b === "string" && BOUTIQUES.includes(b) ? b : b === undefined ? "site" : "?";
       try {
-        const sortie = await appelerOutil(nom, params?.arguments || {}, cfg);
+        const sortie = await appelerOutil(nom, params?.arguments || {}, cfgs);
         if (sortie === null) return ko(id, -32602, `Outil inconnu : ${String(nom).slice(0, 60)}`);
-        journal({ outil: nom, ok: true, requete: nom === "run-analytics-query" ? String(params?.arguments?.query || "").slice(0, 120) : undefined });
+        journal({ outil: nom, boutique, ok: true, requete: nom === "run-analytics-query" ? String(params?.arguments?.query || "").slice(0, 120) : undefined });
         return ok(id, sortie);
       } catch (e) {
         const message = e instanceof ErreurOutil ? e.message : "Erreur interne du connecteur.";
-        journal({ outil: nom, ok: false, erreur: message.slice(0, 200), requete: nom === "run-analytics-query" ? String(params?.arguments?.query || "").slice(0, 120) : undefined });
+        journal({ outil: nom, boutique, ok: false, erreur: message.slice(0, 200), requete: nom === "run-analytics-query" ? String(params?.arguments?.query || "").slice(0, 120) : undefined });
         return ok(id, { content: [{ type: "text", text: message }], isError: true });
       }
     }
@@ -394,7 +450,8 @@ export const config = { maxDuration: 30 };
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  const cfg = lireConfig();
+  const cfgs = Object.fromEntries(BOUTIQUES.map((b) => [b, lireConfig(b)]));
+  const cfg = cfgs.site; // la clé du relais est la même pour les deux boutiques
   const ip = adresseIp(req);
 
   if (req.method === "GET") {
@@ -407,10 +464,16 @@ export default async function handler(req, res) {
     const cleLongue = cfg.cle.length >= LONGUEUR_CLE_MIN;
     const cleSure = CLE_SURE_POUR_UNE_ADRESSE.test(cfg.cle);
     if (cleAcceptee(req, cfg.cle)) {
+      const mp = cfgs.marketplaces;
       return res.status(200).json({
         ok: true, service: "mcp-site", configured: cfg.pret && cleLongue && cleSure && cfg.identiques.length === 0, boutique: cfg.domaine || null,
         manque: cfg.manque, identiques: cfg.identiques, formes_plausibles: cfg.formes, cle_assez_longue: cleLongue, cle_url_sure: cleSure,
         version_api: versionApi(), lecture_seule: true,
+        // seconde boutique (marketplaces) : mêmes indications, sans valeur secrète
+        marketplaces: {
+          configured: mp.pret && cleLongue && cleSure && mp.identiques.length === 0, boutique: mp.domaine || null,
+          manque: mp.manque, identiques: mp.identiques, application_du_site_reutilisee: mp.herite, formes_plausibles: mp.formes,
+        },
       });
     }
     // Sans la clé : seulement de quoi diagnostiquer une clé mal choisie (jamais sa valeur).
@@ -432,7 +495,7 @@ export default async function handler(req, res) {
 
   const reponses = [];
   for (const m of messages) {
-    const r = await traiter(m, cfg);
+    const r = await traiter(m, cfgs);
     if (r) reponses.push(r);
   }
   if (!reponses.length) return res.status(202).end(); // uniquement des notifications
