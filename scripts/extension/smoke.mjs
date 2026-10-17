@@ -9,7 +9,8 @@
  *     défaut et repliable) en français, anglais, espagnol et chinois, sans variable de modèle restante, et sans les phrases
  *     explicatives retirées le 17 octobre 2026 ;
  *   - le suivi quotidien du bloc : puces de période, histogramme du CA par jour avec la courbe « mêmes jours l'an dernier », jour touché,
- *     top 10 produits et part du CA par pays, filtre marketplace, 4 langues, mobile (390 et 360 px) ; les chiffres attendus sont recalculés
+ *     top 10 produits (variation en % et écart en € par produit, écart en € en tête) et part du CA par pays, filtre marketplace, 4 langues,
+ *     mobile (390 et 360 px : onglets « Top 10 | % par pays », un seul volet à la fois) ; les chiffres attendus sont recalculés
  *     dans le test, directement depuis les fichiers du dépôt, indépendamment du code de l'application ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
  *     comparaison « vs 2025 » (courbes et pastilles) ;
@@ -112,6 +113,8 @@ async function ouvrirDashboard(page, base, { lang = "fr", tab = "apercu", market
   await page.goto(`${base}?${q}`, { waitUntil: "load" });
   await page.waitForFunction(() => document.body && document.body.innerText.length > 400, null, { timeout: 30000 });
   await page.waitForTimeout(1600); // animations d'entrée (le compteur du CA monte jusqu'à sa valeur finale)
+  // machine chargée (tests lancés en parallèle) : le compteur peut finir en retard ; on attend deux relevés identiques du texte de la page, à 400 ms d'écart
+  await page.waitForFunction(() => { const t = document.body.innerText, avant = window.__homyTexte; window.__homyTexte = t; return avant === t; }, null, { polling: 400, timeout: 10000 }).catch(() => { /* texte gardé tel quel */ });
 }
 
 // Texte du bloc « Données Shopify à jour » : repéré par son attribut data-bandeau (le titre dépend de la langue)
@@ -127,6 +130,10 @@ const pctApp = (n) => `${n > 0 ? "+" : ""}${n.toFixed(1)} %`; // même format qu
 const kApp = (n) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k€` : `${Math.round(n)}€`);
 const trier = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]);
 const proche = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+// variation affichée (SuiviDelta) : « +7.6 % », dès 100 % sans décimale (« +128 % »), « ×12 » à partir de +500 %
+const varApp = (p) => (p >= 500 ? `×${Math.round(p / 100 + 1)}` : Math.abs(p) >= 99.95 ? `${p > 0 ? "+" : ""}${Math.round(p)} %` : pctApp(p));
+// écart en € posé à côté du % (suiviEcart) : « +19k€ » dès 10 000 €, « +4.2k€ » de 1 000 à 9 999 €, « +840€ » en dessous
+const ecartApp = (n) => { const r = Math.round(Math.abs(n)); if (r === 0) return "0€"; const sg = n > 0 ? "+" : "-", k = r / 1000; return r < 1000 ? `${sg}${r}€` : `${sg}${k >= 9.95 ? Math.round(k) : k.toFixed(1)}k€`; };
 
 // Shopify seul (schéma 2) : l'an dernier est lu dans le même historique. Mode « total » quand le site web existait déjà dans Shopify à ces
 // dates, « mp » (marketplaces seules) sinon, « aucun » quand l'historique ne remonte pas assez loin.
@@ -138,12 +145,13 @@ function suiviAttendu(E, n, jourSel, mpF) {
   for (const l of ext.lignes) { if (jourMin === null || l[0] < jourMin) jourMin = l[0]; if (l[1] === iSite && (siteDepuis === null || l[0] < siteDepuis)) siteDepuis = l[0]; }
   const garde = (mp) => !mpF || mp === mpF;
   const a = jourAn(du), b = jourAn(au);
-  const r = { mp: 0, site: 0, prod: {}, pays: {}, n1: { mp: 0, site: 0, all: null }, avecMp: mpF !== "Site Web", avecSite: !mpF || mpF === "Site Web" };
+  const r = { mp: 0, site: 0, prod: {}, prodMp: {}, prodN1: {}, prodN1Mp: {}, pays: {}, n1: { mp: 0, site: 0, all: null }, avecMp: mpF !== "Site Web", avecSite: !mpF || mpF === "Site Web", nbJours: jourSel ? 1 : n };
+  const cumul = (o, nom, c) => { o[nom] = (o[nom] || 0) + c; };
   for (const [d, im, ip, , c] of ext.lignes) {
     const mp = ext.mp[im]; if (!garde(mp)) continue;
-    const site = mp === "Site Web";
-    if (d >= du && d <= au) { if (site) r.site += c; else r.mp += c; const nom = ext.produits[ip][0]; r.prod[nom] = (r.prod[nom] || 0) + c; }
-    if (d >= a && d <= b) { if (site) r.n1.site += c; else r.n1.mp += c; }
+    const site = mp === "Site Web", nom = ext.produits[ip][0];
+    if (d >= du && d <= au) { if (site) r.site += c; else { r.mp += c; cumul(r.prodMp, nom, c); } cumul(r.prod, nom, c); }
+    if (d >= a && d <= b) { if (site) r.n1.site += c; else { r.n1.mp += c; cumul(r.prodN1Mp, nom, c); } cumul(r.prodN1, nom, c); }
   }
   for (const [d, ipa, im, c] of ext.pays_jour || []) if (d >= du && d <= au && garde(ext.mp[im])) { const pa = ext.pays[ipa] ?? null; r.pays[pa] = (r.pays[pa] || 0) + c; }
   const debutN1 = /^\d{4}-\d{2}-\d{2}$/.test(ext.du || "") ? ext.du : jourMin;
@@ -165,7 +173,7 @@ const lireSuivi = (page) => page.evaluate(() => {
     puces: [...document.querySelectorAll('[data-suivi="puces"] button')].map((b) => ({ n: Number(b.dataset.n), actif: b.getAttribute("aria-pressed") === "true" })),
     produits: [...document.querySelectorAll('[data-suivi-ligne="produit"]')].map((r) => ({ nom: r.dataset.nom, ca: Number(r.dataset.ca), texte: r.innerText })),
     pays: [...document.querySelectorAll('[data-suivi-ligne="pays"]')].map((r) => ({ nom: r.dataset.nom, part: Number(r.dataset.part), ca: Number(r.dataset.ca) })),
-    reset: Boolean(q('[data-suivi="reset"]')), vs: Boolean(q('[data-suivi="vs"]')), deltaMp: Boolean(q('[data-suivi="delta-mp"]')),
+    reset: Boolean(q('[data-suivi="reset"]')), vs: Boolean(q('[data-suivi="vs"]')), deltaMp: Boolean(q('[data-suivi="delta-mp"]')), ecart: Boolean(q('[data-suivi="ecart"]')),
     ligneN1: document.querySelectorAll('[data-suivi="graphique"] .recharts-line-curve').length,
     barres: document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle').length,
   };
@@ -183,6 +191,16 @@ async function cliquerJour(page, i) {
   await page.mouse.click(pos.x, pos.y); await page.waitForTimeout(500);
   return true;
 }
+// volets visibles (onglets mobile, top 10, pays, note « Δ marketplaces ») et onglet actif
+const voletsVisibles = (page) => page.evaluate(() => {
+  const vis = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const actif = document.querySelector('[data-suivi="onglets"] [aria-selected="true"]');
+  return {
+    onglets: vis(document.querySelector('[data-suivi="onglets"]')), top: vis(document.querySelector('[data-suivi="top10"]')), pays: vis(document.querySelector('[data-suivi="pays"]')),
+    deltaMp: [...document.querySelectorAll('[data-suivi="delta-mp"]')].some(vis), actif: actif ? actif.dataset.onglet : null,
+  };
+});
+const decrireVolets = (e) => `onglets ${e.onglets ? "visibles" : "masqués"}, top 10 ${e.top ? "visible" : "masqué"}, pays ${e.pays ? "visibles" : "masqués"}, note Δ marketplaces ${e.deltaMp ? "visible" : "masquée"}, onglet actif « ${e.actif} »`;
 // vérifie ce qui est affiché (en tête, légende, courbe de l'an dernier, top 10, pays) contre le calcul indépendant
 function comparerSuivi(s, A, etiquette, jour = false) {
   const ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
@@ -192,15 +210,29 @@ function comparerSuivi(s, A, etiquette, jour = false) {
   if (A.avecSite) ok(contient(s.legende, fm(A.site)), `légende : ${fm(A.site)} attendu (${s.legende})`);
   ok(s.ligneN1 === (A.mode === "aucun" ? 0 : 1), `courbe de l'an dernier : ${s.ligneN1} tracé(s), ${A.mode === "aucun" ? 0 : 1} attendu (mode ${A.mode})`);
   ok(s.vs === (A.mode === "total"), `mention « vs <dates de l'an dernier> » ${s.vs ? "affichée" : "absente"} en mode ${A.mode}`);
-  if (A.mode === "total" && A.n1.all > 0) ok(contient(s.kpi, pctApp((A.total / A.n1.all - 1) * 100)), `variation du total ${pctApp((A.total / A.n1.all - 1) * 100)} absente (${s.kpi})`);
-  if (A.avecMp && A.avecSite && A.n1.mp > 0) ok(contient(s.legende, pctApp((A.mp / A.n1.mp - 1) * 100)), `variation des marketplaces ${pctApp((A.mp / A.n1.mp - 1) * 100)} absente (${s.legende})`);
-  if (A.avecMp && A.avecSite && A.mode === "total" && A.n1.site > 0) ok(contient(s.legende, pctApp((A.site / A.n1.site - 1) * 100)), `variation du site ${pctApp((A.site / A.n1.site - 1) * 100)} absente (${s.legende})`);
+  const enTete = A.mode === "total" && A.n1.all > 0;
+  if (enTete) {
+    const v = varApp((A.total / A.n1.all - 1) * 100), e = ecartApp(A.total - A.n1.all);
+    ok(contient(s.kpi, v), `variation du total ${v} absente (${s.kpi})`);
+    ok(contient(s.kpi, e), `écart du total ${e} absent (${s.kpi})`);
+  }
+  ok(s.ecart === enTete, `écart en € en tête ${s.ecart ? "affiché" : "absent"} (mode ${A.mode}, base ${A.n1.all})`);
+  if (A.avecMp && A.avecSite && A.n1.mp > 0) ok(contient(s.legende, varApp((A.mp / A.n1.mp - 1) * 100)), `variation des marketplaces ${varApp((A.mp / A.n1.mp - 1) * 100)} absente (${s.legende})`);
+  if (A.avecMp && A.avecSite && A.mode === "total" && A.n1.site > 0) ok(contient(s.legende, varApp((A.site / A.n1.site - 1) * 100)), `variation du site ${varApp((A.site / A.n1.site - 1) * 100)} absente (${s.legende})`);
   // top 10 : mêmes produits, mêmes montants, ordre décroissant
   const top = trier(A.prod).slice(0, 10);
   ok(s.produits.length === top.length, `top 10 : ${s.produits.length} ligne(s), ${top.length} attendue(s)`);
+  // variation par produit, en % et en € (même base : marketplaces seules quand seules elles sont comparables) : sur 7 jours ou plus et quand l'an dernier existe
+  const montrer = A.mode !== "aucun" && A.nbJours >= 7, mpSeules = A.mode === "mp";
   top.forEach(([nom, ca], i) => {
     const l = s.produits[i];
     ok(l && l.nom === nom && proche(l.ca, ca, 1.5), `top 10, rang ${i + 1} : « ${l && l.nom} » ${l && l.ca} € ≠ « ${nom} » ${Math.round(ca)} €`);
+    if (!l) return;
+    const cur = (mpSeules ? A.prodMp[nom] : A.prod[nom]) || 0, ref = (mpSeules ? A.prodN1Mp[nom] : A.prodN1[nom]) || 0, txt = norm(l.texte);
+    if (!montrer || (cur === 0 && ref === 0)) { ok(!/[▲▼▬]|nouveau|[+-]\d[\d.]*k?€/i.test(txt), `top 10, « ${nom} » : variation affichée alors qu'il n'y a rien à comparer (${txt})`); return; }
+    ok(contient(txt, ecartApp(cur - ref)), `top 10, « ${nom} » : écart ${ecartApp(cur - ref)} absent (${txt})`);
+    if (ref > 0) ok(contient(txt, varApp((cur / ref - 1) * 100)), `top 10, « ${nom} » : variation ${varApp((cur / ref - 1) * 100)} absente (${txt})`);
+    else ok(contient(txt, "nouveau"), `top 10, « ${nom} » : pastille « nouveau » absente (${txt})`);
   });
   // pays : la part de chaque pays = son CA ÷ le CA de la fenêtre (6 pays puis « Autres »)
   const ts = trier(A.pays), sommePays = ts.reduce((a, [, v]) => a + v, 0);
@@ -224,6 +256,11 @@ async function verifierSuivi(browser, base, E) {
     for (const m of ["Top 10 produits", "Part du CA par pays", "Touchez un jour"]) verifier(contient(s.bloc, m), `suivi : « ${m} » absent`);
     verifier(!/\{(n|an|plage|date)\}/.test(s.bloc), "suivi : variable de modèle non remplacée");
     comparerSuivi(s, suiviAttendu(E, n), `suivi ${n} j`);
+    {
+      const A0 = suiviAttendu(E, n), v0 = await voletsVisibles(page);
+      verifier(!v0.onglets && v0.top && v0.pays, `suivi bureau : onglets masqués et deux volets visibles attendus (${decrireVolets(v0)})`);
+      verifier(v0.deltaMp === (A0.mode === "mp" && A0.nbJours >= 7), `suivi bureau : note « Δ marketplaces » ${v0.deltaMp ? "affichée" : "absente"} en mode ${A0.mode}`);
+    }
     const autre = s.puces.find((p) => p.n !== n);
     if (autre) {
       await page.locator(`[data-suivi="puces"] button[data-n="${autre.n}"]`).click(); await page.waitForTimeout(500);
@@ -267,22 +304,54 @@ async function verifierSuivi(browser, base, E) {
     verifier(erreurs.length === 0, `erreurs JavaScript (suivi ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
-  // d) mobile : rien ne dépasse de la carte (ni les montants, ni les variations, ni les noms)
+  // d) mobile : onglets « Top 10 | % par pays » (un seul volet à la fois, le choix est mémorisé) ; rien ne dépasse de la carte
+  //    (ni les montants, ni les variations en % et en €, ni les noms)
+  const depassements = (page) => page.evaluate(() => {
+    const b = document.querySelector('[data-suivi="bloc"]'); if (!b) return ["bloc absent"];
+    const r = b.getBoundingClientRect(), mauvais = [];
+    for (const el of b.querySelectorAll("*")) {
+      if (el.closest(".recharts-wrapper")) continue;
+      const e = el.getBoundingClientRect();
+      if (e.width > 0 && (e.right > r.right + 1.5 || e.left < r.left - 1.5)) mauvais.push(`${el.tagName.toLowerCase()} « ${(el.innerText || "").slice(0, 24)} » dépasse de ${Math.round(Math.max(e.right - r.right, r.left - e.left))}px`);
+    }
+    return mauvais.slice(0, 4);
+  });
   for (const largeur of [390, 360]) {
     const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 844 });
     await ouvrirDashboard(page, base);
-    const trop = await page.evaluate(() => {
-      const b = document.querySelector('[data-suivi="bloc"]'); if (!b) return ["bloc absent"];
-      const r = b.getBoundingClientRect(), mauvais = [];
-      for (const el of b.querySelectorAll("*")) {
-        if (el.closest(".recharts-wrapper")) continue;
-        const e = el.getBoundingClientRect();
-        if (e.width > 0 && (e.right > r.right + 1.5 || e.left < r.left - 1.5)) mauvais.push(`${el.tagName.toLowerCase()} « ${(el.innerText || "").slice(0, 24)} » dépasse de ${Math.round(Math.max(e.right - r.right, r.left - e.left))}px`);
-      }
-      return mauvais.slice(0, 4);
-    });
-    verifier(trop.length === 0, `suivi mobile ${largeur}px : contenu qui dépasse (${trop.join(" ; ")})`);
+    const s0 = await lireSuivi(page);
+    const n = (s0.puces.find((p) => p.actif) || { n: 7 }).n, A = suiviAttendu(E, n), et = `suivi mobile ${largeur}px`;
+    let e = await voletsVisibles(page);
+    verifier(e.onglets && e.top && !e.pays && e.actif === "top", `${et} : au départ, onglets visibles et top 10 seul attendus (${decrireVolets(e)})`);
+    verifier(e.deltaMp === (A.mode === "mp" && A.nbJours >= 7), `${et} : note « Δ marketplaces » ${e.deltaMp ? "affichée" : "absente"} en mode ${A.mode}`);
+    verifier(s0.produits.length === Math.min(10, Object.keys(A.prod).length), `${et} : ${s0.produits.length} ligne(s) de top 10 (10 attendues, les 10 produits restent tous affichés)`);
+    let trop = await depassements(page);
+    verifier(trop.length === 0, `${et}, top 10 : contenu qui dépasse (${trop.join(" ; ")})`);
+    await page.locator('[data-suivi="onglets"] [data-onglet="pays"]').click(); await page.waitForTimeout(400);
+    e = await voletsVisibles(page);
+    verifier(e.onglets && !e.top && e.pays && e.actif === "pays" && !e.deltaMp, `${et} : après « % par pays », les pays seuls sont attendus (${decrireVolets(e)})`);
+    const sp = await lireSuivi(page), ts = trier(A.pays), somme = ts.reduce((a, [, v]) => a + v, 0);
+    verifier(sp.pays.length === Math.min(ts.length, 7) && ts.slice(0, 6).every(([nom, ca], k) => sp.pays[k] && sp.pays[k].nom === nom && proche(sp.pays[k].part, (ca / somme) * 100, 0.02)), `${et} : parts de pays affichées ≠ calcul indépendant`);
+    trop = await depassements(page);
+    verifier(trop.length === 0, `${et}, pays : contenu qui dépasse (${trop.join(" ; ")})`);
+    await ouvrirDashboard(page, base); // le volet choisi est mémorisé dans le navigateur
+    e = await voletsVisibles(page);
+    verifier(e.actif === "pays" && !e.top && e.pays, `${et} : le volet « pays » n'est pas retrouvé après rechargement (${decrireVolets(e)})`);
+    await page.locator('[data-suivi="onglets"] [data-onglet="top"]').click(); await page.waitForTimeout(400);
+    e = await voletsVisibles(page);
+    verifier(e.actif === "top" && e.top && !e.pays, `${et} : retour sur « Top 10 » (${decrireVolets(e)})`);
     verifier(erreurs.length === 0, `erreurs JavaScript (suivi mobile ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // libellés des onglets dans les autres langues, sans débordement sur le plus petit écran
+  for (const [lang, onglets] of [["en", ["Top 10", "% by country"]], ["es", ["Top 10", "% por país"]], ["zh", ["前 10 名", "国家占比"]]]) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 360, hauteur: 844 });
+    await ouvrirDashboard(page, base, { lang });
+    const txt = await page.evaluate(() => { const el = document.querySelector('[data-suivi="onglets"]'); return el ? el.innerText : ""; });
+    for (const m of onglets) verifier(contient(txt, m), `suivi mobile ${lang.toUpperCase()} : onglet « ${m} » absent (${norm(txt)})`);
+    const trop = await depassements(page);
+    verifier(trop.length === 0, `suivi mobile 360px ${lang.toUpperCase()} : contenu qui dépasse (${trop.join(" ; ")})`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (suivi mobile ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
 }
@@ -451,7 +520,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché, même période l'an dernier, top 10 produits, part du CA par pays, 4 langues, mobile) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
+  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché, même période l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, 4 langues, mobile avec onglets) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
   return 0;
 }
 

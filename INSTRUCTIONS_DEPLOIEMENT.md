@@ -8,13 +8,21 @@ la performance de l'année précédente sur le même exercice pour une donnée c
 **Ce que montre le bloc** (haut de « Vue d'ensemble », ouvert par défaut ; un clic sur l'en-tête le replie) :
 
 - **Période** : puces `7 j · 14 j · 30 j · 90 j` ; le choix est mémorisé sur l'appareil.
-- **Chiffre en tête** : CA HT de la période et variation par rapport aux mêmes dates de l'an dernier, dates comparées indiquées (« vs 4–16 oct. 2025 »).
+- **Chiffre en tête** : CA HT de la période, variation par rapport aux mêmes dates de l'an dernier **en % et en €** (« ▼ -19.3 % -140k€ »), dates comparées indiquées (« vs 4–16 oct. 2025 »).
 - **Histogramme** du CA HT par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier aux mêmes dates. **Toucher une barre** sélectionne
   ce jour : le chiffre en tête, le top 10 et les pays passent à ce seul jour ; « Période entière » revient à la période.
-- **Top 10 produits** de la période ou du jour : CA HT, part du CA, unités, variation par rapport à l'an dernier (« nouveau » pour un produit absent l'an
-  dernier ; pas de variation sur un seul jour).
+- **Top 10 produits** de la période ou du jour : CA HT, part du CA, unités, variation par rapport à l'an dernier **en % et, dessous, en €** (« nouveau » pour un
+  produit absent l'an dernier ; pas de variation sur un seul jour).
 - **Part du CA par pays** sur les mêmes dates : les 6 premiers pays puis « Autres », avec l'écart de part en points par rapport à l'an dernier quand il existe.
 - Le bloc suit le filtre marketplace global (Site Web, Leroy Merlin…) : barres, top 10 et pays se limitent à cette marketplace.
+- **Sur mobile** (écran de moins de 1 024 px), le top 10 et la part par pays s'affichent **un à la fois**, sous des onglets « Top 10 | % par pays » (le choix est
+  mémorisé sur l'appareil) ; les lignes du top 10 sont plus serrées. Sur un écran de 390 px le bloc passe d'environ 1 220 px de haut à 905 px (top 10) ou 730 px (pays).
+  Les dix produits restent tous affichés ; sur ordinateur, les deux volets restent côte à côte, sans onglets.
+
+**Écart en €** : le % seul exagère les petites bases (+211 % peut ne valoir que +19 k€), donc chaque produit du top 10 et le chiffre en tête affichent aussi l'écart
+en euros avec les mêmes dates de l'an dernier : « +19k€ » dès 10 000 €, « +4.2k€ » de 1 000 à 9 999 €, « +840€ » en dessous. Il se calcule sur la même base que le % (les
+marketplaces seules quand seules elles sont comparables, voir plus bas) ; pour un produit « nouveau », c'est son CA. Dès 100 %, la variation s'affiche sans décimale
+(« +128 % »), et « ×12 » à partir de +500 %. Rien n'est affiché sur un seul jour ni quand l'an dernier n'est pas comparable.
 
 **Interprétation de « % par pays »** : part du CA HT de chaque pays sur la période affichée (le « % obj. » du bloc Pays de l'onglet Marketplaces, qui rapporte le
 CA de l'année à l'objectif annuel du pays, n'a pas de sens sur quelques jours ; il reste inchangé dans son onglet).
@@ -24,8 +32,8 @@ CA de l'année à l'objectif annuel du pays, n'a pas de sens sur quelques jours 
 **Données** : `suiviDonnees()` dans `App.jsx` lit `shopify_extension.json` (schéma 2 : lignes jour × marketplace × produit, et `pays_jour` pour les pays) : les mêmes jours de l'an dernier sont lus dans le même historique, au même format, avec le même calcul.
 
 **Tests** : `smoke.mjs` recalcule dans le test, directement depuis les fichiers du dépôt et sans passer par le code de l'application, le CA de la période et de
-chaque jour, la variation par rapport à l'an dernier, le top 10 (produits, montants, ordre), la part de chaque pays, avec les puces de période, le jour touché et
-son retour, les filtres Leroy Merlin et Site Web, les quatre langues et l'absence de débordement sur mobile (390 et 360 px).
+chaque jour, la variation par rapport à l'an dernier, le top 10 (produits, montants, ordre, variation en % et écart en € de chaque produit), l'écart en € en tête, la part de chaque pays, avec les puces de période, le jour touché et
+son retour, les filtres Leroy Merlin et Site Web, les quatre langues et, sur mobile (390 et 360 px), les onglets « Top 10 | % par pays » (un seul volet à la fois, choix mémorisé, libellés dans les quatre langues) et l'absence de débordement.
 
 ## Mise à jour du 17 octobre 2026 (soir) — tableau de bord allégé : « garde l'essentiel »
 
@@ -119,7 +127,7 @@ les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fi
   des unités et des lignes de l'extraction ; totaux identiques entre KPI, courbes, marketplaces, marques, pays, semaines ;
   extraction invalide ou marketplace inconnue (rien n'est modifié) ; extraction déjà couverte par l'ODP ; chevauchement ;
   déterminisme ;
-- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son suivi quotidien (période, jour touché, mêmes jours l'an dernier, top 10 produits, part du CA par pays ; 4 langues, pastille de fraîcheur),
+- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son suivi quotidien (période, jour touché, mêmes jours l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, onglets mobile ; 4 langues, pastille de fraîcheur),
   sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres affichés = chiffres calculés, filtres marketplace,
   7 onglets sans erreur JavaScript, mobile (tableaux défilables).
 
