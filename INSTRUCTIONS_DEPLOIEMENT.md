@@ -10,7 +10,9 @@ la performance de l'année précédente sur le même exercice pour une donnée c
 - **Période** : puces `7 j · 13 j` (les jours de ventes Shopify disponibles après la fin du fichier ODP ; avec un historique plus long : 7 / 14 / 30 / 90 j) ; le choix est mémorisé sur l'appareil.
 - **Chiffre en tête** : CA HT de la période, variation par rapport aux mêmes dates de l'an dernier **en % et en €** (« ▼ -19.3 % -140k€ »), dates comparées indiquées (« vs 4–16 oct. 2025 »).
 - **Histogramme** du CA HT par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier aux mêmes dates. **Toucher une barre** sélectionne
-  ce jour : le chiffre en tête, le top 10 et les pays passent à ce seul jour ; « Période entière » revient à la période.
+  ce jour : le chiffre en tête, le top 10 et les pays passent à ce seul jour ; « Période entière » revient à la période. Pour ce jour, un choix
+  « Même date | Même jour de semaine » indique à quoi le comparer l'an dernier : à la même date (par défaut, comme tous les « vs 2025 » de l'écran) ou au même
+  jour de la semaine (364 jours avant : un jeudi au jeudi correspondant). L'étiquette « vs … » précise alors le jour de la semaine comparé ; le choix est mémorisé sur l'appareil.
 - **Top 10 produits** de la période ou du jour : CA HT, part du CA, unités, variation par rapport à l'an dernier **en % et, dessous, en €** (« nouveau » pour un
   produit absent l'an dernier ; pas de variation sur un seul jour).
 - **Part du CA par pays** sur les mêmes dates : les 6 premiers pays puis « Autres », avec l'écart de part en points par rapport à l'an dernier quand il existe.
@@ -127,7 +129,7 @@ les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fi
   des unités et des lignes de l'extraction ; totaux identiques entre KPI, courbes, marketplaces, marques, pays, semaines ;
   extraction invalide ou marketplace inconnue (rien n'est modifié) ; extraction déjà couverte par l'ODP ; chevauchement ;
   déterminisme ;
-- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son suivi quotidien (période, jour touché, mêmes jours l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, onglets mobile ; 4 langues, pastille de fraîcheur),
+- `npx vite build && node scripts/extension/smoke.mjs` → `SMOKE_OK` : bloc « Données à jour » avec son suivi quotidien (période, jour touché, mêmes jours l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, onglets mobile, choix même date / même jour de la semaine ; 4 langues, pastille de fraîcheur),
   sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres affichés = chiffres calculés, filtres marketplace,
   7 onglets sans erreur JavaScript, mobile (tableaux défilables).
 

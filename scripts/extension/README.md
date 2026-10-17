@@ -55,6 +55,10 @@ Le bloc « Données à jour » est un suivi du quotidien : puces de période (`7
 l'an dernier, histogramme par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier, top 10 des produits et part du CA par pays — sur la
 période ou, en touchant une barre, sur ce seul jour. Il suit le filtre marketplace global. `suiviDonnees()` dans `App.jsx` lit les lignes Shopify qui prolongent le fichier ODP (après `DMAX_ODP`, schéma 1 : jour × marketplace × produit × pays) et `data/n1_2025.json` pour les mêmes jours de 2025 (par marketplace et par produit, sans détail par pays).
 
+**Jour touché : même date ou même jour de la semaine** : par défaut un jour touché est comparé à la même date l'an dernier (`suiviAnAvant`), comme tout le reste du bloc ;
+le choix « Même jour de semaine » le compare au jour 364 jours avant (`suiviCalc(…, semaine = true)`), de même jour de la semaine. Mémorisé dans `localStorage`
+(clé `homy_suivi_jour_semaine`) ; l'étiquette « vs … » d'un jour touché indique le jour de la semaine comparé.
+
 **Écart en € et mobile** : à côté de la variation en %, chaque produit du top 10 et le chiffre en tête affichent l'écart en euros avec les mêmes dates de l'an dernier
 (« +19k€ », « -4.2k€ », « +840€ »), sur la même base que le % ; « nouveau » = produit absent l'an dernier (écart = son CA) ; rien sur un seul jour ni sans base de
 comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Top 10 | % par pays », choix mémorisé dans `localStorage`,
