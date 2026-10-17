@@ -1037,33 +1037,15 @@ const MOIS_EN_COURS_IDX = new Date(DMAX).getMonth();
 
 // Bandeau « Données Shopify » : jusqu'où vont les chiffres, d'où ils viennent, ce qui ne vient pas de Shopify
 const DONNEES_SITE_COULEUR = "#4A9EFF";
-// Bandeau « Données Shopify » allégé (17 octobre 2026) : une seule ligne — jusqu'où vont les chiffres, et une alerte ambre
-// seulement si l'extraction du matin n'a pas tourné depuis 2 jours ou plus. (Les avertissements d'extraction — produit inconnu du
-// référentiel, lignes hors période — sont traités par la tâche du matin et décrits dans scripts/extension/README.md.)
-function DonneesFraicheurLigne({ t, lang }) {
-  const loc = lang === "zh" ? "zh-CN" : lang;
-  const fmtJour = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(loc, { day: "numeric", month: "short" });
-  const extraitMs = Date.parse((SHOPIFY_EXT && SHOPIFY_EXT.extrait_a) || "");
-  const age = Number.isFinite(extraitMs) ? Math.floor((Date.now() - extraitMs) / 864e5) : 0; // l'extraction tourne chaque matin
-  const couleur = age >= 2 ? AMBER : GREEN;
-  return (
-    <div data-bandeau className="mb-4 px-1 flex items-center gap-1.5 flex-wrap">
-      <span className="w-1.5 h-1.5 rounded-full pulse-dot shrink-0" style={{ background: couleur }} />
-      <span className="text-[9.5px] uppercase tracking-[0.14em] font-semibold" style={{ color: couleur }}>{t.donnees_titre}</span>
-      <span className="text-[11px] tabular-nums" style={{ color: INK }}>· {t.donnees_jusqua.replace("{date}", fmtJour(DMAX))}</span>
-      {age >= 2 && (
-        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0" style={{ color: AMBER, background: `${AMBER}1F` }}>
-          {t.donnees_perime.replace("{n}", age)}
-        </span>
-      )}
-    </div>
-  );
-}
+// Bloc « Données à jour » : jusqu'où vont les chiffres et le CA HT de chaque jour (marketplaces / site web).
+// Version allégée (17 octobre 2026) : sans la phrase de source ni les notes de bas de bloc (SOUS_INFOS = true les rétablit).
 function DonneesFraicheurCard({ t, lang }) {
-  return SOUS_INFOS ? <DonneesFraicheurDetail t={t} lang={lang} /> : <DonneesFraicheurLigne t={t} lang={lang} />;
-}
-function DonneesFraicheurDetail({ t, lang }) {
-  const [open, setOpen] = useState(false);
+  // Ouvert par défaut quand les sous-informations sont masquées (le graphique est l'essentiel) ; le choix du lecteur est mémorisé
+  const [open, setOpen] = useState(() => {
+    try { const v = localStorage.getItem("homy_donnees_ouvert"); if (v === "1" || v === "0") return v === "1"; } catch { /* stockage indisponible */ }
+    return !SOUS_INFOS;
+  });
+  const basculer = () => { const n = !open; setOpen(n); try { localStorage.setItem("homy_donnees_ouvert", n ? "1" : "0"); } catch { /* ignoré */ } };
   // CA HT par jour (marketplaces / site web) sur les 30 derniers jours, et premier jour de vente du site web
   const { jours, siteDepuis } = useMemo(() => {
     const debut = new Date(Date.parse(DMAX + "T00:00:00Z") - 29 * 864e5).toISOString().slice(0, 10);
@@ -1100,8 +1082,9 @@ function DonneesFraicheurDetail({ t, lang }) {
     t.donnees_maj.replace("{date}", fmtExtrait),
   ];
   return (
+    <div data-bandeau>
     <GlassCard className="p-4 mb-5" glow glowColor={couleur}>
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between gap-2 btn-lift" style={{ cursor: "pointer" }}>
+      <button onClick={basculer} className="w-full flex items-center justify-between gap-2 btn-lift" style={{ cursor: "pointer" }}>
         <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
           <Store size={13} color={couleur} style={{ flexShrink: 0 }} />
           <span className="text-[9.5px] uppercase tracking-[0.14em] font-semibold" style={{ color: couleur }}>{t.donnees_titre}</span>
@@ -1115,9 +1098,9 @@ function DonneesFraicheurDetail({ t, lang }) {
         </div>
         <ChevronRight size={14} color={FAINT} style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.3s cubic-bezier(.65,0,.35,1)" }} />
       </button>
-      <div className="mt-1 text-[10.5px] leading-snug tabular-nums" style={{ color: FAINT }}>
+      {SOUS_INFOS && (<div className="mt-1 text-[10.5px] leading-snug tabular-nums" style={{ color: FAINT }}>
         {t.donnees_socle.replace("{du}", fmtJourAn(du)).replace("{au}", fmtJourAn(DMAX))}
-      </div>
+      </div>)}
       <div className={`fold-panel ${open ? "" : "is-closed"}`} style={open ? { maxHeight: 900 } : undefined}>
         <div className="pt-3">
           <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mb-1 text-[10.5px]" style={{ color: MUTED }}>
@@ -1136,7 +1119,7 @@ function DonneesFraicheurDetail({ t, lang }) {
               <Bar dataKey="site" stackId="j" fill={DONNEES_SITE_COULEUR} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-          <div className="flex flex-col gap-1.5 mt-3">
+          {SOUS_INFOS && (<div className="flex flex-col gap-1.5 mt-3">
             {notes.map((n, i) => (
               <div key={i} className="flex items-start gap-1.5 text-[10.5px] leading-snug" style={{ color: FAINT }}>
                 <Info size={11} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -1149,10 +1132,11 @@ function DonneesFraicheurDetail({ t, lang }) {
                 <span>{a}</span>
               </div>
             ))}
-          </div>
+          </div>)}
         </div>
       </div>
     </GlassCard>
+    </div>
   );
 }
 
