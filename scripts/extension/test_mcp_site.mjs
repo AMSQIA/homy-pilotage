@@ -803,14 +803,31 @@ await scenario("L", async () => {
   r = await outil("get-shop-info", { boutique: "marketplaces" });
   check("L · jeton fixe (SHOPIFY_MP_TOKEN) : aucune demande de jeton, l'API reçoit le jeton fixe", !enErreur(r) && appels.length === 1 && appels[0].entetes["x-shopify-access-token"] === "shpat_mp_fixe_test", `${texteOutil(r)} ${appels.length}`);
 
-  // boutique non configurée : message précis, aucun appel sortant, la boutique du site reste utilisable
+  // variable SHOPIFY_MP_SHOP absente : la boutique BESTHERM (46a3f9-2) est lue par défaut, avec l'application du site
   env();
   reset();
+  const INFO_MP_DEFAUT = { ...INFO_MP, shop: { ...INFO_MP.shop, myshopifyDomain: "46a3f9-2.myshopify.com" } };
+  file = [jeton("jt-def"), () => rep(200, { data: INFO_MP_DEFAUT })];
   r = await outil("get-shop-info", { boutique: "marketplaces" });
-  check("L · marketplaces non configurée : message sur SHOPIFY_MP_SHOP, aucun appel Shopify", enErreur(r) && /marketplaces/.test(texteOutil(r)) && /SHOPIFY_MP_SHOP/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
+  j = jsonOutil(r);
+  check("L · SHOPIFY_MP_SHOP absente : la boutique par défaut 46a3f9-2 (BESTHERM) est lue, avec l'application du site", !enErreur(r) && j?.shopDomain === "46a3f9-2.myshopify.com" && appels.length === 2 && appels.every((a) => a.url.startsWith("https://46a3f9-2.myshopify.com/")) && /client_id=app-test-\d+/.test(appels[0]?.corps || ""), `${texteOutil(r)} ${appels.map((a) => a.url)}`);
+  consomme("L · boutique par défaut");
+
+  // variable saisie mais mal formée : refus précis, aucun appel sortant, et jamais de repli silencieux sur la boutique par défaut ;
+  // la boutique du site reste utilisable
+  env({ SHOPIFY_MP_SHOP: "pas un nom de boutique !" });
+  reset();
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · SHOPIFY_MP_SHOP mal saisie : message sur SHOPIFY_MP_SHOP, aucun appel Shopify (pas de repli silencieux)", enErreur(r) && /marketplaces/.test(texteOutil(r)) && /SHOPIFY_MP_SHOP/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
   file = [jeton("jt-s2"), repInfo];
   r = await outil("get-shop-info", {});
   check("L · … et la boutique du site reste utilisable", !enErreur(r) && jsonOutil(r)?.shopDomain === "site-test.myshopify.com", texteOutil(r));
+
+  // sans aucun identifiant d'application (ni propre aux marketplaces, ni celui du site) : non configurée, aucun appel sortant
+  env({ SHOPIFY_SITE_CLIENT_ID: undefined, SHOPIFY_SITE_CLIENT_SECRET: undefined });
+  reset();
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · marketplaces sans identifiants d'application : non configurée, variables SHOPIFY_MP_CLIENT_* nommées, aucun appel Shopify", enErreur(r) && /marketplaces/.test(texteOutil(r)) && /SHOPIFY_MP_CLIENT_ID/.test(texteOutil(r)) && !/SHOPIFY_MP_SHOP[^_]/.test(texteOutil(r)) && appels.length === 0, texteOutil(r));
 
   // les deux boutiques ne peuvent pas être la même
   env({ SHOPIFY_MP_SHOP: "site-test" });
@@ -840,9 +857,16 @@ await scenario("L", async () => {
   r = await appeler(requete({ methode: "GET" }));
   check("L · sonde : site configuré, marketplaces configurées avec l'application du site réutilisée", r.corps?.configured === true && r.corps?.marketplaces?.configured === true && r.corps?.marketplaces?.application_du_site_reutilisee === true && r.corps?.marketplaces?.boutique === "mp-test.myshopify.com" && egal(r.corps?.marketplaces?.manque, []), JSON.stringify(r.corps));
   check("L · sonde : aucune valeur secrète (clé, secret, identifiants)", !JSON.stringify(r.corps).includes(CLE) && !JSON.stringify(r.corps).includes(SECRET));
+  check("L · sonde : boutique saisie → boutique_par_defaut false", r.corps?.marketplaces?.boutique_par_defaut === false, JSON.stringify(r.corps?.marketplaces));
   env();
   r = await appeler(requete({ methode: "GET" }));
-  check("L · sonde : marketplaces non configurées → configured false et SHOPIFY_MP_SHOP à saisir ; le site reste vrai", r.corps?.configured === true && r.corps?.marketplaces?.configured === false && egal(r.corps?.marketplaces?.manque, ["SHOPIFY_MP_SHOP"]) && r.corps?.marketplaces?.boutique === null, JSON.stringify(r.corps?.marketplaces));
+  check("L · sonde : SHOPIFY_MP_SHOP absente → boutique BESTHERM par défaut (46a3f9-2), configurée, signalée comme boutique par défaut", r.corps?.configured === true && r.corps?.marketplaces?.configured === true && r.corps?.marketplaces?.boutique === "46a3f9-2.myshopify.com" && r.corps?.marketplaces?.boutique_par_defaut === true && egal(r.corps?.marketplaces?.manque, []), JSON.stringify(r.corps?.marketplaces));
+  env({ SHOPIFY_MP_SHOP: "pas un nom de boutique !" });
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : SHOPIFY_MP_SHOP mal saisie → configured false et SHOPIFY_MP_SHOP à corriger ; le site reste vrai", r.corps?.configured === true && r.corps?.marketplaces?.configured === false && egal(r.corps?.marketplaces?.manque, ["SHOPIFY_MP_SHOP"]) && r.corps?.marketplaces?.boutique === null && r.corps?.marketplaces?.boutique_par_defaut === false, JSON.stringify(r.corps?.marketplaces));
+  env({ SHOPIFY_SITE_CLIENT_ID: undefined, SHOPIFY_SITE_CLIENT_SECRET: undefined });
+  r = await appeler(requete({ methode: "GET" }));
+  check("L · sonde : aucun identifiant d'application → marketplaces non configurées, variables SHOPIFY_MP_CLIENT_* à saisir", r.corps?.marketplaces?.configured === false && egal(r.corps?.marketplaces?.manque, ["SHOPIFY_MP_CLIENT_ID", "SHOPIFY_MP_CLIENT_SECRET"]), JSON.stringify(r.corps?.marketplaces));
   env({ SHOPIFY_MP_SHOP: "mp-test", SHOPIFY_MP_CLIENT_ID: "app-mp-propre-2", SHOPIFY_MP_CLIENT_SECRET: SECRET_MP });
   r = await appeler(requete({ methode: "GET" }));
   check("L · sonde : identifiants propres → application du site non réutilisée ; secret jamais affiché", r.corps?.marketplaces?.configured === true && r.corps?.marketplaces?.application_du_site_reutilisee === false && !JSON.stringify(r.corps).includes(SECRET_MP), JSON.stringify(r.corps?.marketplaces));

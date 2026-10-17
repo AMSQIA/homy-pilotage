@@ -19,7 +19,8 @@
 //   SHOPIFY_SITE_API_VERSION    facultatif (défaut 2026-04)
 //
 // Seconde boutique (marketplaces, « BESTHERM »), lue par le même relais avec l'argument « boutique: "marketplaces" » :
-//   SHOPIFY_MP_SHOP             boutique des marketplaces : « xxxx » ou « xxxx.myshopify.com » (46a3f9-2)
+//   SHOPIFY_MP_SHOP             boutique des marketplaces : « xxxx » ou « xxxx.myshopify.com ». FACULTATIVE : absente, la boutique
+//                               BESTHERM (46a3f9-2) est lue ; la variable ne sert qu'à viser une autre boutique
 //   SHOPIFY_MP_CLIENT_ID        identifiant de l'application installée sur CETTE boutique ; facultatif : sans lui (ni secret, ni
 //   SHOPIFY_MP_CLIENT_SECRET    jeton), on reprend ceux de la boutique du site (une même application installée sur les deux
 //                               boutiques d'une même organisation Shopify)
@@ -48,7 +49,8 @@ const INSTRUCTIONS =
 // Boutiques lisibles : chacune a son préfixe de variables Vercel. Aucune autre boutique ne peut être demandée par un appel.
 const PROFILS = {
   site: { prefixe: "SHOPIFY_SITE", libelle: "du site" },
-  marketplaces: { prefixe: "SHOPIFY_MP", libelle: "des marketplaces (BESTHERM)" },
+  // domaineParDefaut : boutique lue quand la variable SHOPIFY_MP_SHOP est absente (identifiant public de la boutique, pas un secret)
+  marketplaces: { prefixe: "SHOPIFY_MP", libelle: "des marketplaces (BESTHERM)", domaineParDefaut: "46a3f9-2" },
 };
 const BOUTIQUES = Object.keys(PROFILS);
 
@@ -131,14 +133,18 @@ function lireConfig(boutique = "site") {
   const p = PROFILS[boutique];
   const pre = p.prefixe;
   const lire = (nom) => String(process.env[nom] || "").trim();
-  const domaine = domaineDe(process.env[`${pre}_SHOP`]);
+  // Variable absente ou vide : boutique par défaut du profil (marketplaces) ; variable saisie mais mal formée : aucune boutique
+  // (l'erreur est signalée, jamais remplacée en silence par la boutique par défaut).
+  const shopSaisi = lire(`${pre}_SHOP`);
+  const shopParDefaut = !shopSaisi && Boolean(p.domaineParDefaut);
+  const domaine = domaineDe(shopParDefaut ? p.domaineParDefaut : shopSaisi);
   let clientId = lire(`${pre}_CLIENT_ID`), clientSecret = lire(`${pre}_CLIENT_SECRET`);
   const jeton = lire(`${pre}_TOKEN`);
   // Boutique des marketplaces sans identifiants propres : on reprend ceux de l'application de la boutique du site (la même
   // application peut être installée sur les deux boutiques d'une même organisation Shopify). Jamais de jeton hérité.
   const herite = boutique !== "site" && !clientId && !clientSecret && !jeton;
   if (herite) { clientId = lire("SHOPIFY_SITE_CLIENT_ID"); clientSecret = lire("SHOPIFY_SITE_CLIENT_SECRET"); }
-  const cfg = { boutique, libelle: p.libelle, prefixe: pre, cle: lire("MCP_SITE_KEY"), domaine, clientId, clientSecret, jeton, herite };
+  const cfg = { boutique, libelle: p.libelle, prefixe: pre, cle: lire("MCP_SITE_KEY"), domaine, clientId, clientSecret, jeton, herite, shopParDefaut };
   const manque = [];
   if (!domaine) manque.push(`${pre}_SHOP`);
   if (!cfg.jeton) {
@@ -472,7 +478,7 @@ export default async function handler(req, res) {
         // seconde boutique (marketplaces) : mêmes indications, sans valeur secrète
         marketplaces: {
           configured: mp.pret && cleLongue && cleSure && mp.identiques.length === 0, boutique: mp.domaine || null,
-          manque: mp.manque, identiques: mp.identiques, application_du_site_reutilisee: mp.herite, formes_plausibles: mp.formes,
+          boutique_par_defaut: mp.shopParDefaut, manque: mp.manque, identiques: mp.identiques, application_du_site_reutilisee: mp.herite, formes_plausibles: mp.formes,
         },
       });
     }

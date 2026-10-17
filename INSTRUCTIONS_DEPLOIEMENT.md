@@ -110,6 +110,19 @@ Un connecteur personnalisé côté Claude est possible mais **facultatif** : l'a
    `https://homy-pilotage.vercel.app/api/mcp-site?key=<MCP_SITE_KEY>` ; authentification : **No sign-in** (la clé est dans
    l'adresse). Il permet d'interroger le site depuis une conversation, sans toucher à la connexion BESTHERM.
 
+**Boutique des marketplaces (BESTHERM), même relais** (ajout du 17 octobre 2026) : les outils acceptent l'argument
+`boutique: "marketplaces"` (le site reste la boutique par défaut). La boutique lue est **`46a3f9-2.myshopify.com` par défaut** : la
+variable `SHOPIFY_MP_SHOP` est facultative (elle ne sert qu'à viser une autre boutique ; saisie mais mal formée, elle est refusée
+avec un message, sans repli silencieux). Mise en place : **installer sur BESTHERM l'application « HOM'Y Pilotage - lecture »**
+(Dev Dashboard → l'application → Accueil → **Installer l'application**, boutique BESTHERM, même organisation Shopify que la
+boutique du site) ; l'identifiant et le secret de l'application du site sont réutilisés, aucune autre variable n'est à saisir.
+Si BESTHERM est dans une autre organisation, Shopify répond « application et boutique pas dans la même organisation » : créer
+alors une seconde application en lecture seule (`read_reports`) dans l'organisation de BESTHERM, saisir son identifiant et son
+secret dans `SHOPIFY_MP_CLIENT_ID` et `SHOPIFY_MP_CLIENT_SECRET` (Vercel, tous les environnements) puis **Redeploy**.
+Contrôle : `export MCP_SITE_KEY=...` puis `node scripts/extension/site_query.mjs --info --boutique marketplaces` → boutique
+`46a3f9-2.myshopify.com`, nom BESTHERM ; la page `/api/mcp-site?key=<MCP_SITE_KEY>` détaille la boutique dans `marketplaces`
+(`configured`, `boutique`, `boutique_par_defaut`, `manque`).
+
 **Clé du relais** : la tâche planifiée du matin la contient dans son propre texte (elle l'exporte avant d'appeler
 `refresh_extension.mjs apply`) ; elle n'est jamais écrite dans le dépôt, et l'adresse du connecteur facultatif est à traiter comme un
 mot de passe. *Pour la changer* : modifier `MCP_SITE_KEY` dans Vercel, redéployer, puis remplacer la clé dans le texte de la
