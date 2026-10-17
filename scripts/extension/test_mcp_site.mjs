@@ -886,6 +886,18 @@ await scenario("L", async () => {
   r = await outil("get-shop-info", { boutique: "marketplaces" });
   check("L · autre organisation (marketplaces) : on demande de créer l'application sur BESTHERM et de saisir SHOPIFY_MP_CLIENT_*", enErreur(r) && /même organisation/.test(texteOutil(r)) && /SHOPIFY_MP_CLIENT_ID et SHOPIFY_MP_CLIENT_SECRET/.test(texteOutil(r)) && /marketplaces/.test(texteOutil(r)), texteOutil(r));
 
+  // code réel de Shopify quand l'application n'est pas encore installée sur BESTHERM (boutique lue par défaut) : seule l'installation manque
+  env();
+  reset();
+  file = [() => rep(400, { error: "app_not_installed", error_description: "The application is not installed on this shop." })];
+  r = await outil("get-shop-info", { boutique: "marketplaces" });
+  check("L · app_not_installed sur BESTHERM (boutique par défaut) : message clair, installer l'application, aucune variable à saisir", enErreur(r) && /app_not_installed/.test(texteOutil(r)) && /46a3f9-2\.myshopify\.com/.test(texteOutil(r)) && /pas installée/.test(texteOutil(r)) && /Installer l'application/.test(texteOutil(r)) && /BESTHERM/.test(texteOutil(r)) && /réutilisée/.test(texteOutil(r)) && !/SHOPIFY_MP_SHOP/.test(texteOutil(r)) && !texteOutil(r).includes(SECRET), texteOutil(r));
+  env();
+  reset();
+  file = [() => rep(400, { error: "app_not_installed", error_description: "The application is not installed on this shop." })];
+  r = await outil("get-shop-info", {});
+  check("K · app_not_installed sur la boutique du site : même conseil, sans mention de la réutilisation d'application", enErreur(r) && /pas installée/.test(texteOutil(r)) && /site-test\.myshopify\.com/.test(texteOutil(r)) && !/réutilisée/.test(texteOutil(r)), texteOutil(r));
+
   // le journal nomme la boutique lue
   check("L · journal : chaque appel d'outil nomme la boutique (site / marketplaces)", lignesJournal.some((l) => l.includes('"boutique":"marketplaces"')) && lignesJournal.some((l) => l.includes('"boutique":"site"')));
 });

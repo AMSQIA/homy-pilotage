@@ -116,6 +116,8 @@ variable `SHOPIFY_MP_SHOP` est facultative (elle ne sert qu'à viser une autre b
 avec un message, sans repli silencieux). Mise en place : **installer sur BESTHERM l'application « HOM'Y Pilotage - lecture »**
 (Dev Dashboard → l'application → Accueil → **Installer l'application**, boutique BESTHERM, même organisation Shopify que la
 boutique du site) ; l'identifiant et le secret de l'application du site sont réutilisés, aucune autre variable n'est à saisir.
+Tant que l'application n'est pas installée, le relais répond `app_not_installed` (« The application is not installed on this
+shop »).
 Si BESTHERM est dans une autre organisation, Shopify répond « application et boutique pas dans la même organisation » : créer
 alors une seconde application en lecture seule (`read_reports`) dans l'organisation de BESTHERM, saisir son identifiant et son
 secret dans `SHOPIFY_MP_CLIENT_ID` et `SHOPIFY_MP_CLIENT_SECRET` (Vercel, tous les environnements) puis **Redeploy**.
