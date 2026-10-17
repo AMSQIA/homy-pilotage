@@ -5,13 +5,15 @@
  *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier] [--racine dossier]
  *
  * Lance un petit serveur statique, ouvre l'application dans Chromium (Playwright) et vérifie :
- *   - le bandeau « Données Shopify à jour » (date de dernière donnée, source unique, graphique des 30 derniers jours,
- *     notes de méthode) en français, anglais, espagnol et chinois, sans variable de modèle restante ;
+ *   - le bandeau « Données Shopify à jour » (une seule ligne : date de dernière donnée, pastille de fraîcheur) en français,
+ *     anglais, espagnol et chinois, sans variable de modèle restante, et sans les sous-informations retirées le 17 octobre 2026 ;
+ *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
+ *     comparaison « vs 2025 » (courbes et pastilles) ;
  *   - les chiffres affichés = ceux que calcule socle.js sur les vrais fichiers du dépôt (CA cumulé, unités, % de l'objectif,
  *     comparaison avec 2025, filtres Site Web et Leroy Merlin) ;
  *   - la pastille « non actualisé » quand l'extraction a plus de 2 jours ;
  *   - l'écran « Données Shopify indisponibles » quand l'extraction est illisible (le build est altéré à la volée) ;
- *   - les 7 onglets s'ouvrent sans erreur JavaScript ; affichage mobile sans débordement horizontal.
+ *   - les 7 onglets s'ouvrent sans erreur JavaScript ; affichage mobile sans débordement horizontal, tableaux mensuels défilables.
  *
  * Codes de sortie : 0 ok · 2 échec d'affichage · 77 test impossible (Playwright ou Chromium indisponible : à
  * signaler, ce n'est pas un échec de l'application).
@@ -53,17 +55,9 @@ function attendus() {
   if (!rap.appliquee) return { rap, ext };
   const D = rap.C.DATA;
   const mp = (nom) => D.mp_vs_objectif.find((m) => m.marketplace === nom);
-  const debut30 = new Date(Date.parse(rap.dmax + "T00:00:00Z") - 29 * 864e5).toISOString().slice(0, 10);
-  const ca30 = { mp: 0, site: 0 };
-  let siteDepuis = null;
-  for (const [d, im, , , c] of ext.lignes) {
-    const site = ext.mp[im] === "Site Web";
-    if (site && (siteDepuis === null || d < siteDepuis)) siteDepuis = d;
-    if (d >= debut30 && d <= rap.dmax) ca30[site ? "site" : "mp"] += c;
-  }
   const n1 = D.total_yoy_comparable[2025];
   return {
-    rap, ext, ca30, siteDepuis,
+    rap, ext,
     cumul: D.kpi.ca_total_2026, qte: D.kpi.qte_total_2026, pct: Math.round(D.kpi.pct_objectif_atteint),
     n1, yoy: n1 > 0 ? (D.kpi.ca_total_2026 / n1 - 1) * 100 : null,
     site: mp("Site Web")?.ca ?? 0, leroy: mp("Leroy Merlin")?.ca ?? 0,
@@ -107,23 +101,20 @@ async function ouvrir(browser, { largeur = 1280, hauteur = 900, avance = 0, lang
 }
 
 const TITRES = { fr: "Données Shopify à jour", en: "Shopify data up to date", es: "Datos de Shopify actualizados", zh: "Shopify 数据已更新" };
-const SOURCES = { fr: "Source unique : Shopify", en: "Single source: Shopify", es: "Fuente única: Shopify", zh: "唯一数据来源：Shopify" };
 
 async function ouvrirDashboard(page, base, { lang = "fr", tab = "apercu", marketplace } = {}) {
   const q = new URLSearchParams({ lang, tab });
   if (marketplace) q.set("marketplace", marketplace);
   await page.goto(`${base}?${q}`, { waitUntil: "load" });
   await page.waitForFunction(() => document.body && document.body.innerText.length > 400, null, { timeout: 30000 });
-  await page.waitForTimeout(600); // animations d'entrée
+  await page.waitForTimeout(1600); // animations d'entrée (le compteur du CA monte jusqu'à sa valeur finale)
 }
 
-// Texte de la carte « Données Shopify » (on remonte du titre jusqu'au conteneur de la carte)
-const texteBandeau = (page, lang) => page.evaluate((titre) => {
-  const el = [...document.querySelectorAll("span")].find((s) => s.textContent.trim().toLowerCase() === titre.toLowerCase());
-  let n = el;
-  for (let i = 0; i < 8 && n; i++, n = n.parentElement) if (n.className && String(n.className).includes("p-4") && String(n.className).includes("mb-5")) return n.innerText;
-  return "";
-}, TITRES[lang]).then(norm);
+// Texte du bandeau « Données Shopify à jour » : une seule ligne, repérée par son attribut data-bandeau (le titre dépend de la langue)
+const texteBandeau = (page) => page.evaluate(() => { const el = document.querySelector("[data-bandeau]"); return el ? el.innerText : ""; }).then(norm);
+// Sous-informations retirées du tableau de bord : elles ne doivent pas réapparaître (interrupteur SOUS_INFOS de App.jsx)
+const RETIRE = ["Source unique : Shopify", "Bricoman ne se distingue", "Ne viennent pas de Shopify", "Panier moyen et meilleure vente ne suivent pas",
+  "Zone en pointillés =", "% = part de l'objectif annuel du pays", "Pour actualiser : demande-le directement"];
 
 async function main() {
   if (!fs.existsSync(path.join(DIST, "index.html"))) { console.error("dist/ introuvable : lancer « npx vite build » d'abord"); return 2; }
@@ -137,22 +128,17 @@ async function main() {
   const base = `http://127.0.0.1:${srv.address().port}/`;
   const dmax = E.rap.dmax;
   try {
-    // 1) français, bureau : bandeau, chiffres du bandeau déplié, KPI
+    // 1) français, bureau : bandeau en une ligne, KPI, sous-informations absentes
     {
       const { ctx, page, erreurs } = await ouvrir(browser);
       await ouvrirDashboard(page, base);
-      let b = await texteBandeau(page, "fr");
-      verifier(b.length > 40, "bandeau « Données Shopify à jour » introuvable");
+      const b = await texteBandeau(page);
+      verifier(b.length > 15, "bandeau « Données Shopify à jour » introuvable");
+      verifier(contient(b, TITRES.fr), `FR · bandeau : titre « ${TITRES.fr} » absent (${b.slice(0, 100)})`);
       verifier(contient(b, `jusqu'au ${jour(dmax, "fr")}`), `FR · bandeau : « jusqu'au ${jour(dmax, "fr")} » absent (${b.slice(0, 100)})`);
-      verifier(contient(b, SOURCES.fr) && contient(b, String(dmax.slice(0, 4))), `FR · bandeau : source unique / période absentes (${b.slice(0, 160)})`);
       verifier(!/Non actualisé/.test(b), "FR · pastille « non actualisé » affichée alors que l'extraction est fraîche");
-      await page.locator("button", { hasText: TITRES.fr }).first().click();
-      await page.waitForTimeout(500);
-      b = await texteBandeau(page, "fr");
-      verifier(contient(b, `Marketplaces ${Math.round(E.ca30.mp / 1000)}k€`) && contient(b, `Site web ${Math.round(E.ca30.site / 1000)}k€`), `FR · bandeau déplié : totaux Marketplaces ${Math.round(E.ca30.mp / 1000)}k€ / Site web ${Math.round(E.ca30.site / 1000)}k€ absents`);
-      verifier(contient(b, "Bricoman ne se distingue pas") && contient(b, "Ne viennent pas de Shopify"), "FR · bandeau déplié : notes de méthode absentes");
-      verifier(!E.siteDepuis || E.siteDepuis <= "2024-01-01" || contient(b, "Le site web n'existe dans Shopify que depuis le"), "FR · bandeau déplié : note sur le début de l'historique du site absente");
-      verifier((await page.locator(".recharts-bar-rectangle").count()) >= 25, "FR · graphique des jours : barres manquantes");
+      verifier(b.length < 70, `FR · bandeau : plus d'une ligne de texte (${b.length} caractères) — les sous-informations sont-elles revenues ?`);
+      verifier((await page.locator("[data-bandeau] button").count()) === 0, "FR · bandeau : bloc déroulant revenu");
       verifier(!PLACEHOLDERS.test(b), "FR · bandeau : variable de modèle non remplacée");
       verifier(!/ODP|Excel/i.test(b), "FR · bandeau : mention d'un fichier ODP / Excel");
       if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: path.join(shotsDir, "bureau-fr.png") }); }
@@ -161,7 +147,8 @@ async function main() {
       verifier(t.includes(`${fmtNum(E.qte)} unités vendues`), `FR · « ${fmtNum(E.qte)} unités vendues » absent`);
       verifier(t.includes(`${E.pct}%`), `FR · ${E.pct}% de l'objectif absent`);
       if (E.yoy !== null) verifier(t.includes(fmtPct(E.yoy)) && t.includes(`${fmtNum(E.n1)} €`), `FR · comparaison 2025 (${fmtPct(E.yoy)}, ${fmtNum(E.n1)} €) absente`);
-      verifier(t.includes(`→ ${dmax}`) && t.includes(`→ ${dmax.replace(/^\d{4}/, "2025")}`), `FR · période affichée ≠ jusqu'au ${dmax}`);
+      if (E.yoy !== null) verifier(t.includes("sur la même période 2025"), "FR · base de comparaison « vs … sur la même période 2025 » absente");
+      for (const x of RETIRE) verifier(!contient(t, x), `FR · sous-information retirée réapparue : « ${x} »`);
       verifier(erreurs.length === 0, `erreurs JavaScript (bureau) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
@@ -170,9 +157,9 @@ async function main() {
     for (const lang of ["en", "es", "zh"]) {
       const { ctx, page, erreurs } = await ouvrir(browser);
       await ouvrirDashboard(page, base, { lang });
-      const b = await texteBandeau(page, lang);
-      verifier(b.length > 40, `${lang.toUpperCase()} · bandeau introuvable`);
-      verifier(contient(b, jour(dmax, lang)) && contient(b, SOURCES[lang]), `${lang.toUpperCase()} · date ou source du bandeau absentes (${b.slice(0, 120)})`);
+      const b = await texteBandeau(page);
+      verifier(b.length > 15, `${lang.toUpperCase()} · bandeau introuvable`);
+      verifier(contient(b, TITRES[lang]) && contient(b, jour(dmax, lang)), `${lang.toUpperCase()} · titre ou date du bandeau absents (${b.slice(0, 120)})`);
       verifier(!PLACEHOLDERS.test(b), `${lang.toUpperCase()} · variable de modèle non remplacée`);
       verifier(!/ODP|Excel/i.test(b), `${lang.toUpperCase()} · mention d'un fichier ODP / Excel`);
       verifier(erreurs.length === 0, `erreurs JavaScript (${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
@@ -185,7 +172,7 @@ async function main() {
       await ouvrirDashboard(page, base, { marketplace: mp });
       const t = norm(await page.evaluate(() => document.body.innerText));
       verifier(t.includes(`${fmtNum(ca)} € HT`), `filtre ${mp} : CA « ${fmtNum(ca)} € HT » absent`);
-      verifier(contient(await texteBandeau(page, "fr"), `jusqu'au ${jour(dmax, "fr")}`), `filtre ${mp} : bandeau absent`);
+      verifier(contient(await texteBandeau(page), `jusqu'au ${jour(dmax, "fr")}`), `filtre ${mp} : bandeau absent`);
       verifier(erreurs.length === 0, `erreurs JavaScript (filtre ${mp}) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
@@ -196,9 +183,31 @@ async function main() {
       const avance = Number.isFinite(extraitMs) ? Math.max(0, extraitMs + 3.2 * 864e5 - Date.now()) : 3 * 864e5;
       const { ctx, page, erreurs } = await ouvrir(browser, { avance });
       await ouvrirDashboard(page, base);
-      const b = await texteBandeau(page, "fr");
+      const b = await texteBandeau(page);
       verifier(/Non actualisé depuis [34] j/.test(b), `pastille « non actualisé » absente après 3 jours (${b.slice(0, 120)})`);
       verifier(erreurs.length === 0, `erreurs JavaScript (horloge +3 j) : ${erreurs.slice(0, 3).join(" | ")}`);
+      await ctx.close();
+    }
+
+    // 4 bis) les trois vues conservées à la demande de l'utilisateur (17 octobre 2026)
+    {
+      const { ctx, page, erreurs } = await ouvrir(browser);
+      const ouvrirOnglet = async (params) => {
+        await page.goto(`${base}?${new URLSearchParams({ lang: "fr", ...params })}`, { waitUntil: "load" });
+        await page.waitForFunction(() => document.body && document.body.innerText.length > 400, null, { timeout: 30000 });
+        await page.waitForTimeout(1200);
+        return norm(await page.evaluate(() => document.body.innerText));
+      };
+      let t = await ouvrirOnglet({ tab: "marques", sousTab: "produits" });
+      verifier(t.includes("Tous les produits"), "produits : liste « Tous les produits » absente");
+      const lignes = await page.locator('div[style*="max-height: 520px"] > div').count();
+      verifier(lignes >= 10, `produits : ${lignes} ligne(s) dans la liste classée (au moins 10 attendues)`);
+      for (const x of RETIRE) verifier(!contient(t, x), `produits : sous-information retirée réapparue : « ${x} »`);
+      t = await ouvrirOnglet({ tab: "marketplaces" });
+      verifier(t.includes("Répartition par pays") && /\d+% obj\./.test(t), "marketplaces : répartition par pays avec « % obj. » absente");
+      verifier(/[+-]\d+(\.\d)? %/.test(t), "marketplaces : comparaison « vs 2025 » (pastilles %) absente");
+      for (const x of RETIRE) verifier(!contient(t, x), `marketplaces : sous-information retirée réapparue : « ${x} »`);
+      verifier(erreurs.length === 0, `erreurs JavaScript (vues conservées) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
 
@@ -221,8 +230,12 @@ async function main() {
       await ouvrirDashboard(page, base);
       const defil = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       verifier(defil <= 1, `mobile : débordement horizontal de ${defil}px`);
-      verifier(contient(await texteBandeau(page, "fr"), `jusqu'au ${jour(dmax, "fr")}`), "mobile : bandeau absent");
+      verifier(contient(await texteBandeau(page), `jusqu'au ${jour(dmax, "fr")}`), "mobile : bandeau absent");
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mobile-fr.png") });
+      // le tableau mensuel des prix est plus large que l'écran : il doit défiler dans sa carte (la carte rogne tout ce qui dépasse)
+      await ouvrirDashboard(page, base, { tab: "prix" });
+      const defile = await page.evaluate(() => { const el = document.querySelector(".overflow-x-auto"); return el ? [getComputedStyle(el).overflowX, el.scrollWidth - el.clientWidth] : null; });
+      verifier(defile && defile[0] === "auto" && defile[1] > 0, `mobile : tableau mensuel des prix non défilable (${JSON.stringify(defile)})`);
       verifier(erreurs.length === 0, `erreurs JavaScript (mobile) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
@@ -255,7 +268,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bandeau « Données Shopify à jour » jusqu'au ${dmax} (4 langues, pastille de fraîcheur), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
+  console.log(`SMOKE_OK · bandeau « Données Shopify à jour » en une ligne jusqu'au ${dmax} (4 langues, pastille de fraîcheur), sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
   return 0;
 }
 

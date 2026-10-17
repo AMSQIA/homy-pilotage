@@ -54,6 +54,13 @@ concurrence et catalogue des produits non vendus (constantes de `App.jsx`), **ob
 pays, par semaine : `data/referentiel.json` et `App.jsx`), famille / norme / catégorie des produits (`data/referentiel.json`).
 Ces éléments se mettent à jour à la main quand le plan ou le catalogue change.
 
+**Affichage allégé (17 octobre 2026, « garde l'essentiel »)** : les explications ci-dessus (règles de calcul, limites, ce qui ne vient pas de
+Shopify) ne s'affichent plus sur l'écran — elles restent décrites ici. Le bandeau « Données à jour » tient sur une ligne (dernier jour des
+données, pastille « Non actualisé depuis N j » à partir de 2 jours), et les sous-titres et notes de méthode sous les graphiques sont masqués ;
+les avertissements d'extraction (produit absent du référentiel, ligne hors période, passerelle inconnue) ne sont plus affichés : la tâche du
+matin les lit dans sa sortie et les traite (voir la procédure). Interrupteur : `const SOUS_INFOS = false;` dans `App.jsx` (à `true`, tout
+revient, y compris le bandeau déroulant). Le top des produits, le « % obj. » par pays et les comparaisons « vs 2025 » sont conservés.
+
 ## Garde-fous
 
 - Boutique vérifiée à chaque extraction (`shopDomain`) : rien n'est écrit si un résultat vient de l'autre boutique. Les résultats sont
