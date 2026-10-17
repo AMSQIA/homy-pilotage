@@ -9,6 +9,10 @@ la performance de l'année précédente sur le même exercice pour une donnée c
 
 - **Période** : puces `7 j · 14 j · 30 j · 90 j` ; le choix est mémorisé sur l'appareil.
 - **Chiffre en tête** : CA HT de la période, variation par rapport aux mêmes dates de l'an dernier **en % et en €** (« ▼ -19.3 % -140k€ »), dates comparées indiquées (« vs 4–16 oct. 2025 »).
+- **Commandes et panier moyen** (sous le chiffre en tête) : nombre de commandes de la période ou du jour (commandes à CA > 0, par marketplace d'après la passerelle
+  de paiement ; champ `commandes` de `shopify_extension.json`) et panier moyen = CA HT ÷ commandes, chacun avec sa variation par rapport aux mêmes dates de l'an
+  dernier. Le CA étant commandes × panier, on voit si une variation vient du volume ou du panier. Variations seulement quand l'an dernier est comparable sur tout le
+  périmètre (même règle que le chiffre en tête) ; le filtre marketplace et le jour touché s'appliquent aussi.
 - **Histogramme** du CA HT par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier aux mêmes dates. **Toucher une barre** sélectionne
   ce jour : le chiffre en tête, le top 10 et les pays passent à ce seul jour ; « Période entière » revient à la période.
 - **Top 10 produits** de la période ou du jour : CA HT, part du CA, unités, variation par rapport à l'an dernier **en % et, dessous, en €** (« nouveau » pour un
@@ -32,7 +36,7 @@ CA de l'année à l'objectif annuel du pays, n'a pas de sens sur quelques jours 
 **Données** : `suiviDonnees()` dans `App.jsx` lit `shopify_extension.json` (schéma 2 : lignes jour × marketplace × produit, et `pays_jour` pour les pays) : les mêmes jours de l'an dernier sont lus dans le même historique, au même format, avec le même calcul.
 
 **Tests** : `smoke.mjs` recalcule dans le test, directement depuis les fichiers du dépôt et sans passer par le code de l'application, le CA de la période et de
-chaque jour, la variation par rapport à l'an dernier, le top 10 (produits, montants, ordre, variation en % et écart en € de chaque produit), l'écart en € en tête, la part de chaque pays, avec les puces de période, le jour touché et
+chaque jour, la variation par rapport à l'an dernier, le top 10 (produits, montants, ordre, variation en % et écart en € de chaque produit), l'écart en € en tête, les commandes et le panier moyen (avec leurs variations), la part de chaque pays, avec les puces de période, le jour touché et
 son retour, les filtres Leroy Merlin et Site Web, les quatre langues et, sur mobile (390 et 360 px), les onglets « Top 10 | % par pays » (un seul volet à la fois, choix mémorisé, libellés dans les quatre langues) et l'absence de débordement.
 
 ## Mise à jour du 17 octobre 2026 (soir) — tableau de bord allégé : « garde l'essentiel »

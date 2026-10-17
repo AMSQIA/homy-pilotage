@@ -9,7 +9,7 @@
  *     défaut et repliable) en français, anglais, espagnol et chinois, sans variable de modèle restante, et sans les phrases
  *     explicatives retirées le 17 octobre 2026 ;
  *   - le suivi quotidien du bloc : puces de période, histogramme du CA par jour avec la courbe « mêmes jours l'an dernier », jour touché,
- *     top 10 produits (variation en % et écart en € par produit, écart en € en tête) et part du CA par pays, filtre marketplace, 4 langues,
+ *     commandes et panier moyen, top 10 produits (variation en % et écart en € par produit, écart en € en tête) et part du CA par pays, filtre marketplace, 4 langues,
  *     mobile (390 et 360 px : onglets « Top 10 | % par pays », un seul volet à la fois) ; les chiffres attendus sont recalculés
  *     dans le test, directement depuis les fichiers du dépôt, indépendamment du code de l'application ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
@@ -161,6 +161,8 @@ function suiviAttendu(E, n, jourSel, mpF) {
   if (!mpOk) r.n1.mp = 0;
   if (!siteOk) r.n1.site = 0;
   r.total = r.mp + r.site;
+  r.cmd = 0; r.cmdN1 = 0; // commandes (CA > 0) du périmètre affiché, sur la fenêtre et sur les mêmes dates l'an dernier
+  for (const [d, im, n] of ext.commandes || []) { if (!garde(ext.mp[im])) continue; if (d >= du && d <= au) r.cmd += n; if (d >= a && d <= b) r.cmdN1 += n; }
   return r;
 }
 
@@ -174,6 +176,8 @@ const lireSuivi = (page) => page.evaluate(() => {
     produits: [...document.querySelectorAll('[data-suivi-ligne="produit"]')].map((r) => ({ nom: r.dataset.nom, ca: Number(r.dataset.ca), texte: r.innerText })),
     pays: [...document.querySelectorAll('[data-suivi-ligne="pays"]')].map((r) => ({ nom: r.dataset.nom, part: Number(r.dataset.part), ca: Number(r.dataset.ca) })),
     reset: Boolean(q('[data-suivi="reset"]')), vs: Boolean(q('[data-suivi="vs"]')), deltaMp: Boolean(q('[data-suivi="delta-mp"]')), ecart: Boolean(q('[data-suivi="ecart"]')),
+    commandes: q('[data-suivi="commandes"]') ? { valeur: Number(q('[data-suivi="commandes"]').dataset.valeur), texte: txt(q('[data-suivi="commandes"]')) } : null,
+    panier: q('[data-suivi="panier"]') ? { valeur: Number(q('[data-suivi="panier"]').dataset.valeur), texte: txt(q('[data-suivi="panier"]')) } : null,
     ligneN1: document.querySelectorAll('[data-suivi="graphique"] .recharts-line-curve').length,
     barres: document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle').length,
   };
@@ -219,6 +223,20 @@ function comparerSuivi(s, A, etiquette, jour = false) {
   ok(s.ecart === enTete, `écart en € en tête ${s.ecart ? "affiché" : "absent"} (mode ${A.mode}, base ${A.n1.all})`);
   if (A.avecMp && A.avecSite && A.n1.mp > 0) ok(contient(s.legende, varApp((A.mp / A.n1.mp - 1) * 100)), `variation des marketplaces ${varApp((A.mp / A.n1.mp - 1) * 100)} absente (${s.legende})`);
   if (A.avecMp && A.avecSite && A.mode === "total" && A.n1.site > 0) ok(contient(s.legende, varApp((A.site / A.n1.site - 1) * 100)), `variation du site ${varApp((A.site / A.n1.site - 1) * 100)} absente (${s.legende})`);
+  // commandes et panier moyen (version Shopify seul) ; en production le fichier n'a pas de commandes par jour : rien ne doit s'afficher
+  if (A.cmd === undefined) ok(s.commandes === null && s.panier === null, "commandes / panier moyen affichés alors qu'il n'y a pas de commandes par jour");
+  else if (A.cmd <= 0) ok(s.commandes === null && s.panier === null, "commandes / panier moyen affichés sans aucune commande");
+  else {
+    const aov = A.total / A.cmd, comparable = A.mode === "total" && A.cmdN1 > 0 && A.n1.all > 0, aov1 = comparable ? A.n1.all / A.cmdN1 : null;
+    ok(s.commandes !== null && s.commandes.valeur === A.cmd && contient(s.commandes.texte, fmtNum(A.cmd)), `commandes : ${s.commandes && s.commandes.valeur} (« ${s.commandes && norm(s.commandes.texte)} ») ≠ ${A.cmd} attendues`);
+    ok(s.panier !== null && proche(s.panier.valeur, aov, 1.5) && contient(s.panier.texte, `${fmtNum(aov)} €`), `panier moyen : ${s.panier && s.panier.valeur} (« ${s.panier && norm(s.panier.texte)} ») ≠ ${fmtNum(aov)} € attendus (CA ${fmtNum(A.total)} ÷ ${A.cmd} commandes)`);
+    if (s.commandes && s.panier) {
+      if (comparable) {
+        ok(contient(s.commandes.texte, varApp((A.cmd / A.cmdN1 - 1) * 100)), `commandes : variation ${varApp((A.cmd / A.cmdN1 - 1) * 100)} absente (${norm(s.commandes.texte)})`);
+        ok(contient(s.panier.texte, varApp((aov / aov1 - 1) * 100)), `panier moyen : variation ${varApp((aov / aov1 - 1) * 100)} absente (${norm(s.panier.texte)})`);
+      } else ok(!/[▲▼▬]/.test(s.commandes.texte + s.panier.texte), `commandes / panier moyen : variation affichée sans base comparable (mode ${A.mode})`);
+    }
+  }
   // top 10 : mêmes produits, mêmes montants, ordre décroissant
   const top = trier(A.prod).slice(0, 10);
   ok(s.produits.length === top.length, `top 10 : ${s.produits.length} ligne(s), ${top.length} attendue(s)`);
@@ -520,7 +538,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché, même période l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, 4 langues, mobile avec onglets) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
+  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché, même période l'an dernier, commandes et panier moyen, top 10 produits avec variation et écart en €, part du CA par pays, 4 langues, mobile avec onglets) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
   return 0;
 }
 

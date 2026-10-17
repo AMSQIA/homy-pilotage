@@ -68,6 +68,9 @@ Le bloc « Données à jour » est un suivi du quotidien : puces de période (`7
 l'an dernier, histogramme par jour (marketplaces + site web) avec la courbe pointillée de l'an dernier, top 10 des produits et part du CA par pays — sur la
 période ou, en touchant une barre, sur ce seul jour. Il suit le filtre marketplace global. `suiviDonnees()` dans `App.jsx` lit `shopify_extension.json` (schéma 2 : lignes jour × marketplace × produit, et `pays_jour` pour les pays) : les mêmes jours de l'an dernier sont lus dans le même historique, au même format, avec le même calcul.
 
+**Commandes et panier moyen** : sous le chiffre en tête, le nombre de commandes (champ `commandes`, commandes à CA > 0 par jour et marketplace) et le panier moyen
+(CA HT ÷ commandes) de la période ou du jour, avec leur variation par rapport aux mêmes dates de l'an dernier (mode « total » seulement, comme le chiffre en tête).
+
 **Écart en € et mobile** : à côté de la variation en %, chaque produit du top 10 et le chiffre en tête affichent l'écart en euros avec les mêmes dates de l'an dernier
 (« +19k€ », « -4.2k€ », « +840€ »), sur la même base que le % ; « nouveau » = produit absent l'an dernier (écart = son CA) ; rien sur un seul jour ni sans base de
 comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Top 10 | % par pays », choix mémorisé dans `localStorage`,
