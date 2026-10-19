@@ -77,8 +77,13 @@ le choix « Même jour de semaine » le compare au jour 364 jours avant (`suiviC
 
 **Écart en € et mobile** : à côté de la variation en %, chaque produit du top 10 et le chiffre en tête affichent l'écart en euros avec les mêmes dates de l'an dernier
 (« +19k€ », « -4.2k€ », « +840€ »), sur la même base que le % ; « nouveau » = produit absent l'an dernier (écart = son CA) ; rien sur un seul jour ni sans base de
-comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Top 10 | % par pays », choix mémorisé dans `localStorage`,
-clé `homy_suivi_onglet`) ; sur ordinateur, les deux volets restent côte à côte.
+comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Produits | Marketplaces | % par pays », choix mémorisé dans `localStorage`,
+clé `homy_suivi_onglet`) ; sur ordinateur, les volets restent côte à côte (trois colonnes dès 1 280 px).
+
+**Top 10 marketplaces** : volet « Marketplaces » (absent quand un filtre marketplace est actif) : le classement des canaux de vente — marketplaces et site web, en bleu —
+par CA HT sur la période ou le jour touché, avec part du CA, unités, variation en % et écart en € (`topMp` dans `suiviCalc`). La variation se calcule canal par canal et seulement
+pour un canal comparable (le site web depuis sa première vente Shopify, une marketplace quand l'historique remonte assez loin). Contrairement aux produits, les canaux gardent
+leur variation sur un jour touché (comme le chiffre en tête).
 
 **« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète : le site web n'existe dans Shopify que depuis sa première vente (fin mai 2025) ; pour une période dont l'an dernier commence avant cette date, la comparaison se fait sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; si l'historique ne remonte pas assez loin, aucune comparaison. Les variations par pays sont des écarts de part du CA, en points.
 

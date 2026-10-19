@@ -1,5 +1,34 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 19 octobre 2026 — top 10 marketplaces dans le suivi quotidien
+
+**Demande** : « Très bien cette mise en forme, peux-tu y ajouter le top 10 marketplace ? » (premier bloc « Données à jour »).
+
+**Interprétation** : le classement des canaux de vente — les marketplaces et le site web — par CA HT sur la période affichée ou, en touchant une barre, sur ce seul jour, dans
+la même forme que le top 10 produits. (Si l'idée était plutôt « le top 10 des produits de chaque marketplace » : c'est ce que fait déjà le filtre marketplace global, qui limite
+tout le bloc, top 10 produits compris, à la marketplace choisie.)
+
+**Ce que montre le volet « Marketplaces »** :
+
+- Une ligne par canal, du plus gros au plus petit CA HT (dix au plus) : rang, nom, CA HT, part du CA affiché, unités, barre proportionnelle au premier. Le **site web** y figure
+  sur une barre bleue, comme dans l'histogramme ; les marketplaces sont en orange.
+- Variation par rapport à l'an dernier **en % et, dessous, en €**, avec les mêmes formats que le top 10 produits (« nouveau » pour un canal sans vente l'an dernier), calculée
+  canal par canal et **seulement quand ce canal est comparable** : le site web l'est depuis sa première vente Shopify (fin mai 2025), une marketplace l'est quand l'historique
+  remonte assez loin ; sinon (période dont l'an dernier commence avant), pas de variation pour le site web, et aucune variation du tout si l'historique est trop court.
+  Les produits n'ont pas de variation sur un seul jour (trop volatile), mais les canaux la gardent quand on touche une barre, comme le chiffre en tête.
+- **Avec un filtre marketplace actif**, le volet disparaît (il n'y aurait qu'une ligne) : le bloc garde « Produits » et « % par pays ».
+- **Disposition** : sous 1 024 px (mobile), les volets s'affichent un à la fois sous des onglets « Produits | Marketplaces | % par pays » (l'ancien onglet « Top 10 » devient
+  « Produits » ; le choix reste mémorisé sur l'appareil, et un choix « Marketplaces » mémorisé retombe sur « Produits » quand un filtre marketplace est actif). Sur ordinateur, les volets
+  restent côte à côte : trois colonnes dès 1 280 px (Produits | Marketplaces | % par pays) ; de 1 024 à 1 279 px, les produits à gauche et, à droite, les marketplaces au-dessus des pays.
+
+**Données** : rien de plus à fournir. `suiviCalc` (`App.jsx`) additionne, en même temps que les produits, le CA et les unités par canal (marketplace ou site web) sur les lignes
+de `shopify_extension.json` (schéma 2), et lit le CA de l'an dernier de chaque canal dans le même historique, au même format, avec le même calcul.
+
+**Tests** : `smoke.mjs` recalcule dans le test, sans passer par le code de l'application, le classement des canaux (ordre, CA, part, unités, variation en % et écart en € — ou leur
+absence pour un canal non comparable —, « nouveau »), sur la période comme sur un jour touché, avec les puces, les quatre langues et les filtres marketplace (volet absent) ; il
+vérifie aussi la disposition (trois colonnes dès 1 280 px, deux de 1 024 à 1 279 px), les trois onglets sur mobile (390 et 360 px, choix mémorisé, retour sur « Produits » avec un
+filtre actif) et l'absence de débordement ou de nom tronqué.
+
 ## Mise à jour du 17 octobre 2026 (nuit) — premier bloc « Données à jour » : suivi quotidien
 
 **Demande** : dans le premier bloc, le top 10 des produits sur la date, le % par pays sur la date de l'histogramme et le suivi, sur l'histogramme, de
@@ -23,7 +52,7 @@ la performance de l'année précédente sur le même exercice pour une donnée c
 - Le bloc suit le filtre marketplace global (Site Web, Leroy Merlin…) : barres, top 10 et pays se limitent à cette marketplace.
 - **Sur mobile** (écran de moins de 1 024 px), le top 10 et la part par pays s'affichent **un à la fois**, sous des onglets « Top 10 | % par pays » (le choix est
   mémorisé sur l'appareil) ; les lignes du top 10 sont plus serrées. Sur un écran de 390 px le bloc passe d'environ 1 220 px de haut à 905 px (top 10) ou 730 px (pays).
-  Les dix produits restent tous affichés ; sur ordinateur, les deux volets restent côte à côte, sans onglets.
+  Les dix produits restent tous affichés ; sur ordinateur, les deux volets restent côte à côte, sans onglets. (Depuis le 19 octobre : trois onglets « Produits | Marketplaces | % par pays », voir la section ci-dessus.)
 
 **Écart en €** : le % seul exagère les petites bases (+211 % peut ne valoir que +19 k€), donc chaque produit du top 10 et le chiffre en tête affichent aussi l'écart
 en euros avec les mêmes dates de l'an dernier : « +19k€ » dès 10 000 €, « +4.2k€ » de 1 000 à 9 999 €, « +840€ » en dessous. Il se calcule sur la même base que le % (les
