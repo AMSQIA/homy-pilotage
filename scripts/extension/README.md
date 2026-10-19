@@ -61,10 +61,15 @@ le choix « Même jour de semaine » le compare au jour 364 jours avant (`suiviC
 
 **Écart en € et mobile** : à côté de la variation en %, chaque produit du top 10 et le chiffre en tête affichent l'écart en euros avec les mêmes dates de l'an dernier
 (« +19k€ », « -4.2k€ », « +840€ »), sur la même base que le % ; « nouveau » = produit absent l'an dernier (écart = son CA) ; rien sur un seul jour ni sans base de
-comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Top 10 | % par pays », choix mémorisé dans `localStorage`,
-clé `homy_suivi_onglet`) ; sur ordinateur, les deux volets restent côte à côte.
+comparaison. Sous 1 024 px de large, le top 10 et la part par pays s'affichent un à la fois (onglets « Produits | Marketplaces | % par pays », choix mémorisé dans `localStorage`,
+clé `homy_suivi_onglet`) ; sur ordinateur, les volets restent côte à côte (trois colonnes dès 1 280 px).
 
-**« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète. Le « Site Web » 2025 du fichier ODP ne contient qu'une petite partie des ventes réelles du site (la boutique du site n'était pas encore dans ces chiffres) : tant que cette version est en ligne, la comparaison se fait donc sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; pour une marketplace absente du fichier 2025 (Boulanger, Brico Bravo, Maxeda, Worten) ou pour le site web seul, aucune comparaison. Le fichier 2025 n'a pas de détail par pays : pas de variation par pays. Ces limites disparaissent avec la version « tout vient de Shopify » (historique complet des deux boutiques).
+**Top 10 marketplaces** : volet « Marketplaces » (absent quand un filtre marketplace est actif) : le classement des canaux de vente — marketplaces et site web, en bleu —
+par CA HT sur la période ou le jour touché, avec part du CA, unités, variation en % et écart en € (`topMp` dans `suiviCalc`). La variation se calcule canal par canal et seulement
+pour un canal comparable : pas pour le site web (2025 partiel dans le fichier ODP), ni pour « Autre » (regroupement ODP 2025 ≠ marketplaces nommées aujourd'hui), ni pour une
+marketplace absente de `data/n1_2025.json` (`n1Connait`). Contrairement aux produits, les canaux gardent leur variation sur un jour touché (comme le chiffre en tête).
+
+**« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète. Le « Site Web » 2025 du fichier ODP ne contient qu'une petite partie des ventes réelles du site (la boutique du site n'était pas encore dans ces chiffres) : tant que cette version est en ligne, la comparaison se fait donc sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; pour une marketplace absente du fichier 2025 (Boulanger, Brico Bravo, Maxeda, Worten), pour « Autre » (regroupement du fichier ODP 2025 qui n'a pas le même contenu qu'aujourd'hui) ou pour le site web seul, aucune comparaison. Le fichier 2025 n'a pas de détail par pays : pas de variation par pays. Ces limites disparaissent avec la version « tout vient de Shopify » (historique complet des deux boutiques).
 
 Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
 contre un calcul indépendant fait dans le test (CA, variation et écart en € de chaque produit, parts de pays, onglets mobile compris).

@@ -10,7 +10,9 @@
  *     retirées le 17 octobre 2026 ;
  *   - le suivi quotidien du bloc : puces de période, histogramme du CA par jour avec la courbe « mêmes jours l'an dernier », jour touché,
  *     top 10 produits (variation en % et écart en € par produit, écart en € en tête) et part du CA par pays, filtre marketplace, 4 langues,
- *     jour touché avec choix « même date | même jour de la semaine », mobile (390 et 360 px : onglets « Top 10 | % par pays », un seul volet à la fois) ;
+ *     jour touché avec choix « même date | même jour de la semaine », top 10 des marketplaces (classement, parts, unités, variation et écart en € par canal
+ *     comparable ; absent avec un filtre marketplace), mobile (390 et 360 px : onglets « Produits | Marketplaces | % par pays », un seul volet à la fois),
+ *     bureau (trois volets côte à côte dès 1280 px) ;
  *     les chiffres attendus sont recalculés
  *     dans le test, directement depuis les fichiers du dépôt, indépendamment du code de l'application ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
@@ -142,22 +144,25 @@ function suiviAttendu(E, n, jourSel, mpF, semaine = false) {
   const au = jourSel || dmax, du = jourSel || addJ(dmax, 1 - n);
   const N1 = lireJson("data/n1_2025.json");
   const garde = (mp) => !mpF || mp === mpF;
-  const r = { mp: 0, site: 0, prod: {}, prodMp: {}, prodN1: {}, prodN1Mp: {}, pays: {}, n1: { mp: 0, site: 0, all: null }, avecMp: mpF !== "Site Web", avecSite: !mpF || mpF === "Site Web", nbJours: jourSel ? 1 : n };
+  const r = { mp: 0, site: 0, prod: {}, prodMp: {}, prodN1: {}, prodN1Mp: {}, canal: {}, canalQte: {}, canalN1: {}, pays: {}, n1: { mp: 0, site: 0, all: null }, avecMp: mpF !== "Site Web", avecSite: !mpF || mpF === "Site Web", nbJours: jourSel ? 1 : n };
   const cumul = (o, nom, c) => { o[nom] = (o[nom] || 0) + c; };
-  for (const [d, im, ip, ipa, , c] of ext.lignes) {
+  for (const [d, im, ip, ipa, q, c] of ext.lignes) {
     if (d <= odp || d < du || d > au || !garde(ext.mp[im])) continue;
     const site = ext.mp[im] === "Site Web", nom = ext.produits[ip][0];
     if (site) r.site += c; else { r.mp += c; cumul(r.prodMp, nom, c); }
     cumul(r.prod, nom, c);
+    cumul(r.canal, ext.mp[im], c); cumul(r.canalQte, ext.mp[im], q);
     const pa = ext.pays[ipa] ?? null; r.pays[pa] = (r.pays[pa] || 0) + c;
   }
   const a = semaine ? addJ(du, -364) : jourAn(du), b = semaine ? addJ(au, -364) : jourAn(au); // semaine : même jour de la semaine l'an dernier
-  for (const [d, im, ip, , , c] of N1.lignes) if (d >= a && d <= b && N1.mp[im] !== "Site Web" && garde(N1.mp[im])) { r.n1.mp += c; cumul(r.prodN1, N1.produits[ip], c); cumul(r.prodN1Mp, N1.produits[ip], c); }
-  const connu = !mpF || mpF === "Site Web" || N1.mp.includes(mpF);
+  for (const [d, im, ip, , , c] of N1.lignes) if (d >= a && d <= b && N1.mp[im] !== "Site Web" && garde(N1.mp[im])) { r.n1.mp += c; cumul(r.prodN1, N1.produits[ip], c); cumul(r.prodN1Mp, N1.produits[ip], c); cumul(r.canalN1, N1.mp[im], c); }
+  const connu = !mpF || mpF === "Site Web" || (N1.mp.includes(mpF) && mpF !== "Autre"); // « Autre » 2025 (ODP) regroupe des marketplaces désormais nommées une à une
   r.mode = mpF === "Site Web" || !connu || a < N1.du ? "aucun" : mpF ? "total" : "mp";
   if (r.mode === "total") r.n1.all = r.n1.mp;
   if (r.mode === "aucun") r.n1.mp = 0;
   r.total = r.mp + r.site;
+  // canal comparable avec l'an dernier : le site web non (pas d'historique l'an dernier), « Autre » non (autre définition), une marketplace absente de 2025 non
+  r.comparable = (nom) => r.mode !== "aucun" && nom !== "Site Web" && nom !== "Autre" && N1.mp.includes(nom);
   return r;
 }
 
@@ -168,6 +173,7 @@ const lireSuivi = (page) => page.evaluate(() => {
     bloc: txt(q('[data-suivi="bloc"]')), total: txt(q('[data-suivi="total"]')), valeur: Number((q('[data-suivi="total"]') || { dataset: {} }).dataset.valeur),
     legende: txt(q('[data-suivi="legende"]')), kpi: txt(q('[data-suivi="kpi"]')),
     puces: [...document.querySelectorAll('[data-suivi="puces"] button')].map((b) => ({ n: Number(b.dataset.n), actif: b.getAttribute("aria-pressed") === "true" })),
+    canaux: [...document.querySelectorAll('[data-suivi-ligne="mp"]')].map((r) => ({ nom: r.dataset.nom, ca: Number(r.dataset.ca), texte: r.innerText })),
     produits: [...document.querySelectorAll('[data-suivi-ligne="produit"]')].map((r) => ({ nom: r.dataset.nom, ca: Number(r.dataset.ca), texte: r.innerText })),
     pays: [...document.querySelectorAll('[data-suivi-ligne="pays"]')].map((r) => ({ nom: r.dataset.nom, part: Number(r.dataset.part), ca: Number(r.dataset.ca) })),
     reset: Boolean(q('[data-suivi="reset"]')), vs: Boolean(q('[data-suivi="vs"]')), deltaMp: Boolean(q('[data-suivi="delta-mp"]')), ecart: Boolean(q('[data-suivi="ecart"]')), vsTexte: txt(q('[data-suivi="vs"]')),
@@ -193,11 +199,34 @@ const voletsVisibles = (page) => page.evaluate(() => {
   const vis = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const actif = document.querySelector('[data-suivi="onglets"] [aria-selected="true"]');
   return {
-    onglets: vis(document.querySelector('[data-suivi="onglets"]')), top: vis(document.querySelector('[data-suivi="top10"]')), pays: vis(document.querySelector('[data-suivi="pays"]')),
+    onglets: vis(document.querySelector('[data-suivi="onglets"]')), top: vis(document.querySelector('[data-suivi="top10"]')), mp: vis(document.querySelector('[data-suivi="mp"]')), pays: vis(document.querySelector('[data-suivi="pays"]')),
     deltaMp: [...document.querySelectorAll('[data-suivi="delta-mp"]')].some(vis), actif: actif ? actif.dataset.onglet : null,
   };
 });
-const decrireVolets = (e) => `onglets ${e.onglets ? "visibles" : "masqués"}, top 10 ${e.top ? "visible" : "masqué"}, pays ${e.pays ? "visibles" : "masqués"}, note Δ marketplaces ${e.deltaMp ? "visible" : "masquée"}, onglet actif « ${e.actif} »`;
+const decrireVolets = (e) => `onglets ${e.onglets ? "visibles" : "masqués"}, top 10 ${e.top ? "visible" : "masqué"}, marketplaces ${e.mp ? "visibles" : "masquées"}, pays ${e.pays ? "visibles" : "masqués"}, note Δ marketplaces ${e.deltaMp ? "visible" : "masquée"}, onglet actif « ${e.actif} »`;
+// top 10 des marketplaces (site web compris), sans filtre marketplace : mêmes canaux dans le même ordre, mêmes montants, part du CA affiché, unités ;
+// variation en % et écart en € seulement pour un canal comparable (jamais sur une base incomplète) ; avec un filtre marketplace, le volet n'existe pas
+function comparerCanaux(s, A, etiquette) {
+  const ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
+  if (!(A.avecMp && A.avecSite)) { ok(s.canaux.length === 0, `top 10 marketplaces affiché (${s.canaux.length} ligne(s)) alors qu'une marketplace est filtrée`); return; }
+  const canaux = trier(A.canal).slice(0, 10), libelle = { "Site Web": "Site web", "Autre": "Autres" };
+  ok(s.canaux.length === canaux.length, `top 10 marketplaces : ${s.canaux.length} ligne(s), ${canaux.length} attendue(s)`);
+  canaux.forEach(([nom, ca], i) => {
+    const l = s.canaux[i];
+    ok(l && l.nom === nom && proche(l.ca, ca, 1.5), `top 10 marketplaces, rang ${i + 1} : « ${l && l.nom} » ${l && l.ca} € ≠ « ${nom} » ${Math.round(ca)} €`);
+    if (!l) return;
+    const txt = norm(l.texte), cur = ca, ref = A.canalN1[nom] || 0;
+    ok(contient(txt, libelle[nom] || nom), `top 10 marketplaces, « ${nom} » : libellé absent (${txt})`);
+    ok(contient(txt, `${fmtNum(ca)} €`), `top 10 marketplaces, « ${nom} » : montant ${fmtNum(ca)} € absent (${txt})`);
+    ok(contient(txt, `${((ca / A.total) * 100).toFixed(1)} %`), `top 10 marketplaces, « ${nom} » : part ${((ca / A.total) * 100).toFixed(1)} % absente (${txt})`);
+    ok(contient(txt, `${fmtNum(A.canalQte[nom] || 0)} u.`), `top 10 marketplaces, « ${nom} » : ${fmtNum(A.canalQte[nom] || 0)} u. absentes (${txt})`);
+    if (!A.comparable(nom) || (cur === 0 && ref === 0)) { ok(!/[▲▼▬]|nouveau|[+-]\d[\d.]*k?€/i.test(txt), `top 10 marketplaces, « ${nom} » : variation affichée alors que ce canal n'est pas comparable (${txt})`); return; }
+    ok(contient(txt, ecartApp(cur - ref)), `top 10 marketplaces, « ${nom} » : écart ${ecartApp(cur - ref)} absent (${txt})`);
+    if (ref > 0) ok(contient(txt, varApp((cur / ref - 1) * 100)), `top 10 marketplaces, « ${nom} » : variation ${varApp((cur / ref - 1) * 100)} absente (${txt})`);
+    else ok(contient(txt, "nouveau"), `top 10 marketplaces, « ${nom} » : pastille « nouveau » absente (${txt})`);
+  });
+  ok(s.canaux.every((c, i) => i === 0 || c.ca <= s.canaux[i - 1].ca + 1.5), "top 10 marketplaces : les lignes ne sont pas classées par CA décroissant");
+}
 // vérifie ce qui est affiché (en tête, légende, courbe de l'an dernier, top 10, pays) contre le calcul indépendant
 function comparerSuivi(s, A, etiquette, jour = false) {
   const ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
@@ -232,6 +261,7 @@ function comparerSuivi(s, A, etiquette, jour = false) {
     if (ref > 0) ok(contient(txt, varApp((cur / ref - 1) * 100)), `top 10, « ${nom} » : variation ${varApp((cur / ref - 1) * 100)} absente (${txt})`);
     else ok(contient(txt, "nouveau"), `top 10, « ${nom} » : pastille « nouveau » absente (${txt})`);
   });
+  comparerCanaux(s, A, etiquette);
   // pays : la part de chaque pays = son CA ÷ le CA de la fenêtre (6 pays puis « Autres »)
   const ts = trier(A.pays), sommePays = ts.reduce((a, [, v]) => a + v, 0);
   ok(s.pays.length === Math.min(ts.length, 7), `pays : ${s.pays.length} ligne(s), ${Math.min(ts.length, 7)} attendue(s)`);
@@ -251,12 +281,12 @@ async function verifierSuivi(browser, base, E) {
     verifier(s.puces.length >= 1 && s.puces.filter((p) => p.actif).length === 1, `suivi : ${s.puces.length} puce(s) de période dont ${s.puces.filter((p) => p.actif).length} active(s) (une seule attendue)`);
     const n = (s.puces.find((p) => p.actif) || { n: 7 }).n;
     verifier(s.barres >= Math.min(n, 7), `suivi : ${s.barres} barre(s) dans l'histogramme pour ${n} jour(s)`);
-    for (const m of ["Top 10 produits", "Part du CA par pays", "Touchez un jour"]) verifier(contient(s.bloc, m), `suivi : « ${m} » absent`);
+    for (const m of ["Top 10 produits", "Top 10 marketplaces", "Part du CA par pays", "Touchez un jour"]) verifier(contient(s.bloc, m), `suivi : « ${m} » absent`);
     verifier(!/\{(n|an|plage|date)\}/.test(s.bloc), "suivi : variable de modèle non remplacée");
     comparerSuivi(s, suiviAttendu(E, n), `suivi ${n} j`);
     {
       const A0 = suiviAttendu(E, n), v0 = await voletsVisibles(page);
-      verifier(!v0.onglets && v0.top && v0.pays, `suivi bureau : onglets masqués et deux volets visibles attendus (${decrireVolets(v0)})`);
+      verifier(!v0.onglets && v0.top && v0.mp && v0.pays, `suivi bureau : onglets masqués et trois volets visibles attendus (${decrireVolets(v0)})`);
       verifier(v0.deltaMp === (A0.mode === "mp" && A0.nbJours >= 7), `suivi bureau : note « Δ marketplaces » ${v0.deltaMp ? "affichée" : "absente"} en mode ${A0.mode}`);
     }
     const autre = s.puces.find((p) => p.n !== n);
@@ -314,18 +344,20 @@ async function verifierSuivi(browser, base, E) {
     await ctx.close();
   }
   // b) filtre marketplace global : le suivi suit la marketplace (ou le site web)
-  for (const mp of ["Leroy Merlin", "Site Web"]) {
+  for (const mp of ["Leroy Merlin", "Site Web", "Autre"]) { // « Autre » : jamais comparé à 2025 (le regroupement ODP n'a pas la même définition)
     const { ctx, page, erreurs } = await ouvrir(browser);
     await ouvrirDashboard(page, base, { marketplace: mp });
     const s = await lireSuivi(page);
     const n = (s.puces.find((p) => p.actif) || { n: 7 }).n;
     verifier(contient(s.kpi, mp === "Site Web" ? "Site web" : mp), `suivi, filtre ${mp} : nom de la marketplace absent de l'en-tête (${s.kpi})`);
     comparerSuivi(s, suiviAttendu(E, n, null, mp), `suivi filtre ${mp}`);
+    const vf = await voletsVisibles(page);
+    verifier(!vf.mp && vf.top && vf.pays, `suivi, filtre ${mp} : pas de top 10 marketplaces attendu avec un filtre (${decrireVolets(vf)})`);
     verifier(erreurs.length === 0, `erreurs JavaScript (suivi, filtre ${mp}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
   // c) autres langues : titres traduits, aucune variable de modèle
-  for (const [lang, titres] of [["en", ["Top 10 products", "Revenue share by country"]], ["es", ["Top 10 productos", "Cuota de ventas por país"]], ["zh", ["产品前 10 名", "各国销售占比"]]]) {
+  for (const [lang, titres] of [["en", ["Top 10 products", "Top 10 marketplaces", "Revenue share by country"]], ["es", ["Top 10 productos", "Top 10 marketplaces", "Cuota de ventas por país"]], ["zh", ["产品前 10 名", "平台前 10 名", "各国销售占比"]]]) {
     const { ctx, page, erreurs } = await ouvrir(browser);
     await ouvrirDashboard(page, base, { lang });
     const s = await lireSuivi(page);
@@ -346,13 +378,17 @@ async function verifierSuivi(browser, base, E) {
     }
     return mauvais.slice(0, 4);
   });
+  // noms de marketplaces rognés par la mise en page (points de suspension) : il ne doit y en avoir aucun
+  const nomsTronques = (page) => page.evaluate(() => [...document.querySelectorAll('[data-suivi-ligne=\"mp\"] .truncate')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.innerText));
   for (const largeur of [390, 360]) {
     const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 844 });
     await ouvrirDashboard(page, base);
     const s0 = await lireSuivi(page);
     const n = (s0.puces.find((p) => p.actif) || { n: 7 }).n, A = suiviAttendu(E, n), et = `suivi mobile ${largeur}px`;
     let e = await voletsVisibles(page);
-    verifier(e.onglets && e.top && !e.pays && e.actif === "top", `${et} : au départ, onglets visibles et top 10 seul attendus (${decrireVolets(e)})`);
+    verifier(e.onglets && e.top && !e.mp && !e.pays && e.actif === "top", `${et} : au départ, onglets visibles et top 10 seul attendus (${decrireVolets(e)})`);
+    const cles = await page.evaluate(() => [...document.querySelectorAll('[data-suivi="onglets"] [role="tab"]')].map((b) => b.dataset.onglet));
+    verifier(cles.join() === "top,mp,pays", `${et} : onglets « ${cles.join()} » (top,mp,pays attendus)`);
     verifier(e.deltaMp === (A.mode === "mp" && A.nbJours >= 7), `${et} : note « Δ marketplaces » ${e.deltaMp ? "affichée" : "absente"} en mode ${A.mode}`);
     verifier(s0.produits.length === Math.min(10, Object.keys(A.prod).length), `${et} : ${s0.produits.length} ligne(s) de top 10 (10 attendues, les 10 produits restent tous affichés)`);
     let trop = await depassements(page);
@@ -362,9 +398,26 @@ async function verifierSuivi(browser, base, E) {
       verifier(trop.length === 0, `${et}, jour touché : contenu qui dépasse (${trop.join(" ; ")})`);
       await page.locator('[data-suivi="reset"]').click(); await page.waitForTimeout(300);
     }
+    await page.locator('[data-suivi="onglets"] [data-onglet="mp"]').click(); await page.waitForTimeout(400);
+    e = await voletsVisibles(page);
+    verifier(e.onglets && !e.top && e.mp && !e.pays && e.actif === "mp" && !e.deltaMp, `${et} : après « Marketplaces », les marketplaces seules sont attendues (${decrireVolets(e)})`);
+    comparerCanaux(await lireSuivi(page), A, `${et}, marketplaces`);
+    trop = await depassements(page);
+    verifier(trop.length === 0, `${et}, marketplaces : contenu qui dépasse (${trop.join(" ; ")})`);
+    verifier((await nomsTronques(page)).length === 0, `${et}, marketplaces : noms rognés (${(await nomsTronques(page)).join(" ; ")})`);
+    if (await cliquerJour(page, 3)) { // jour touché : les marketplaces du jour (variation et écart compris) sans rien qui dépasse
+      const jt = addJ(E.rap.dmax, 1 - n + Math.min(3, n - 1));
+      comparerCanaux(await lireSuivi(page), suiviAttendu(E, n, jt), `${et}, marketplaces du ${jt}`);
+      trop = await depassements(page);
+      verifier(trop.length === 0, `${et}, marketplaces, jour touché : contenu qui dépasse (${trop.join(" ; ")})`);
+      await page.locator('[data-suivi="reset"]').click(); await page.waitForTimeout(300);
+    }
+    await ouvrirDashboard(page, base); // le volet choisi est mémorisé dans le navigateur
+    e = await voletsVisibles(page);
+    verifier(e.actif === "mp" && !e.top && e.mp && !e.pays, `${et} : le volet « marketplaces » n'est pas retrouvé après rechargement (${decrireVolets(e)})`);
     await page.locator('[data-suivi="onglets"] [data-onglet="pays"]').click(); await page.waitForTimeout(400);
     e = await voletsVisibles(page);
-    verifier(e.onglets && !e.top && e.pays && e.actif === "pays" && !e.deltaMp, `${et} : après « % par pays », les pays seuls sont attendus (${decrireVolets(e)})`);
+    verifier(e.onglets && !e.top && !e.mp && e.pays && e.actif === "pays" && !e.deltaMp, `${et} : après « % par pays », les pays seuls sont attendus (${decrireVolets(e)})`);
     const sp = await lireSuivi(page), ts = trier(A.pays), somme = ts.reduce((a, [, v]) => a + v, 0);
     verifier(sp.pays.length === Math.min(ts.length, 7) && ts.slice(0, 6).every(([nom, ca], k) => sp.pays[k] && sp.pays[k].nom === nom && proche(sp.pays[k].part, (ca / somme) * 100, 0.02)), `${et} : parts de pays affichées ≠ calcul indépendant`);
     trop = await depassements(page);
@@ -374,16 +427,55 @@ async function verifierSuivi(browser, base, E) {
     verifier(e.actif === "pays" && !e.top && e.pays, `${et} : le volet « pays » n'est pas retrouvé après rechargement (${decrireVolets(e)})`);
     await page.locator('[data-suivi="onglets"] [data-onglet="top"]').click(); await page.waitForTimeout(400);
     e = await voletsVisibles(page);
-    verifier(e.actif === "top" && e.top && !e.pays, `${et} : retour sur « Top 10 » (${decrireVolets(e)})`);
+    verifier(e.actif === "top" && e.top && !e.mp && !e.pays, `${et} : retour sur « Produits » (${decrireVolets(e)})`);
     verifier(erreurs.length === 0, `erreurs JavaScript (suivi mobile ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
+  // d bis) bureau : trois volets côte à côte dès 1280 px (produits | marketplaces | pays) ; en dessous, produits à gauche et marketplaces au-dessus des pays ; rien ne dépasse ni n'est rogné
+  for (const largeur of [1280, 1100]) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 900 });
+    await ouvrirDashboard(page, base);
+    const pos = await page.evaluate(() => {
+      const r = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return b.width > 0 ? { x: b.left, y: b.top, w: b.width, h: b.height } : null; };
+      return { top: r('[data-suivi="top10"]'), mp: r('[data-suivi="mp"]'), pays: r('[data-suivi="pays"]') };
+    });
+    const et = `suivi bureau ${largeur}px`;
+    if (verifier(pos.top && pos.mp && pos.pays, `${et} : volets absents (${JSON.stringify(pos)})`)) {
+      if (largeur >= 1280) verifier(pos.top.x < pos.mp.x && pos.mp.x < pos.pays.x && Math.abs(pos.top.y - pos.mp.y) < 3 && Math.abs(pos.mp.y - pos.pays.y) < 3, `${et} : trois volets côte à côte attendus (${JSON.stringify(pos)})`);
+      else verifier(pos.top.x < pos.mp.x && Math.abs(pos.mp.x - pos.pays.x) < 3 && pos.pays.y > pos.mp.y + pos.mp.h - 3, `${et} : produits à gauche, marketplaces au-dessus des pays attendus (${JSON.stringify(pos)})`);
+      verifier(pos.mp.w >= 240, `${et} : volet marketplaces trop étroit (${Math.round(pos.mp.w)}px)`);
+    }
+    const trop = await depassements(page);
+    verifier(trop.length === 0, `${et} : contenu qui dépasse (${trop.join(" ; ")})`);
+    verifier((await nomsTronques(page)).length === 0, `${et} : noms de marketplaces rognés (${(await nomsTronques(page)).join(" ; ")})`);
+    if (await cliquerJour(page, 3)) { // jour touché : variations et écarts par marketplace sans rien qui dépasse
+      const t2 = await depassements(page);
+      verifier(t2.length === 0, `${et}, jour touché : contenu qui dépasse (${t2.join(" ; ")})`);
+    }
+    verifier(erreurs.length === 0, `erreurs JavaScript (suivi bureau ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // d ter) mobile avec un filtre marketplace : pas d'onglet « Marketplaces » (une seule ligne à classer) ; un volet « marketplaces » mémorisé retombe sur « Produits »
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 390, hauteur: 844 });
+    await page.addInitScript(() => { try { localStorage.setItem("homy_suivi_onglet", "mp"); } catch { /* ignoré */ } });
+    await ouvrirDashboard(page, base, { marketplace: "Leroy Merlin" });
+    const cles = await page.evaluate(() => [...document.querySelectorAll('[data-suivi="onglets"] [role="tab"]')].map((b) => b.dataset.onglet));
+    const e = await voletsVisibles(page);
+    verifier(cles.join() === "top,pays", `suivi mobile, filtre Leroy Merlin : onglets « ${cles.join()} » (top,pays attendus)`);
+    verifier(e.onglets && e.top && !e.mp && !e.pays && e.actif === "top", `suivi mobile, filtre Leroy Merlin : un volet « marketplaces » mémorisé doit retomber sur « Produits » (${decrireVolets(e)})`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (suivi mobile filtré) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
   // libellés des onglets dans les autres langues, sans débordement sur le plus petit écran
-  for (const [lang, onglets] of [["en", ["Top 10", "% by country"]], ["es", ["Top 10", "% por país"]], ["zh", ["前 10 名", "国家占比"]]]) {
+  for (const [lang, onglets] of [["en", ["Products", "Marketplaces", "% by country"]], ["es", ["Productos", "Marketplaces", "% por país"]], ["zh", ["产品", "平台", "国家占比"]]]) {
     const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 360, hauteur: 844 });
     await ouvrirDashboard(page, base, { lang });
     const txt = await page.evaluate(() => { const el = document.querySelector('[data-suivi="onglets"]'); return el ? el.innerText : ""; });
     for (const m of onglets) verifier(contient(txt, m), `suivi mobile ${lang.toUpperCase()} : onglet « ${m} » absent (${norm(txt)})`);
+    const sl = await lireSuivi(page), siteLigne = sl.canaux.find((c) => c.nom === "Site Web"), libSite = { en: "Website", es: "Sitio web", zh: "官网" }[lang];
+    if (siteLigne) verifier(contient(siteLigne.texte, libSite), `suivi mobile ${lang.toUpperCase()} : le site web devrait s'appeler « ${libSite} » (${norm(siteLigne.texte)})`);
+    verifier(sl.canaux.length > 0 && !/\{|undefined/.test(sl.canaux.map((c) => c.texte).join(" ")), `suivi mobile ${lang.toUpperCase()} : top 10 marketplaces vide ou avec une variable de modèle`);
     let trop = await depassements(page);
     verifier(trop.length === 0, `suivi mobile 360px ${lang.toUpperCase()} : contenu qui dépasse (${trop.join(" ; ")})`);
     if (await cliquerJour(page, 3)) { // libellés du choix de comparaison dans chaque langue, jour touché
@@ -538,7 +630,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, part du CA par pays, 4 langues, mobile avec onglets) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
+  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
   return 0;
 }
 
