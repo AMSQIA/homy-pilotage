@@ -1472,8 +1472,13 @@ function SuiviQuotidien({ t, lang, mpF, accent }) {
   const cBarre = mpF === SUIVI_SITE ? cSite : cMp;
   const an1 = Number(au.slice(0, 4)) - 1;
   const ligneN1 = periode.mode !== "aucun";
+  // objectif du jour : objectif de la semaine Excel du plan 2026 ÷ 7, ramené à la marketplace filtrée au prorata de son objectif annuel
+  const objEntree = mpF ? DATA.mp_vs_objectif.find((m) => m.marketplace === mpF) : null;
+  const partObj = !mpF ? 1 : objEntree && objEntree.objectif_fiable && objEntree.objectif ? objEntree.objectif / DATA.kpi.objectif_annuel_total : null;
+  const objJour = (iso) => { if (partObj === null) return null; const h = OBJECTIF_2026.hebdo.find((x) => x[0] === excelWeekOf(iso)); return h ? Math.round((h[1] / 7) * partObj) : null; };
+  const avecObj = partObj !== null && periode.jours.every((j) => objJour(j.d) !== null);
   const donnees = periode.jours.map((j) => ({
-    d: j.d, mp: Math.round(j.mp), site: Math.round(j.site),
+    d: j.d, mp: Math.round(j.mp), site: Math.round(j.site), obj: avecObj ? objJour(j.d) : null,
     n1: !ligneN1 ? null : Math.round(periode.mode === "mp" ? j.n1mp : (periode.avecMp ? j.n1mp : 0) + (periode.avecSite ? j.n1site : 0)),
     n1d: j.n1d,
   }));
@@ -1508,6 +1513,12 @@ function SuiviQuotidien({ t, lang, mpF, accent }) {
         <div className="flex flex-col gap-0.5">
           {periode.avecMp && ligne(cMp, filtreMp ? mpF : t.donnees_mp, r.mp)}
           {periode.avecSite && ligne(cSite, t.donnees_site, r.site)}
+          {r.obj !== null && r.obj !== undefined && (
+            <div className="flex items-center justify-between gap-4 mt-1 pt-1" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
+              <span style={{ color: MUTED }}>Objectif du jour</span>
+              <span className="tabular-nums" style={{ color: GREEN }}>{fmtEURplain(r.obj)} <SuiviDelta pct={suiviVariation(tot, r.obj)} petit /></span>
+            </div>
+          )}
           {r.n1 !== null && (
             <div className="flex items-center justify-between gap-4 mt-1 pt-1" style={{ borderTop: `1px solid ${PANEL_BORDER_QUIET}` }}>
               <span style={{ color: MUTED }}>{fmtCourt(r.n1d)} {an1}{periode.mode === "mp" ? ` · ${t.donnees_mp.toLowerCase()}` : ""}</span>
@@ -1576,6 +1587,9 @@ function SuiviQuotidien({ t, lang, mpF, accent }) {
         {R.avecSite && (
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: cSite }} />{t.donnees_site} <span className="tabular-nums" style={{ color: INK }}>{fmtMontant(R.cur.site)}</span>{R.avecMp && <SuiviDelta pct={suiviVariation(R.cur.site, R.ref.site)} petit />}</span>
         )}
+        {avecObj && (
+          <span className="flex items-center gap-1.5" data-suivi="objectif"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: GREEN }} />Objectif (plan 2026)</span>
+        )}
         {ligneN1 && (
           <span className="flex items-center gap-1.5" data-suivi="n1"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: SUIVI_LIGNE_N1 }} />{(periode.mode === "mp" ? t.suivi_n1_mp : t.suivi_n1).replace("{an}", an1)}</span>
         )}
@@ -1591,6 +1605,7 @@ function SuiviQuotidien({ t, lang, mpF, accent }) {
             <Tooltip content={bulle} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
             {periode.avecMp && <Bar dataKey="mp" stackId="j" fill={cMp} radius={periode.avecSite ? undefined : [4, 4, 0, 0]} isAnimationActive={false}>{celles("mp")}</Bar>}
             {periode.avecSite && <Bar dataKey="site" stackId="j" fill={cSite} radius={[4, 4, 0, 0]} isAnimationActive={false}>{celles("site")}</Bar>}
+ {avecObj && <Line dataKey="obj" type="stepAfter" stroke={GREEN} strokeWidth={1.75} strokeDasharray="6 4" dot={false} activeDot={false} connectNulls isAnimationActive={false} />}
             {ligneN1 && <Line dataKey="n1" type="monotone" stroke={SUIVI_LIGNE_N1} strokeWidth={1.75} strokeDasharray="5 4" dot={donnees.length <= 16 ? { r: 2.2, fill: SUIVI_LIGNE_N1, stroke: "none" } : false} activeDot={false} connectNulls isAnimationActive={false} />}
           </ComposedChart>
         </ResponsiveContainer>

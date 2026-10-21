@@ -177,7 +177,7 @@ const lireSuivi = (page) => page.evaluate(() => {
     produits: [...document.querySelectorAll('[data-suivi-ligne="produit"]')].map((r) => ({ nom: r.dataset.nom, ca: Number(r.dataset.ca), texte: r.innerText })),
     pays: [...document.querySelectorAll('[data-suivi-ligne="pays"]')].map((r) => ({ nom: r.dataset.nom, part: Number(r.dataset.part), ca: Number(r.dataset.ca) })),
     reset: Boolean(q('[data-suivi="reset"]')), vs: Boolean(q('[data-suivi="vs"]')), deltaMp: Boolean(q('[data-suivi="delta-mp"]')), ecart: Boolean(q('[data-suivi="ecart"]')), vsTexte: txt(q('[data-suivi="vs"]')),
-    ligneN1: document.querySelectorAll('[data-suivi="graphique"] .recharts-line-curve').length,
+    ligneN1: document.querySelectorAll('[data-suivi="graphique"] .recharts-line-curve[stroke="#EDE7DB"]').length,
     barres: document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle').length,
   };
 });
