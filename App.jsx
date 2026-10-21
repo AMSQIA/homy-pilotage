@@ -4220,16 +4220,19 @@ function DashboardApp() {
   // sans coupure ; le mois en cours (partiel) n'est pas tracé en réel : il est
   // couvert, en mois entier, par la fourchette anticipée. =====
   const trendWithForecast = useMemo(() => {
+    // objectif mensuel du plan 2026 (courbe pointillée), ramené à la marketplace filtrée au prorata de son objectif annuel
+    const objRef = estimationAnnuelle.objectifRef;
+    const objMois = (i) => (objRef ? Math.round(objRef * (OBJECTIF_2026.mensuel[i] / OBJECTIF_2026.annuel)) : null);
     return trendCombined.map((row, i) => {
-      if (i < MOIS_EN_COURS_IDX - 1) return { ...row, bas: null, haut: null };
-      if (i === MOIS_EN_COURS_IDX - 1) return { ...row, bas: row[2026], haut: row[2026] }; // jonction sur le dernier point réel
+      if (i < MOIS_EN_COURS_IDX - 1) return { ...row, bas: null, haut: null, objectif: objMois(i) };
+      if (i === MOIS_EN_COURS_IDX - 1) return { ...row, bas: row[2026], haut: row[2026], objectif: objMois(i) }; // jonction sur le dernier point réel
       const est = estimationAnnuelle.parMois[i];
-      return { ...row, 2026: null, bas: est?.bas ?? null, haut: est?.haut ?? null };
+      return { ...row, 2026: null, bas: est?.bas ?? null, haut: est?.haut ?? null, objectif: objMois(i) };
     });
   }, [trendCombined, estimationAnnuelle]);
   // l'axe Y doit aussi couvrir la fourchette haute anticipée, sinon la zone se
   // fait couper en haut du graphique quand l'estimation dépasse l'historique
-  const maxYearlyMonthWithForecast = Math.max(maxYearlyMonth, estimationAnnuelle.maxMois);
+  const maxYearlyMonthWithForecast = Math.max(maxYearlyMonth, estimationAnnuelle.maxMois, ...trendWithForecast.map((r) => r.objectif || 0));
 
   // ===== anticipation éclatée par marketplace — même méthode à fourchette,
   // calculée séparément pour chaque marketplace plutôt qu'une seule masse =====
@@ -4625,6 +4628,9 @@ function DashboardApp() {
                     {[2024, 2025, 2026].filter((y) => visibleYears[y]).map((y) => (
                       <Area key={y} type="monotone" dataKey={String(y)} name={String(y)} stroke={YEAR_COLORS[y]} strokeWidth={2.5} fill={`url(#fillY${y})`} dot={{ r: 3, fill: YEAR_COLORS[y], cursor: "pointer" }} activeDot={{ r: 6, cursor: "pointer" }} connectNulls animationDuration={800} />
                     ))}
+                    {estimationAnnuelle.objectifRef && (
+                      <Area type="monotone" dataKey="objectif" name="Objectif 2026" stroke={GREEN} strokeWidth={2} strokeDasharray="6 4" fill="none" fillOpacity={0} connectNulls animationDuration={800} dot={{ r: 2.5, fill: GREEN }} activeDot={{ r: 5 }} />
+                    )}
                     {visibleYears[2026] && (
                       <Area type="monotone" dataKey="haut" name="haut" stroke={YEAR_COLORS[2026]} strokeWidth={1} strokeDasharray="4 3" fill={YEAR_COLORS[2026]} fillOpacity={0.12} connectNulls animationDuration={800} dot={false} activeDot={false} />
                     )}
@@ -4634,9 +4640,10 @@ function DashboardApp() {
                   </AreaChart>
                 </ResponsiveContainer>
               </GlassCard>
-              {visibleYears[2026] && (
-                <div className="flex items-center gap-1.5 mt-1.5 text-[10px]" style={{ color: FAINT }}>
-                  <span className="inline-block w-3 border-t border-dashed" style={{ borderColor: YEAR_COLORS[2026] }} /> {t.legende_anticipe} {MOIS_FR[MOIS_EN_COURS_IDX]}–{MOIS_FR[11]}
+              {(visibleYears[2026] || estimationAnnuelle.objectifRef) && (
+                <div className="flex items-center gap-4 mt-1.5 text-[10px] flex-wrap" style={{ color: FAINT }}>
+                  {visibleYears[2026] && (<span className="flex items-center gap-1.5"><span className="inline-block w-3 border-t border-dashed" style={{ borderColor: YEAR_COLORS[2026] }} /> {t.legende_anticipe} {MOIS_FR[MOIS_EN_COURS_IDX]}–{MOIS_FR[11]}</span>)}
+                  {estimationAnnuelle.objectifRef && (<span className="flex items-center gap-1.5"><span className="inline-block w-3 border-t-2 border-dashed" style={{ borderColor: GREEN }} /> Objectif 2026 (plan mensuel)</span>)}
                 </div>
               )}
 
