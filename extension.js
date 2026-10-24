@@ -112,7 +112,7 @@ export function coupeN1(n1, dmax) {
 /* ------------------------------------------------------------------------------------------------ outils */
 const CONSTANTES = [
   "DATA", "SKU_PRODUIT", "SKU_MONTHLY", "SKU_DESTOCKAGE", "SKU_FAMILLE", "SKU_WIFI", "SKU_PLINTHE", "SKU_VERTICAL",
-  "SKU_SOUS_FAMILLE", "SKU_SOUS_SOUS_FAMILLE", "PRODUCT_TO_CATEGORY", "PAYS_MONTHLY", "SKU_CUT_N1",
+  "SKU_SOUS_FAMILLE", "SKU_SOUS_SOUS_FAMILLE", "SKU_MARQUE", "PRODUCT_TO_CATEGORY", "PAYS_MONTHLY", "SKU_CUT_N1",
   "WEEKLY_TOTALS", "WEEKLY_BY_MP", "WEEKLY_BY_PROD",
 ];
 const copie = (x) => JSON.parse(JSON.stringify(x));
@@ -156,6 +156,7 @@ function ajouter(W, lignes, rap) {
     W.SKU_DESTOCKAGE.push(!!a.destockage); W.SKU_FAMILLE.push(a.famille ?? null); W.SKU_WIFI.push(!!a.wifi);
     W.SKU_PLINTHE.push(!!a.plinthe); W.SKU_VERTICAL.push(!!a.vertical);
     W.SKU_SOUS_FAMILLE.push(a.sous_famille ?? null); W.SKU_SOUS_SOUS_FAMILLE.push(a.sous_sous_famille ?? null);
+    W.SKU_MARQUE.push(marque);
     if (a.categorie) W.PRODUCT_TO_CATEGORY[nom] = a.categorie;
     pIdx.set(nom, i);
     inconnus.set(nom, { nom, marque, ca: 0, qte: 0 });
@@ -182,11 +183,13 @@ function ajouter(W, lignes, rap) {
     if (!rs) { rs = [p, m, AN, mo, 0, 0]; W.SKU_MONTHLY.push(rs); sku.set(ks, rs); }
     rs[4] += x.ca; rs[5] += x.qte;
     A.touche.add(`${p}|${m}`);
-    // PAYS_MONTHLY : [pays, marketplace, année, mois, CA HT]
+    // PAYS_MONTHLY : [pays, marketplace, année, mois, CA HT, quantité] — la quantité n'est ajoutée qu'aux lignes qui en portent une
+    // (un socle sans quantité par pays reste « inconnu » : jamais de quantité partielle)
     const kp = `${x.pays}|${x.mp}|${mo}`;
     let rp = pays.get(kp);
-    if (!rp) { rp = [x.pays, x.mp, AN, mo, 0]; W.PAYS_MONTHLY.push(rp); pays.set(kp, rp); }
+    if (!rp) { rp = [x.pays, x.mp, AN, mo, 0, 0]; W.PAYS_MONTHLY.push(rp); pays.set(kp, rp); }
     rp[4] += x.ca;
+    if (rp.length >= 6) rp[5] += x.qte;
     // semaines : [semaine, CA HT, quantité] · [semaine, marketplace, CA HT, quantité] · [semaine, produit, CA HT, quantité]
     let t = wTot.get(wk); if (!t) { t = [wk, 0, 0]; W.WEEKLY_TOTALS.push(t); wTot.set(wk, t); } t[1] += x.ca; t[2] += x.qte;
     const kw = `${wk}|${x.mp}`;

@@ -19,8 +19,10 @@ date identique. Tous les chiffres s'arrêtent donc au même jour, `DMAX` (en gé
 | `data/produits_meta.json` | Marque et norme de chaque produit (comme l'ODP), correspondances de références (`skus`) et attributs des produits absents de l'application (`attributs`) |
 | `scripts/extension/refresh_extension.mjs` | Plan des requêtes, lecture des résultats, calculs, contrôles, écriture |
 | `scripts/extension/site_query.mjs` | Lecture de la boutique du site par le relais en lecture seule `api/mcp-site.mjs` |
+| `repartitions.js` | Module pur de l'onglet Marques › Répartitions : pays, marque, catégorie, sous-catégorie × marketplace × mois, en CA HT et en quantités ; palette validée (voir plus bas) |
+| `scripts/extension/preparer_repartitions.mjs` | Ajoute `SKU_MARQUE` et la quantité des lignes pays 2026 (`PAYS_MONTHLY`, 6e élément) aux constantes de `App.jsx` depuis l'export « LIGNES ODP 2026 » ; refuse d'écrire si le CA ne retombe pas |
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence sur les vraies données du dépôt (à lancer avant toute publication) |
-| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium |
+| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
 | `scripts/extension/build_n1.mjs` | Reconstruit `data/n1_2025.json` depuis l'export « LIGNE ODP 2025 » (rarement) |
 
@@ -83,6 +85,24 @@ de la fourchette anticipée, avec des points pleins ; tous ces libellés sont tr
 
 Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
 contre un calcul indépendant fait dans le test (CA, variation et écart en € de chaque produit, parts de pays, onglets mobile compris).
+
+## Répartitions (onglet Marques › Répartitions)
+
+Trois découpages du même cube — **pays**, **marque** (Bestherm · HOM'Y · Thomson) et **type de produit** (catégorie ou sous-catégorie) — croisés avec la marketplace (le site web en fait partie) et le mois, en CA HT et en
+quantités, 2025 et 2026. `repartitions.js` les calcule depuis les constantes de `App.jsx` **après** le prolongement ; rien n'est écrit dans `shopify_extension.json`.
+
+| Constante | Forme | Remarque |
+|---|---|---|
+| `PAYS_MONTHLY` | `[pays, marketplace, année, mois, CA HT, quantité]` | 6e élément (quantité) pour 2026 seulement ; 2025 reste à 5 éléments : pas de quantités par pays en 2025 |
+| `SKU_MARQUE` | marque de chaque produit, parallèle à `SKU_PRODUIT` | d'après `data/produits_meta.json` ; `extension.js` l'étend pour chaque produit nouveau |
+| `SKU_MONTHLY` | `[iProduit, iMarketplace, année, mois, CA HT, quantité]` | marque, catégorie (`PRODUCT_TO_CATEGORY`) et sous-catégorie (`SKU_SOUS_SOUS_FAMILLE`) en dérivent |
+
+- Le prolongement ajoute la quantité des ventes Shopify aux seules lignes pays qui en portent une (`rp.length >= 6`) : une année sans quantité ne reçoit jamais de quantité partielle.
+- `construireRepartitions(constantes)` renvoie un cube ; `vue`, `matrice` et `partsParMarketplace` (avec `exclure: ["France"]` pour « hors France ») en tirent le graphique, le classement et le détail ; `dispoQte` dit si
+  les quantités existent pour un découpage et une année (sinon l'écran affiche le CA et le signale).
+- Palette de 8 teintes (`PALETTE`), couleur fixe par entité (`COULEURS_FIXES`), « Autres » en gris (`GRIS`). Validation : `node <dataviz>/scripts/validate_palette.js "#F75212,#3F93F4,#0DAC79,#987CE9,#E66162,#00A4BA,#C28408,#DD5DA2" --mode dark`
+  sur le fond #0A0908 puis #161514 ; à refaire si une teinte change.
+- Après un nouvel export ODP : `node scripts/extension/preparer_repartitions.mjs <LIGNES ODP 2026.csv> [--ecrire]` (voir `INSTRUCTIONS_DEPLOIEMENT.md`).
 
 ## Garde-fous
 
@@ -147,6 +167,7 @@ Toutes les commandes se lancent depuis la racine du dépôt.
 3. `node scripts/extension/selftest.mjs`, puis `node scripts/extension/refresh_extension.mjs apply --du <DMAX_ODP + 1 jour>` si
    des jours sont à réextraire. Les jours déjà dans l'ODP sont écartés tout seuls : l'application reste juste même sans cette étape.
 4. `data/n1_2025.json` : à reconstruire (`build_n1.mjs`) seulement si l'export 2025 change.
+5. Si les constantes ont été régénérées, `PAYS_MONTHLY` n'a plus la quantité des lignes 2026 et `SKU_MARQUE` peut manquer : `node scripts/extension/preparer_repartitions.mjs <export LIGNES ODP 2026.csv> --ecrire`.
 
 ## Codes de sortie
 
@@ -157,7 +178,7 @@ inattendue, total du jour, couverture, régression) · **3** résultats ShopifyQ
 
 `site_query.mjs` : 0 réussi · 1 erreur d'utilisation (clé absente, option inconnue) · 2 refus ou erreur du relais ou de Shopify.
 
-`selftest.mjs` : 0 cohérent · 1 contrôle en échec. `smoke.mjs` : 0 ok · 2 échec d'affichage · 77 test impossible.
+`selftest.mjs` : 0 cohérent · 1 contrôle en échec. `smoke.mjs` : 0 ok · 2 échec d'affichage · 77 test impossible. `preparer_repartitions.mjs` : 0 ok · 2 erreur d'utilisation ou rapprochement impossible (rien n'est écrit).
 
 ## Limites connues
 

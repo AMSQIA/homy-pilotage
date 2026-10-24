@@ -12,6 +12,9 @@
  *      pas de vente dans un mois futur, dernière semaine = semaine de DMAX, N-1 à date identique) ;
  *   3. la robustesse : extraction invalide, marketplace inconnue (échec atomique : rien n'est modifié), extraction déjà
  *      couverte par un nouvel export ODP (rien à ajouter), chevauchement partiel (jours ODP écartés), déterminisme ;
+ *   3 bis. les répartitions de l'onglet Marques › Répartitions (repartitions.js) : pays, marque, catégorie et sous-catégorie × marketplace × mois
+ *      retombent sur les totaux du tableau de bord (CA et quantités), les marques sur monthly_by_brand, les catégories sur category_by_mp,
+ *      le détail par pays sur le détail par produit, couleurs stables par entité, « hors France », quantités par pays absentes en 2025 ;
  *   4. la chaîne d'extraction (selftest_pipeline.mjs, résultats ShopifyQL synthétiques) : fenêtre de dates, passerelles →
  *      marketplaces, CA HT, contrôles de cohérence, indépendance des deux boutiques, fusion avec l'extraction précédente.
  *
@@ -19,6 +22,7 @@
  */
 import { etendre, validerExtension, dmaxEffectif, excelWeekOf, lignesExtension } from "../../extension.js";
 import { lireApp, lireJson, copie } from "./lib_app.mjs";
+import { construireRepartitions, vue as repVue, matrice as repMatrice, partsParMarketplace, dispoQte, replier, attribuerCouleurs, infoMois, PALETTE, GRIS, COULEURS_FIXES, AUTRES_PRODUITS, NB_SERIES } from "../../repartitions.js";
 
 const echecs = [];
 let controles = 0;
@@ -78,7 +82,7 @@ function totaux(C) {
       mp_vs_objectif: S(D.mp_vs_objectif.map((m) => m.ca)), brand_yoy: S(Object.values(D.brand_yoy).map((y) => y[AN])),
       total_yoy: D.total_yoy_comparable[AN],
     },
-    qte: { kpi: D.kpi.qte_total_2026, sku_monthly: S(C.SKU_MONTHLY.filter(an).map((r) => r[5])), par_mp: S(Object.values(D.gf.qte_by_mp)), semaines: S(C.WEEKLY_TOTALS.map((r) => r[2])), semaines_mp: S(C.WEEKLY_BY_MP.map((r) => r[3])) },
+    qte: { kpi: D.kpi.qte_total_2026, sku_monthly: S(C.SKU_MONTHLY.filter(an).map((r) => r[5])), pays: S(C.PAYS_MONTHLY.filter(an).map((r) => r[5] || 0)), par_mp: S(Object.values(D.gf.qte_by_mp)), semaines: S(C.WEEKLY_TOTALS.map((r) => r[2])), semaines_mp: S(C.WEEKLY_BY_MP.map((r) => r[3])) },
     nl: { kpi: D.kpi.nb_lignes_2026, par_mp: S(Object.values(D.gf.nb_lignes_mp || {})) },
   };
 }
@@ -119,13 +123,94 @@ ok(C.WEEKLY_TOTALS.every((w) => w[0] <= excelWeekOf(dmax)) && C.WEEKLY_TOTALS.so
 // dictionnaires alignés
 const nP = C.SKU_PRODUIT.length;
 ok(new Set(C.SKU_PRODUIT).size === nP, "produits en double dans SKU_PRODUIT");
-for (const nom of ["SKU_DESTOCKAGE", "SKU_FAMILLE", "SKU_WIFI", "SKU_PLINTHE", "SKU_VERTICAL", "SKU_SOUS_FAMILLE", "SKU_SOUS_SOUS_FAMILLE"]) ok(C[nom].length === nP, `${nom} (${C[nom].length}) désaligné de SKU_PRODUIT (${nP})`);
+for (const nom of ["SKU_DESTOCKAGE", "SKU_FAMILLE", "SKU_WIFI", "SKU_PLINTHE", "SKU_VERTICAL", "SKU_SOUS_FAMILLE", "SKU_SOUS_SOUS_FAMILLE", "SKU_MARQUE"]) ok(C[nom].length === nP, `${nom} (${C[nom].length}) désaligné de SKU_PRODUIT (${nP})`);
 ok(C.SKU_MONTHLY.every((r) => r[0] >= 0 && r[0] < nP && r[1] >= 0 && r[1] < C.SKU_MPS.length), "SKU_MONTHLY : index hors dictionnaire");
+ok(C.SKU_MARQUE.every((m) => typeof m === "string" && m.length > 0), "SKU_MARQUE : produit sans marque");
+ok(C.PAYS_MONTHLY.every((r) => r.length === (r[2] === AN ? 6 : 5) && Number.isInteger(r[3]) && r[3] >= 1 && r[3] <= 12 && (r.length < 6 || (Number.isInteger(r[5]) && r[5] >= 0))), "PAYS_MONTHLY : 2026 = [pays, marketplace, année, mois, CA, quantité], 2025 = sans quantité");
 ok(C.SKU_CUT_N1.every((r) => r[0] >= 0 && r[0] < nP && r[1] >= 0 && r[1] < C.SKU_MPS.length), "SKU_CUT_N1 : index hors dictionnaire");
 ok(D.price_tracking.every((r) => C.SKU_PRODUIT.includes(r[0]) && C.SKU_MPS.includes(r[1])), "price_tracking : produit ou marketplace inconnu");
 ok(D.products_top15.every((p, i) => i === 0 || D.products_top15[i - 1].ca >= p.ca) && D.products_top15[0].produit === D.best_seller_2026.produit, "classement des produits incohérent");
 for (const mp of Object.keys(D.gf.top_products_by_mp)) ok(D.gf.top_products_by_mp[mp].every((p, i, a) => i === 0 || a[i - 1].ca >= p.ca), `top produits ${mp} non trié`);
 ok(Object.values(D.category_by_mp.categories.Toutes || []).every((c) => c.ca >= 0 && c.pct >= 0 && c.pct <= 100), "catégories : part hors 0-100 %");
+
+/* ---------------------------------------------------------------------------------------------- 3 bis. répartitions (onglet Marques › Répartitions) */
+{
+  const R = construireRepartitions(C);
+  const parAn = (an, i) => S(C.SKU_MONTHLY.filter((r) => r[2] === an).map((r) => r[i]));
+  const CA = { [AN]: k.ca_total_2026, [AN - 1]: parAn(AN - 1, 4) }, QTE = { [AN]: k.qte_total_2026, [AN - 1]: parAn(AN - 1, 5) };
+  ok(R.annees.includes(AN) && R.annees.includes(AN - 1), `répartitions : années ${R.annees.join(", ")}`);
+  for (const dim of ["pays", "marque", "categorie", "sous"]) for (const an of [AN - 1, AN]) {
+    const nom = `${dim} ${an}`;
+    const v = repVue(R, { dim, an, mesure: "ca" }), m = repMatrice(R, { dim, an, mesure: "ca" }), p = partsParMarketplace(R, { dim, an, mesure: "ca" });
+    ok(v.dispo && proche(v.total, CA[an], 0.5), `répartition ${nom} : CA ${r2(v.total)} ≠ total du tableau de bord ${r2(CA[an])}`);
+    ok(proche(S(v.ents.map((e) => e.total)), v.total, 0.01) && v.totalMois.every((x, i) => proche(x, S(v.ents.map((e) => e.mois[i])), 0.01)), `répartition ${nom} : entités ≠ total (année ou mois)`);
+    ok(v.ents.every((e, i, a) => i === 0 || a[i - 1].total >= e.total) && v.ents.every((e) => e.total !== 0), `répartition ${nom} : entités non triées ou sans vente`);
+    ok(proche(m.total.baseTotal, v.total, 0.01) && proche(S(m.lignes.map((l) => l.baseTotal)), v.total, 0.01) && m.lignes.every((l) => proche(S(l.mois), l.total, 0.01) && l.baseTotal !== 0), `répartition ${nom} : détail par marketplace ≠ total`);
+    ok(proche(S(p.lignes.map((l) => l.total)), v.total, 0.01) && p.lignes.every((l) => proche(S(l.v), l.total, 0.01) && l.v.length === p.ents.length), `répartition ${nom} : mix par marketplace ≠ total`);
+    // quantités : toujours disponibles, sauf par pays en 2025 (le fichier source ne détaille que le CA) — jamais estimées
+    const dispo = dispoQte(R, dim, an);
+    ok(dispo === !(dim === "pays" && an === AN - 1), `répartition ${nom} : disponibilité des quantités inattendue (${dispo})`);
+    const q = repVue(R, { dim, an, mesure: "qte" });
+    if (dispo) {
+      ok(q.dispo && q.total === QTE[an] && q.ents.every((e) => Number.isInteger(e.total) && e.total > 0), `répartition ${nom} : quantités ${q.total} ≠ ${QTE[an]}`);
+      ok(repMatrice(R, { dim, an, mesure: "qte" }).total.baseTotal === q.total, `répartition ${nom} : détail des quantités ≠ total`);
+    } else ok(!q.dispo && q.total === 0 && q.ents.length === 0, `répartition ${nom} : quantités inventées`);
+    // entité choisie : son détail par marketplace retombe sur son total
+    const e0 = v.ents[0], me = repMatrice(R, { dim, an, mesure: "ca", ent: e0.nom });
+    ok(proche(me.total.total, e0.total, 0.01) && proche(me.total.baseTotal, v.total, 0.01), `répartition ${nom} : détail de « ${e0.nom} » ≠ son total`);
+  }
+  // les marques et les catégories retombent sur les agrégats déjà affichés ailleurs
+  for (const an of [AN - 1, AN]) for (const [b, mois] of Object.entries(D.monthly_by_brand)) {
+    const e = repVue(R, { dim: "marque", an, mesure: "ca" }).ents.find((x) => x.nom === b);
+    ok(proche(e ? e.total : 0, S(mois[an]), 0.5), `marque ${b} ${an} : ${r2(e ? e.total : 0)} ≠ monthly_by_brand ${r2(S(mois[an]))}`);
+  }
+  for (const c of D.category_by_mp.categories.Toutes) {
+    const e = repVue(R, { dim: "categorie", an: AN, mesure: "ca" }).ents.find((x) => x.nom === c.nom);
+    ok(e && proche(e.total, c.ca, 0.5), `catégorie ${c.nom} : ${r2(e ? e.total : 0)} ≠ category_by_mp ${c.ca}`);
+  }
+  ok(repVue(R, { dim: "marque", an: AN, mesure: "ca" }).ents.map((e) => e.nom).sort().join("|") === ["Bestherm", "HOM'Y", "Thomson"].sort().join("|"), "marques 2026 : Bestherm, Thomson et HOM'Y attendues, sans « Autres produits »");
+  // le détail par pays et le détail par produit décrivent les mêmes ventes : CA et quantités égaux par marketplace et par mois
+  for (const an of [AN - 1, AN]) {
+    const sku = new Map(), pays = new Map();
+    for (const r of C.SKU_MONTHLY) if (r[2] === an) { const c = `${C.SKU_MPS[r[1]]}|${r[3]}`, o = sku.get(c) || [0, 0]; o[0] += r[4]; o[1] += r[5]; sku.set(c, o); }
+    for (const r of C.PAYS_MONTHLY) if (r[2] === an) { const c = `${r[1]}|${r[3]}`, o = pays.get(c) || [0, 0]; o[0] += r[4]; o[1] += r[5] || 0; pays.set(c, o); }
+    const ecarts = [...new Set([...sku.keys(), ...pays.keys()])].filter((c) => { const a = sku.get(c) || [0, 0], b = pays.get(c) || [0, 0]; return !proche(a[0], b[0], 0.1) || (an === AN && a[1] !== b[1]); });
+    ok(ecarts.length === 0, `${an} : détail par pays ≠ détail par produit pour ${ecarts.slice(0, 3).join(" ; ")}`);
+  }
+  // « hors France » : la France est retirée des entités, du détail et du mix — le reste ne bouge pas
+  for (const mesure of ["ca", "qte"]) {
+    const tout = repVue(R, { dim: "pays", an: AN, mesure }), hors = repVue(R, { dim: "pays", an: AN, mesure, exclure: ["France"] });
+    const fr = tout.ents.find((e) => e.nom === "France");
+    ok(fr && !hors.ents.some((e) => e.nom === "France") && proche(hors.total, tout.total - fr.total, 0.01), `hors France (${mesure}) : total ${r2(hors.total)} ≠ ${r2(tout.total - fr.total)}`);
+    ok(hors.ents.every((e) => proche(e.total, tout.ents.find((x) => x.nom === e.nom).total, 0.001)), `hors France (${mesure}) : un autre pays a changé`);
+    ok(proche(repMatrice(R, { dim: "pays", an: AN, mesure, exclure: ["France"] }).total.baseTotal, hors.total, 0.01) && proche(S(partsParMarketplace(R, { dim: "pays", an: AN, mesure, exclure: ["France"] }).lignes.map((l) => l.total)), hors.total, 0.01), `hors France (${mesure}) : détail ou mix ≠ total`);
+  }
+  // regroupement « Autres » : rien ne se perd
+  { const v = repVue(R, { dim: "pays", an: AN, mesure: "ca" }), r = replier(v.ents);
+    ok(r.visibles.length === NB_SERIES && r.autres && r.autres.nb === v.ents.length - NB_SERIES && proche(S(r.visibles.map((e) => e.total)) + r.autres.total, v.total, 0.01) && r.autres.mois.every((x, i) => proche(x, S(v.ents.slice(NB_SERIES).map((e) => e.mois[i])), 0.01)), "regroupement « Autres » : total ou mois perdus");
+    ok(replier(v.ents.slice(0, 3)).autres === null, "regroupement « Autres » : rien à regrouper sous 6 entités"); }
+  // couleurs : la couleur suit l'entité (jamais son rang), « Autres » reste gris neutre, ordre d'empilement des marques fixe
+  ok(PALETTE.length === 8 && new Set(PALETTE).size === 8 && !PALETTE.includes(GRIS), "palette : 8 teintes distinctes, gris neutre à part");
+  for (const dim of ["pays", "categorie", "sous"]) {
+    const cs = Object.entries(COULEURS_FIXES[dim]).filter(([, c]) => c !== GRIS).map(([, c]) => c);
+    ok(cs.length === new Set(cs).size && cs.every((c) => PALETTE.includes(c)), `couleurs fixes ${dim} : doublon ou teinte hors palette`);
+  }
+  ok(JSON.stringify(COULEURS_FIXES.marque) === JSON.stringify({ Bestherm: "#F75212", "HOM'Y": "#8B5CF6", Thomson: "#D50032" }), "couleurs des marques : Bestherm #F75212, HOM'Y #8B5CF6, Thomson #D50032");
+  const c1 = attribuerCouleurs("pays", ["France", "Belgique", "Espagne"]), c2 = attribuerCouleurs("pays", ["Belgique", "Espagne", "Italie"]);
+  ok(["Belgique", "Espagne"].every((n) => c1.couleur.get(n) === c2.couleur.get(n)), "couleurs : un pays change de couleur selon les autres pays affichés");
+  const c3 = attribuerCouleurs("pays", ["Pologne", "Suisse", "France"]);
+  ok(new Set([...c3.couleur.values()]).size === 3 && c3.couleur.get("France") === c1.couleur.get("France") && [...c3.couleur.values()].every((c) => PALETTE.includes(c)), "couleurs : pays hors liste fixe sans teinte distincte");
+  ok(attribuerCouleurs("marque", ["Thomson", "Bestherm", "HOM'Y"]).pile.join("|") === "Bestherm|HOM'Y|Thomson", "marques : ordre d'empilement Bestherm · HOM'Y · Thomson");
+  ok(attribuerCouleurs("categorie", ["Autres produits"]).couleur.get("Autres produits") === GRIS, "catégorie « Autres produits » : gris neutre attendu");
+  // mois en cours (dernier jour de données)
+  ok(JSON.stringify(infoMois("2026-10-23")) === JSON.stringify({ an: 2026, mois: 10, jour: 23, joursDuMois: 31, partiel: true }) && infoMois("2026-10-31").partiel === false && infoMois("2026-02-28").joursDuMois === 28, "mois en cours : jours du mois ou drapeau « partiel » faux");
+  // robustesse : marque absente → « Autres produits » ; une ligne pays sans quantité rend toute l'année « sans quantité »
+  { const C2 = copie(C); delete C2.SKU_MARQUE;
+    const R2 = construireRepartitions(C2), v2 = repVue(R2, { dim: "marque", an: AN, mesure: "ca" });
+    ok(v2.ents.length === 1 && v2.ents[0].nom === AUTRES_PRODUITS && proche(v2.total, CA[AN], 0.5), "sans SKU_MARQUE : tout devait tomber dans « Autres produits » sans erreur");
+    const C3 = copie(C), i = C3.PAYS_MONTHLY.findIndex((r) => r[2] === AN); C3.PAYS_MONTHLY[i] = C3.PAYS_MONTHLY[i].slice(0, 5);
+    ok(dispoQte(construireRepartitions(C3), "pays", AN) === false, "une ligne pays sans quantité : l'année ne doit plus afficher de quantités"); }
+}
 
 /* ---------------------------------------------------------------------------------------------- 4. robustesse */
 const identique = (a, b) => JSON.stringify(a) === JSON.stringify(b);

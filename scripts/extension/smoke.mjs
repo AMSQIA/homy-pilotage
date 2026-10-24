@@ -19,6 +19,10 @@
  *     l'ensemble des canaux quand une marketplace a moins de 8 semaines entières, rien sans objectif fiable), total de chaque semaine entière inchangé, ligne « Objectif · % du plan · écart »
  *     (période ou jour touché), couleurs, bulle du graphique, légende et libellés dans les 4 langues ; courbe d'objectif mensuel de la tendance (tracée en dernier, points pleins,
  *     bulle au-dessus de juillet et de novembre, libellés traduits, absente sans objectif fiable) ;
+ *   - l'onglet Marques › Répartitions (24 octobre 2026) : CA et quantités par pays, par marque (Bestherm · HOM'Y · Thomson) et par type de produit (catégorie ou
+ *     sous-catégorie), par mois et par marketplace — total, classement, légende, bulle, vue tableau, parts, « hors France », entité et marketplace choisies,
+ *     détail case par case (montant ou part), quantités par pays absentes en 2025 (repli sur le CA annoncé), couleurs des marques, lien depuis « Marque »,
+ *     filtre marketplace global verrouillé, 4 langues, mobile 390 et 360 px (total collé au nom, détail défilable) ; chiffres recalculés dans le test ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
  *     comparaison « vs 2025 » (courbes et pastilles) ;
  *   - les chiffres affichés = ceux que calcule extension.js sur les vrais fichiers du dépôt (CA cumulé, unités,
@@ -747,6 +751,284 @@ async function verifierSuivi(browser, base, E) {
   }
 }
 
+// ---- Onglet Marques › Répartitions : chiffres attendus recalculés ICI depuis les constantes du tableau de bord prolongé (sans repartitions.js) ----
+const REP_AUTRES = "Autres produits"; // entité des produits sans catégorie / sans marque (voir repartitions.js)
+function repAttendu() {
+  const app = lireApp(), C = app.constantes();
+  etendre(C, lireJson("shopify_extension.json"), lireJson("data/n1_2025.json"), { dmaxOdp: app.dmaxOdp });
+  const R = {};
+  const cellule = (o, nom, mp, mois, ca, q) => {
+    const e = o[nom] || (o[nom] = { ca: 0, qte: 0, mp: {} });
+    const m = e.mp[mp] || (e.mp[mp] = { ca: new Array(12).fill(0), qte: new Array(12).fill(0) });
+    e.ca += ca; e.qte += q; m.ca[mois - 1] += ca; m.qte[mois - 1] += q;
+  };
+  for (const an of [2025, 2026]) {
+    R[an] = { pays: {}, marque: {}, categorie: {}, sous: {} };
+    for (const r of C.PAYS_MONTHLY) if (r[2] === an) cellule(R[an].pays, r[0], r[1], r[3], r[4], r[5] || 0);
+    for (const r of C.SKU_MONTHLY) if (r[2] === an) {
+      const nom = C.SKU_PRODUIT[r[0]], mp = C.SKU_MPS[r[1]], cat = C.PRODUCT_TO_CATEGORY[nom];
+      cellule(R[an].marque, C.SKU_MARQUE[r[0]] || REP_AUTRES, mp, r[3], r[4], r[5]);
+      cellule(R[an].categorie, cat || REP_AUTRES, mp, r[3], r[4], r[5]);
+      cellule(R[an].sous, (cat && C.SKU_SOUS_SOUS_FAMILLE[r[0]]) || REP_AUTRES, mp, r[3], r[4], r[5]);
+    }
+  }
+  return { C, R, app };
+}
+// agrégats d'un découpage : entités classées, total, détail marketplace × mois (ent : une seule entité ; exclure : entités écartées)
+function repAgg(X, an, dim, mesure, { ent = null, exclure = [] } = {}) {
+  const ents = Object.entries(X.R[an][dim]).filter(([n]) => !exclure.includes(n));
+  const mp = {}, totalMois = new Array(12).fill(0);
+  for (const [nom, e] of ents) for (const [m, v] of Object.entries(e.mp)) {
+    const o = mp[m] || (mp[m] = { base: new Array(12).fill(0), ent: new Array(12).fill(0) });
+    for (let i = 0; i < 12; i++) { o.base[i] += v[mesure][i]; if (ent === null || nom === ent) o.ent[i] += v[mesure][i]; }
+  }
+  const classees = ents.map(([n, e]) => [n, e[mesure]]).filter(([, v]) => Math.abs(v) > 1e-9).sort((a, b) => b[1] - a[1]);
+  const total = classees.reduce((s, [, v]) => s + v, 0);
+  return { ents: classees, total, mp, nbMp: Object.keys(mp).filter((m) => mp[m].base.some((x) => x !== 0)).length };
+}
+const lireRep = (page) => page.evaluate(() => {
+  const q = (s) => document.querySelector(s), all = (s) => [...document.querySelectorAll(s)], txt = (el) => (el ? el.innerText : "");
+  const bloc = q('[data-rep="bloc"]');
+  const ligne = (tr) => ({ cle: tr.dataset.repLigne, kind: tr.dataset.kind, total: Number(tr.querySelector("td[data-total]").dataset.v), totalTexte: tr.querySelector("td[data-total]").innerText, mois: [...tr.querySelectorAll("td[data-mois]")].map((td) => Number(td.dataset.v)), moisTexte: [...tr.querySelectorAll("td[data-mois]")].map((td) => td.innerText), ordre: [...tr.children].map((c) => (c.tagName === "TH" ? "nom" : c.dataset.total ? "total" : c.dataset.mois ? "mois" : "mix")), mix: (tr.querySelector('[role="img"]') || { getAttribute: () => "" }).getAttribute("aria-label") });
+  return {
+    present: Boolean(bloc), lentille: bloc && bloc.dataset.lentille, mesure: bloc && bloc.dataset.mesure, an: bloc && Number(bloc.dataset.an),
+    total: txt(q('[data-rep="total"]')), valeur: Number((q('[data-rep="total"]') || { dataset: {} }).dataset.valeur),
+    classement: all('[data-rep="classement"] [data-rep-ligne]').map((r) => ({ nom: r.dataset.repLigne, v: Number(r.dataset.valeur), actif: r.getAttribute("aria-pressed") === "true", texte: r.innerText })),
+    classementTotal: txt(q('[data-rep="classement-total"]')),
+    grille: all('[data-rep="grille-mp"] tr[data-rep-ligne]').map(ligne), grilleEntites: all('[data-rep="grille-entites"] tr[data-rep-ligne]').map(ligne),
+    entetes: all('[data-rep="grille-mp"] thead th').map((th) => th.innerText),
+    notes: { qte: Boolean(q('[data-rep="note-qte"]')), site: Boolean(q('[data-rep="note-site"]')), enCours: Boolean(q('[data-rep="note-en-cours"]')) },
+    filtreMp: txt(q('[data-rep="filtre-mp"]')), filtreMpBouton: Boolean(q('button[data-rep="filtre-mp"]')), filtreEntite: txt(q('[data-rep="filtre-entite"]')),
+    legende: txt(q('[data-rep="legende"]')), barres: all('[data-rep="graphique"] .recharts-bar-rectangle').length,
+    couleursGraphique: [...new Set(all('[data-rep="graphique"] .recharts-bar-rectangle path, [data-rep="graphique"] .recharts-bar-rectangle rect').map((p) => (p.getAttribute("fill") || "").toUpperCase()))],
+    qteDesactive: Boolean(q('[data-rep="mesure"] button[data-k="qte"][disabled]')), horsFrance: Boolean(q('[data-rep="hors-france"]')), horsFranceActif: (q('[data-rep="hors-france"]') || { getAttribute: () => null }).getAttribute("aria-pressed") === "true",
+    texte: document.body.innerText,
+    defilement: (() => { const el = q('[data-rep="grille-mp"]'); return el ? { sw: el.scrollWidth, cw: el.clientWidth, ox: getComputedStyle(el).overflowX } : null; })(),
+    debordement: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+const repCliquer = async (page, sel) => { await page.locator(sel).first().click(); await page.waitForTimeout(380); };
+const repPctApp = (x) => (x > 0 && x < 0.005 ? "< 1 %" : `${Math.round(x * 100)} %`);
+const repCelluleApp = (v, qte) => { // cellule du tableau : « 1,23 M », « 123 k », « 4,5 k », entier en quantités, « — » sans vente
+  if (!(Math.abs(v) >= 0.5)) return "—";
+  if (qte) return fmtNum(v);
+  const a = Math.abs(v);
+  return a >= 1e6 ? `${(v / 1e6).toFixed(2).replace(".", ",")} M` : a >= 1e4 ? `${Math.round(v / 1e3)} k` : a >= 1e3 ? `${(v / 1e3).toFixed(1).replace(".", ",")} k` : String(Math.round(v));
+};
+const repClassementOk = (classement, ents, tol = 0.02) => classement.length === ents.length && classement.every((c, i) => proche(c.v, ents[i][1], tol) && ents.some(([n, v]) => n === c.nom && proche(c.v, v, tol)));
+const repMpLib = (mp) => (mp === "Site Web" ? "Site web" : mp === "Autre" ? "Autres" : mp);
+async function ouvrirRep(page, base, { lang = "fr", marketplace, tab = "marques", sousTab = "repartitions" } = {}) {
+  const q = new URLSearchParams({ lang, tab, sousTab });
+  if (marketplace) q.set("marketplace", marketplace);
+  await page.goto(`${base}?${q}`, { waitUntil: "load" });
+  if (sousTab === "repartitions") await page.waitForSelector('[data-rep="bloc"]', { timeout: 30000 });
+  else await page.waitForFunction(() => document.body && document.body.innerText.length > 400, null, { timeout: 30000 });
+  await page.waitForTimeout(1500);
+}
+// le détail par marketplace retombe, case par case, sur les chiffres attendus
+function repVerifierGrille(etiquette, S, X, an, dim, mesure, opts = {}) {
+  const A = repAgg(X, an, dim, mesure, opts), qte = mesure === "qte", part = Boolean(opts.part);
+  const lignes = S.grille.filter((l) => l.kind === "ligne"), sous = S.grille.find((l) => l.cle === "__sous"), total = S.grille.find((l) => l.cle === "__total");
+  const attendues = Object.keys(A.mp).filter((m) => A.mp[m].base.some((x) => x !== 0));
+  verifier(lignes.length === attendues.length && attendues.every((m) => lignes.some((l) => l.cle === m)), `${etiquette} : lignes de marketplaces ${lignes.map((l) => l.cle).join(",")} ≠ ${attendues.join(",")}`);
+  const verifLigne = (l, ent, base, nom) => {
+    const t = ent.reduce((s, x) => s + x, 0), b = base.reduce((s, x) => s + x, 0);
+    verifier(proche(l.total, t, 0.02), `${etiquette} : ${nom} total ${l.total} ≠ ${t.toFixed(2)}`);
+    verifier(l.mois.length === 12 && l.mois.every((v, i) => proche(v, ent[i], 0.02)), `${etiquette} : ${nom} mois ≠ attendus`);
+    const fmt = (v, bs) => (part ? (bs > 0 && v > 0 ? repPctApp(v / bs) : "—") : repCelluleApp(v, qte));
+    verifier(norm(l.totalTexte) === norm(fmt(t, b)), `${etiquette} : ${nom} total affiché « ${norm(l.totalTexte)} » ≠ « ${fmt(t, b)} »`);
+    verifier(l.moisTexte.every((x, i) => norm(x) === norm(fmt(ent[i], base[i]))), `${etiquette} : ${nom} cases affichées ≠ attendues (${l.moisTexte.map(norm).slice(0, 4).join("|")} vs ${[0, 1, 2, 3].map((i) => fmt(ent[i], base[i])).join("|")})`);
+  };
+  for (const l of lignes) verifLigne(l, A.mp[l.cle].ent, A.mp[l.cle].base, l.cle);
+  const hors = attendues.filter((m) => m !== "Site Web"), somme = (ms, k) => Array.from({ length: 12 }, (_, i) => ms.reduce((s, m) => s + A.mp[m][k][i], 0));
+  if (attendues.includes("Site Web") && hors.length) {
+    verifier(Boolean(sous), `${etiquette} : sous-total marketplaces absent`);
+    if (sous) verifLigne(sous, somme(hors, "ent"), somme(hors, "base"), "sous-total marketplaces");
+  } else verifier(!sous, `${etiquette} : sous-total affiché sans site web`);
+  verifier(Boolean(total), `${etiquette} : ligne Total absente`);
+  if (total) verifLigne(total, somme(attendues, "ent"), somme(attendues, "base"), "total");
+  // le site web est isolé sous le sous-total ; l'ordre des marketplaces suit leur total décroissant
+  verifier(lignes.every((l, i, a) => i === 0 || a[i - 1].cle === "Site Web" || l.cle === "Site Web" || A.mp[a[i - 1].cle].base.reduce((s, x) => s + x, 0) >= A.mp[l.cle].base.reduce((s, x) => s + x, 0) - 1e-6), `${etiquette} : marketplaces non classées par total décroissant`);
+  return A;
+}
+async function verifierRepartitions(browser, base, E) {
+  const X = repAttendu();
+  const dmax = E.rap.dmax, AN = Number(dmax.slice(0, 4));
+  // ===== bureau, français =====
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base);
+    let S = await lireRep(page);
+    verifier(S.present && S.lentille === "pays" && S.mesure === "ca" && S.an === AN, `Répartitions : état initial ${S.lentille}/${S.mesure}/${S.an} au lieu de pays/ca/${AN}`);
+    verifier(contient(S.texte, "Répartitions") && /Pays/.test(S.texte), "Répartitions : onglet ou découpage « Pays » absent");
+    // 1) pays, CA 2026 : total, classement, légende, détail par marketplace, notes
+    let A = repAgg(X, AN, "pays", "ca");
+    verifier(proche(S.valeur, A.total, 0.02) && norm(S.total) === `${fmtNum(A.total)} €`, `Répartitions pays : total « ${norm(S.total)} » ≠ « ${fmtNum(A.total)} € »`);
+    verifier(proche(A.total, E.cumul, 0.5), `Répartitions pays : total ${A.total.toFixed(2)} ≠ KPI ${E.cumul}`);
+    verifier(repClassementOk(S.classement, A.ents), `Répartitions pays : classement ${S.classement.slice(0, 3).map((c) => c.nom).join(",")}… ≠ attendu ${A.ents.slice(0, 3).map((c) => c[0]).join(",")}…`);
+    verifier(S.classement[0].nom === "France" && S.classement.every((c, i, a) => i === 0 || a[i - 1].v >= c.v), "Répartitions pays : France doit être en tête, classement décroissant");
+    verifier(contient(S.classementTotal, fmtNum(A.total)) && contient(S.classementTotal, fmtNum(repAgg(X, AN, "pays", "qte").total)) && contient(S.classementTotal, "100 %"), `Répartitions pays : ligne Total du classement « ${norm(S.classementTotal)} »`);
+    verifier(S.classement.slice(0, 3).every((c) => contient(c.texte, fmtNum(c.v)) && contient(c.texte, fmtNum(X.R[AN].pays[c.nom].qte))), "Répartitions pays : classement sans CA ou quantités par pays");
+    verifier(contient(S.legende, "France") && contient(S.legende, "Belgique") && contient(S.legende, `Autres (${A.ents.length - 6})`), `Répartitions pays : légende « ${norm(S.legende)} »`);
+    verifier(S.barres >= 12 && S.couleursGraphique.includes("#F75212"), `Répartitions pays : graphique vide (${S.barres} barres, couleurs ${S.couleursGraphique.join(",")})`);
+    verifier(S.notes.enCours && !S.notes.qte && !S.notes.site, `Répartitions pays : notes ${JSON.stringify(S.notes)} (mois en cours oui, quantités non, site 2025 non)`);
+    verifier(S.entetes.some((h) => /oct\.\s*•/.test(h)), `Répartitions pays : mois en cours non marqué (${S.entetes.join("|")})`);
+    verifier(!S.qteDesactive && S.horsFrance, "Répartitions pays : bouton « Quantités » désactivé ou « Hors France » absent");
+    repVerifierGrille("Répartitions pays 2026 CA", S, X, AN, "pays", "ca");
+    verifier(S.grille.every((l) => l.mix) && /France/.test(S.grille.find((l) => l.cle === "Leroy Merlin").mix) && /France/.test(S.grille.find((l) => l.cle === "__total").mix), `Répartitions pays : barre de répartition absente ou sans France (${S.grille.filter((l) => !l.mix).map((l) => l.cle).join(",")})`);
+    if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.locator('[data-rep="bloc"]').screenshot({ path: path.join(shotsDir, "repartitions-pays.png") }); }
+    // 2) bulle du graphique : mois, total, part de chaque pays
+    await page.locator('[data-rep="graphique"]').scrollIntoViewIfNeeded();
+    const pos = await page.evaluate(() => { const t = [...document.querySelectorAll('[data-rep="graphique"] .recharts-xAxis .recharts-cartesian-axis-tick')][2], g = document.querySelector('[data-rep="graphique"]'); if (!t || !g) return null; const a = t.getBoundingClientRect(), b = g.getBoundingClientRect(); return { x: a.left + a.width / 2, y: b.top + b.height * 0.4 }; });
+    if (verifier(Boolean(pos), "Répartitions pays : axe des mois introuvable")) {
+      await page.mouse.move(pos.x, pos.y); await page.waitForTimeout(500);
+      const bulle = norm(await page.evaluate(() => { const el = document.querySelector('[data-rep="graphique"] .recharts-tooltip-wrapper'); return el ? el.innerText : ""; }));
+      const mars = Object.values(X.R[AN].pays).reduce((s, e) => s + Object.values(e.mp).reduce((t, m) => t + m.ca[2], 0), 0);
+      verifier(contient(bulle, `mars ${AN}`) && contient(bulle, `${fmtNum(mars)} €`) && contient(bulle, "France") && /\d+ %/.test(bulle), `Répartitions pays : bulle de mars « ${bulle.slice(0, 160)} » (attendu ${fmtNum(mars)} €)`);
+      await page.mouse.move(2, 2);
+    }
+    // 3) quantités par pays 2026
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="qte"]');
+    S = await lireRep(page); A = repAgg(X, AN, "pays", "qte");
+    verifier(S.mesure === "qte" && proche(S.valeur, A.total, 0.001) && norm(S.total) === `${fmtNum(A.total)} u.`, `Répartitions pays (quantités) : total « ${norm(S.total)} » ≠ « ${fmtNum(A.total)} u. »`);
+    verifier(A.total === E.qte && repClassementOk(S.classement, A.ents, 0.001), `Répartitions pays (quantités) : classement ≠ attendu (total ${A.total} / KPI ${E.qte})`);
+    repVerifierGrille("Répartitions pays 2026 quantités", S, X, AN, "pays", "qte");
+    // 4) hors France : le total, le classement, la légende et le détail retombent sur « tous pays − France »
+    await repCliquer(page, '[data-rep="hors-france"]');
+    S = await lireRep(page);
+    const tousQ = repAgg(X, AN, "pays", "qte");
+    A = repAgg(X, AN, "pays", "qte", { exclure: ["France"] });
+    verifier(S.horsFranceActif && proche(A.total, tousQ.total - X.R[AN].pays.France.qte, 0.001) && proche(S.valeur, A.total, 0.001) && S.classement.every((c) => c.nom !== "France") && !contient(S.legende, "France"), `Répartitions hors France (quantités) : total ${S.valeur} ≠ ${A.total}`);
+    repVerifierGrille("Répartitions hors France quantités", S, X, AN, "pays", "qte", { exclure: ["France"] });
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="ca"]');
+    S = await lireRep(page); A = repAgg(X, AN, "pays", "ca", { exclure: ["France"] });
+    verifier(proche(S.valeur, A.total, 0.02) && S.classement.length === A.ents.length && contient(S.texte, "Hors France"), `Répartitions hors France (CA) : total ${S.valeur} ≠ ${A.total.toFixed(2)}`);
+    await repCliquer(page, '[data-rep="hors-france"]');
+    S = await lireRep(page);
+    verifier(!S.horsFranceActif && S.classement[0].nom === "France", "Répartitions : « Hors France » ne se désactive pas");
+    // 5) 2025 : pas de quantités par pays (le fichier source ne donne que le CA) — repli sur le CA annoncé ; site web 2025 signalé incomplet
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="qte"]');
+    await repCliquer(page, '[data-rep="annee"] button[data-k="2025"]');
+    S = await lireRep(page); A = repAgg(X, 2025, "pays", "ca");
+    verifier(S.an === 2025 && S.mesure === "ca" && S.qteDesactive && S.notes.qte && S.notes.site && !S.notes.enCours, `Répartitions pays 2025 : ${S.mesure}, quantités désactivées ${S.qteDesactive}, notes ${JSON.stringify(S.notes)}`);
+    verifier(proche(S.valeur, A.total, 0.02) && S.classement.every((c) => proche(c.v, X.R[2025].pays[c.nom].ca, 0.02)) && S.classement.every((c) => /—/.test(c.texte)), "Répartitions pays 2025 : CA ou quantités « — » inattendus");
+    verifier(contient(S.texte, "Quantités indisponibles") && contient(S.texte, "Site web 2025 très incomplet"), "Répartitions pays 2025 : explications absentes");
+    repVerifierGrille("Répartitions pays 2025 CA", S, X, 2025, "pays", "ca");
+    // 6) marque : Bestherm · HOM'Y · Thomson, couleurs fixes, quantités 2025 présentes
+    await repCliquer(page, '[data-rep="lentille"] button[data-k="marque"]');
+    S = await lireRep(page); A = repAgg(X, 2025, "marque", "qte");
+    verifier(S.lentille === "marque" && S.mesure === "qte" && !S.qteDesactive && !S.notes.qte && A.total === QTE_2025(X) && proche(S.valeur, A.total, 0.001), `Répartitions marque 2025 : quantités ${S.valeur} (attendu ${A.total})`);
+    await repCliquer(page, '[data-rep="annee"] button[data-k="2026"]');
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="ca"]');
+    S = await lireRep(page); A = repAgg(X, AN, "marque", "ca");
+    const D = X.C.DATA, somme = (a) => a.reduce((s, v) => s + v, 0);
+    verifier(S.classement.map((c) => c.nom).join("|") === "Bestherm|Thomson|HOM'Y" && S.classement.every((c) => proche(c.v, somme(D.monthly_by_brand[c.nom][AN]), 0.5)), `Répartitions marque : classement ${S.classement.map((c) => `${c.nom} ${c.v}`).join(" ; ")} ≠ monthly_by_brand`);
+    verifier(S.legende.indexOf("Bestherm") >= 0 && S.legende.indexOf("Bestherm") < S.legende.indexOf("HOM'Y") && S.legende.indexOf("HOM'Y") < S.legende.indexOf("Thomson"), `Répartitions marque : ordre de la légende « ${norm(S.legende)} » (Bestherm, HOM'Y, Thomson attendus)`);
+    verifier(["#F75212", "#D50032", "#8B5CF6"].every((c) => S.couleursGraphique.includes(c)), `Répartitions marque : couleurs du graphique ${S.couleursGraphique.join(",")} (Bestherm #F75212, Thomson #D50032, HOM'Y #8B5CF6)`);
+    verifier(!S.horsFrance, "Répartitions marque : « Hors France » ne concerne que le découpage par pays");
+    repVerifierGrille("Répartitions marque 2026 CA", S, X, AN, "marque", "ca");
+    // 7) entité choisie (Thomson) : détail par marketplace de la marque, puis sa part dans chaque case
+    await repCliquer(page, '[data-rep="classement"] [data-rep-ligne="Thomson"]');
+    S = await lireRep(page);
+    verifier(contient(S.filtreEntite, "Thomson") && S.classement.find((c) => c.nom === "Thomson").actif, "Répartitions marque : Thomson non retenu");
+    repVerifierGrille("Répartitions marque Thomson (montant)", S, X, AN, "marque", "ca", { ent: "Thomson" });
+    await repCliquer(page, '[data-rep="mode"] button[data-k="part"]');
+    S = await lireRep(page);
+    repVerifierGrille("Répartitions marque Thomson (part)", S, X, AN, "marque", "ca", { ent: "Thomson", part: true });
+    const th = repAgg(X, AN, "marque", "ca").ents.find(([n]) => n === "Thomson")[1], tot = repAgg(X, AN, "marque", "ca").total;
+    verifier(norm(S.grille.find((l) => l.cle === "__total").totalTexte) === repPctApp(th / tot), `Répartitions marque : part de Thomson ${norm(S.grille.find((l) => l.cle === "__total").totalTexte)} ≠ ${repPctApp(th / tot)}`);
+    await repCliquer(page, '[data-rep="filtre-entite"]');
+    S = await lireRep(page);
+    verifier(!S.filtreEntite && S.classement.every((c) => !c.actif), "Répartitions marque : le filtre « Thomson » ne se retire pas");
+    // 8) type de produit : catégories (comme category_by_mp), puis sous-catégories
+    await repCliquer(page, '[data-rep="lentille"] button[data-k="type"]');
+    S = await lireRep(page); A = repAgg(X, AN, "categorie", "ca");
+    verifier(S.lentille === "type" && repClassementOk(S.classement, A.ents), `Répartitions type de produit : ${S.classement.map((c) => c.nom).join(",")}`);
+    verifier(D.category_by_mp.categories.Toutes.every((c) => proche((S.classement.find((x) => x.nom === c.nom) || { v: NaN }).v, c.ca, 0.5)), "Répartitions type de produit : catégories ≠ category_by_mp");
+    repVerifierGrille("Répartitions catégorie 2026 CA", S, X, AN, "categorie", "ca");
+    await repCliquer(page, '[data-rep="niveau"] button[data-k="sous"]');
+    S = await lireRep(page); A = repAgg(X, AN, "sous", "ca");
+    verifier(S.classement.length === A.ents.length && proche(S.valeur, A.total, 0.02) && contient(S.legende, `Autres (${A.ents.length - 6})`), `Répartitions sous-catégories : ${S.classement.length} lignes ≠ ${A.ents.length}`);
+    repVerifierGrille("Répartitions sous-catégorie 2026 CA", S, X, AN, "sous", "ca");
+    // 9) marketplace choisie dans le détail : le graphique et le classement suivent ; un second clic la retire
+    const lm = "Leroy Merlin";
+    await repCliquer(page, `[data-rep="grille-mp"] tr[data-rep-ligne="${lm}"] th button`);
+    S = await lireRep(page);
+    const mpA = (() => { const o = { total: 0, ents: [] }; for (const [n, e] of Object.entries(X.R[AN].sous)) { const v = e.mp[lm] ? e.mp[lm].ca.reduce((s, x) => s + x, 0) : 0; if (v) o.ents.push([n, v]); o.total += v; } o.ents.sort((a, b) => b[1] - a[1]); return o; })();
+    verifier(contient(S.filtreMp, lm) && S.filtreMpBouton && proche(S.valeur, mpA.total, 0.02) && repClassementOk(S.classement, mpA.ents), `Répartitions : filtre ${lm} — total ${S.valeur} ≠ ${mpA.total.toFixed(2)}`);
+    await repCliquer(page, 'button[data-rep="filtre-mp"]');
+    S = await lireRep(page);
+    verifier(!S.filtreMp && proche(S.valeur, A.total, 0.02), "Répartitions : le filtre marketplace ne se retire pas");
+    // 10) vue tableau du graphique : toutes les entités × 12 mois + total
+    await repCliquer(page, '[data-rep="affichage"] button[data-k="tableau"]');
+    S = await lireRep(page);
+    verifier(S.grilleEntites.length === A.ents.length + 1 && S.barres === 0, `Répartitions : vue tableau ${S.grilleEntites.length} lignes ≠ ${A.ents.length + 1}`);
+    verifier(S.grilleEntites.filter((l) => l.kind === "ligne").every((l) => { const e = X.R[AN].sous[l.cle]; return e && proche(l.total, e.ca, 0.02) && l.mois.every((v, i) => proche(v, Object.values(e.mp).reduce((s, m) => s + m.ca[i], 0), 0.02)); }) && proche(S.grilleEntites[S.grilleEntites.length - 1].total, A.total, 0.02), "Répartitions : vue tableau ≠ chiffres attendus");
+    await repCliquer(page, '[data-rep="affichage"] button[data-k="graphique"]');
+    // 11) parts : le graphique passe en 100 % (axe en %)
+    await repCliquer(page, '[data-rep="empile"] button[data-k="parts"]');
+    const axe = norm(await page.evaluate(() => { const el = document.querySelector('[data-rep="graphique"] .recharts-yAxis'); return el ? el.textContent : ""; }));
+    verifier(/100 %/.test(axe) && /0 %/.test(axe), `Répartitions : axe des parts « ${axe} »`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions bureau) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== lien depuis l'onglet « Marque », filtre marketplace global verrouillé, adresse directe =====
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base, { sousTab: "marque" });
+    verifier(!(await page.locator('[data-rep="bloc"]').count()) && (await page.locator('[data-rep="lien-marque"]').count()) === 1, "Marque : lien vers le détail absent (ou Répartitions affiché sans clic)");
+    await repCliquer(page, '[data-rep="lien-marque"]');
+    await page.waitForSelector('[data-rep="bloc"]', { timeout: 10000 });
+    let S = await lireRep(page);
+    verifier(S.lentille === "marque" && S.classement.length === 3, `Marque → Répartitions : découpage ${S.lentille}, ${S.classement.length} lignes`);
+    // filtre marketplace global (adresse directe) : verrouillé, sans bouton pour le retirer
+    await ouvrirRep(page, base, { marketplace: "Amazon FR" });
+    S = await lireRep(page);
+    const A = repAgg(X, AN, "pays", "ca");
+    const amazon = Object.values(X.R[AN].pays).reduce((s, e) => s + (e.mp["Amazon FR"] ? e.mp["Amazon FR"].ca.reduce((t, x) => t + x, 0) : 0), 0);
+    verifier(contient(S.filtreMp, "Amazon FR") && !S.filtreMpBouton && proche(S.valeur, amazon, 0.02) && amazon < A.total, `Répartitions (filtre global Amazon FR) : total ${S.valeur} ≠ ${amazon.toFixed(2)}`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions, lien et filtre global) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== quatre langues : onglet, découpages, noms de pays traduits, date du mois en cours, aucune variable de modèle =====
+  const L = { fr: { tab: "Répartitions", pays: "Belgique", u: "Quantités", ca: "CA HT", autres: "Autres (" }, en: { tab: "Breakdowns", pays: "Belgium", u: "Units", ca: "Revenue excl. VAT", autres: "Other (" }, es: { tab: "Desgloses", pays: "Bélgica", u: "Unidades", ca: "Ventas sin IVA", autres: "Otros (" }, zh: { tab: "分布", pays: "比利时", u: "销量", ca: "销售额（不含税）", autres: "其他（" } };
+  for (const [lang, w] of Object.entries(L)) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base, { lang });
+    let S = await lireRep(page);
+    verifier(contient(S.texte, w.tab) && contient(S.texte, w.pays) && contient(S.texte, w.u) && contient(S.texte, w.ca) && contient(S.legende, w.autres), `${lang.toUpperCase()} · Répartitions : libellés attendus absents (${w.tab}, ${w.pays}, ${w.u}, ${w.ca}, ${w.autres})`);
+    verifier(!/\{(x|d|n|an)\}|undefined|NaN/.test(S.texte), `${lang.toUpperCase()} · Répartitions : variable de modèle, undefined ou NaN affiché`);
+    const note = await page.evaluate(() => { const el = document.querySelector('[data-rep="note-en-cours"]'); return el ? el.innerText : ""; });
+    verifier(contient(note, jour(dmax, lang)) && !/\{d\}/.test(note), `${lang.toUpperCase()} · Répartitions : note du mois en cours « ${norm(note)} » sans « ${jour(dmax, lang)} »`);
+    verifier(S.grille.length > 10 && S.entetes.length >= 14, `${lang.toUpperCase()} · Répartitions : détail par marketplace incomplet`);
+    if (lang !== "fr") { // l'anglais, l'espagnol et le chinois traduisent aussi les catégories et le sous-total
+      await repCliquer(page, '[data-rep="lentille"] button[data-k="type"]');
+      S = await lireRep(page);
+      verifier(!/Radiateur électrique fixe/.test(S.classement.map((c) => c.texte).join(" ")), `${lang.toUpperCase()} · Répartitions : catégories non traduites (${S.classement[0].texte})`);
+    }
+    verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== mobile : pas de débordement, détail défilable, total collé au nom =====
+  for (const largeur of [390, 360]) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 844 });
+    await ouvrirRep(page, base);
+    let S = await lireRep(page);
+    verifier(S.debordement <= 1, `mobile ${largeur} px · Répartitions : débordement horizontal de ${S.debordement}px`);
+    verifier(S.defilement && S.defilement.ox === "auto" && S.defilement.sw > S.defilement.cw, `mobile ${largeur} px · Répartitions : détail par marketplace non défilable (${JSON.stringify(S.defilement)})`);
+    verifier(S.grille.length > 10 && S.grille.every((l) => l.ordre[0] === "nom" && l.ordre[1] === "total" && l.ordre[2] === "mois"), `mobile ${largeur} px · Répartitions : le total n'est pas collé au nom (${S.grille[0] && S.grille[0].ordre.slice(0, 3)})`);
+    verifier(contient(S.legende, "France") && S.classement.length > 10, `mobile ${largeur} px · Répartitions : légende ou classement absents`);
+    await repCliquer(page, '[data-rep="lentille"] button[data-k="marque"]');
+    await repCliquer(page, '[data-rep="classement"] [data-rep-ligne="Thomson"]');
+    S = await lireRep(page);
+    verifier(S.debordement <= 1 && contient(S.filtreEntite, "Thomson"), `mobile ${largeur} px · Répartitions (marque, Thomson) : débordement ${S.debordement}px ou filtre absent`);
+    if (shotsDir && largeur === 390) await page.locator('[data-rep="bloc"]').screenshot({ path: path.join(shotsDir, "repartitions-mobile.png") });
+    verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions mobile ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+}
+const QTE_2025 = (X) => Object.values(X.R[2025].marque).reduce((s, e) => s + e.qte, 0);
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, "index.html"))) { console.error("dist/ introuvable : lancer « npx vite build » d'abord"); return 2; }
   const E = attendus();
@@ -759,6 +1041,11 @@ async function main() {
   const base = `http://127.0.0.1:${srv.address().port}/`;
   const dmax = E.rap.dmax, odp = E.app.dmaxOdp, du = E.rap.du;
   try {
+    if (process.argv.includes("--repartitions")) { // mise au point : seul l'onglet Marques › Répartitions
+      await verifierRepartitions(browser, base, E);
+      if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
+      console.log("SMOKE_REPARTITIONS_OK"); return 0;
+    }
     // 1) français, bureau : bandeau, chiffres du bandeau déplié, KPI
     {
       const { ctx, page, erreurs } = await ouvrir(browser);
@@ -798,6 +1085,7 @@ async function main() {
     await verifierSuivi(browser, base, E);
     await verifierPlan(browser, base, E);
     await verifierTendance(browser, base, E);
+    await verifierRepartitions(browser, base, E);
 
     // 2) trois autres langues
     for (const lang of ["en", "es", "zh"]) {
@@ -890,7 +1178,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), plan 2026 (objectif du jour pondéré par le profil des jours de la semaine, % du plan, courbe d'objectif du suivi et courbe mensuelle de la tendance, 4 langues ; ${COUVERTURE_PLAN}), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
+  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), plan 2026 (objectif du jour pondéré par le profil des jours de la semaine, % du plan, courbe d'objectif du suivi et courbe mensuelle de la tendance, 4 langues ; ${COUVERTURE_PLAN}), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, onglet Marques › Répartitions (pays, marque, type de produit × mois × marketplace, CA et quantités, 4 langues, mobile), mobile (tableaux défilables) : aucune erreur JavaScript`);
   return 0;
 }
 
