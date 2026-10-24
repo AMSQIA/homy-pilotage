@@ -22,7 +22,7 @@ date identique. Tous les chiffres s'arrêtent donc au même jour, `DMAX` (en gé
 | `repartitions.js` | Module pur de l'onglet Marques › Répartitions : pays, marque, catégorie, sous-catégorie × marketplace × mois, en CA HT et en quantités ; palette validée (voir plus bas) |
 | `scripts/extension/preparer_repartitions.mjs` | Ajoute `SKU_MARQUE` et la quantité des lignes pays 2026 (`PAYS_MONTHLY`, 6e élément) aux constantes de `App.jsx` depuis l'export « LIGNES ODP 2026 » ; refuse d'écrire si le CA ne retombe pas |
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence sur les vraies données du dépôt (à lancer avant toute publication) |
-| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions |
+| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions ; `--navigation` ne lance que la navigation mobile (barres du haut et du bas figées, filtres, sous-onglets, saisie, 4 langues) |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
 | `scripts/extension/build_n1.mjs` | Reconstruit `data/n1_2025.json` depuis l'export « LIGNE ODP 2025 » (rarement) |
 

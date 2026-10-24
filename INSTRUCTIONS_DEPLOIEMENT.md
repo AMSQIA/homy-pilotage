@@ -1,5 +1,37 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 24 octobre 2026 (soir) — navigation mobile allégée et figée
+
+**Demande** : « La barre de navigation est insupportable sur mobile, peux-tu optimiser et figer. »
+
+**Constat** : sur téléphone, rien n'était réellement figé, et les barres prenaient trop de place. Trois causes :
+
+1. le conteneur de l'application portait `overflow-x-hidden` : un élément `sticky` se colle alors au plus proche ancêtre qui masque le débordement, ici un conteneur qui ne défile pas ; l'en-tête partait donc avec la page ;
+2. la classe `.liquid-glass` impose `position: relative; overflow: hidden` et annulait le `fixed` de la barre du bas : elle défilait avec le contenu ;
+3. la bande des filtres était calée à une hauteur écrite en dur (`top: 57`), fausse dès que l'en-tête changeait de hauteur (bandeau de démonstration, filtres sur deux lignes).
+
+**Ce qui change** (téléphone, moins de 768 px ; **ordinateur et tablette inchangés**, l'en-tête et la bande de filtres d'origine restent comme avant) :
+
+- **Barre du haut figée, une seule ligne de 53 px** : logo (touche « remonter en haut »), puce **Période**, puce **Marketplace** (quand une marketplace est choisie, la puce prend la couleur de la marketplace et une croix remplace la flèche pour revenir à « Toutes ») ;
+  les dates personnalisées passent sur une ligne à part, seulement quand on choisit « Personnalisé ».
+  Les puces sont de vrais menus natifs (roue sur iPhone, liste sur Android) posés en transparence sur la puce, en police de 16 px : iPhone ne zoome plus sur la page à l'ouverture d'un menu.
+  Le bandeau du mode démonstration est dans le même bloc figé, au-dessus de la barre.
+- **Barre du bas réellement fixe** (`position: fixed`, 57 px) : les sept onglets restent à portée de pouce ; **l'onglet actif s'élargit et affiche son nom court** (Aperçu · Marketplaces · Marques · Prix · Ads · Concurrence · Data, et leurs équivalents en anglais, espagnol et chinois) ; marge de sécurité `env(safe-area-inset-bottom)` pour les iPhone sans bouton ;
+  elle se retire pendant la saisie dans un champ de texte (le clavier ne la remonte plus au milieu de l'écran) et revient ensuite. Le bas de page garde de la marge pour que rien ne passe dessous.
+- **Sous-onglets** (Marques › Marque · Répartitions · Produits…, Concurrence) : une seule ligne qui défile sur le côté au lieu de plusieurs lignes empilées ; la bande se **fige sous la barre du haut** en prenant sa position réelle (variable CSS `--barre-haut`, mesurée à l'écran : elle suit le bandeau de démonstration ou un changement de hauteur) et prend un fond opaque dès qu'elle est collée.
+- **Changer d'onglet remet la page en haut** (sauf à l'ouverture) ; **toucher l'onglet déjà actif remonte en douceur**.
+- **Suivi Prix** : le champ de recherche du simulateur ne prend plus le focus à l'ouverture (il ouvrait le clavier et faisait sauter la page, et la barre du bas disparaissait aussitôt).
+- `index.html` : `theme-color` (#0A0908) pour que la barre d'état du navigateur prenne la couleur de l'application.
+
+**Fichiers** : `App.jsx` (composants `BarreMobile`, `PuceFiltre`, `BottomTabBar`, `SousOnglets` ; `app-racine` remplace `overflow-x-hidden` par `overflow-x: clip` avec repli `hidden`), `index.html`, `scripts/extension/smoke.mjs`. Aucune donnée, aucun calcul, aucun autre fichier touché.
+
+**Tests** : `node scripts/extension/smoke.mjs --navigation` ne lance que ce contrôle (lancé aussi dans l'exécution complète) : à 390 et 360 px, les deux barres restent à leur place avant et après un long défilement
+(haut collé à 0, bas collé au bord de l'écran, au moins 80 % de l'écran laissé au contenu) ; les sept onglets (un seul actif, nom court affiché, page remontée, aucun débordement horizontal) ; un appui sur l'onglet actif remonte la page ; les puces de période et de marketplace
+(valeurs, croix, dates personnalisées) ; les sous-onglets de Marques et de Concurrence (une ligne, figés sous la barre du haut) ; saisie (barre du bas retirée puis rétablie), mode démonstration, aucun champ qui prend le focus sur Suivi Prix ; les quatre langues (libellés complets pour l'accessibilité, nom court de l'onglet actif, puce « Toutes ») ;
+et, à 768 px et plus, la disposition d'origine (barres mobiles absentes). Ce contrôle échoue bien lorsqu'on réintroduit les défauts d'origine (vérifié).
+
+**Pistes, si besoin** : figer aussi l'en-tête sur ordinateur (il défile toujours avec la page, comme avant) ; passer à 16 px les champs de saisie des autres onglets (le simulateur de prix, par exemple), car iPhone zoome sur la page à l'ouverture d'un champ plus petit.
+
 ## Mise à jour du 24 octobre 2026 — onglet Marques › Répartitions (pays, marque, type de produit × mois × marketplace)
 
 **Demande** : placer sur la page Marques, « à l'endroit le plus pertinent » et « comme un vrai visual data manager » : (1) le CA et les quantités par pays, par mois et par

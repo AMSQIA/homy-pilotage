@@ -2529,43 +2529,161 @@ function SlidingNav({ tab, onChange, t }) {
   );
 }
 
-// BottomTabBar — barre fixe mobile, remplace le menu hamburger. Indicateur
-// glissant identique dans l'esprit à SlidingNav (mesure des positions par ref),
-// icône + libellé compact sur chaque onglet plutôt qu'une liste qu'il faut
-// ouvrir pour voir les choix — toujours visible, un seul geste pour changer.
-function BottomTabBar({ tab, onChange, t }) {
-  const accent = useContext(AccentContext);
-  const containerRef = useRef(null);
-  const btnRefs = useRef({});
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
+// ===== NAVIGATION MOBILE (< 768 px) — deux barres figées à l'écran =====
+//  · en haut : UNE seule ligne de 52 px (logo, période, marketplace). Avant, l'en-tête (49 px) et le bandeau de filtres
+//    (deux lignes de puces + un sélecteur) occupaient ~180 px et défilaient avec la page ;
+//  · en bas : les 7 onglets, l'onglet actif affiche son nom. Un appui sur l'onglet déjà actif remonte en haut de page.
+// Sur ordinateur (≥ 768 px) rien ne change : en-tête et filtres gardent leur disposition d'origine.
 
-  useLayoutEffect(() => {
-    const btn = btnRefs.current[tab];
-    const container = containerRef.current;
-    if (btn && container) {
-      const cRect = container.getBoundingClientRect(), bRect = btn.getBoundingClientRect();
-      setIndicator({ left: bRect.left - cRect.left, width: bRect.width });
-    }
-  }, [tab]);
+// Libellés courts de la barre du bas (« Marques & Produits » ou « Campagnes Ads » ne tiennent pas dans ~110 px)
+// et textes propres aux barres mobiles, dans les quatre langues de l'application.
+const NAV_COURT = {
+  fr: { apercu: "Aperçu", marketplaces: "Marketplaces", marques: "Marques", prix: "Prix", ads: "Ads", concurrence: "Concurrence", data: "Data" },
+  en: { apercu: "Overview", marketplaces: "Marketplaces", marques: "Brands", prix: "Prices", ads: "Ads", concurrence: "Competition", data: "Data" },
+  es: { apercu: "Resumen", marketplaces: "Marketplaces", marques: "Marcas", prix: "Precios", ads: "Ads", concurrence: "Competencia", data: "Datos" },
+  zh: { apercu: "总览", marketplaces: "平台", marques: "品牌", prix: "价格", ads: "广告", concurrence: "竞争", data: "数据" },
+};
+const BARRE_TXT = {
+  fr: { navigation: "Navigation principale", periode: "Période", marketplace: "Marketplace", toutes: "Toutes", haut: "Haut de page", du: "Du", au: "Au" },
+  en: { navigation: "Main navigation", periode: "Period", marketplace: "Marketplace", toutes: "All", haut: "Back to top", du: "From", au: "To" },
+  es: { navigation: "Navegación principal", periode: "Período", marketplace: "Marketplace", toutes: "Todas", haut: "Subir", du: "Del", au: "Al" },
+  zh: { navigation: "主导航", periode: "时间段", marketplace: "平台", toutes: "全部", haut: "回到顶部", du: "从", au: "至" },
+};
+const remonter = () => { try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { window.scrollTo(0, 0); } };
+
+// Puce de filtre : le texte affiché est le nôtre (court) ; le vrai <select> natif est posé par-dessus, invisible, et couvre toute la
+// puce — un appui ouvre donc le sélecteur du téléphone (roue sur iPhone, liste sur Android). Le <select> est en 16 px : en dessous,
+// iOS zoome la page quand il s'ouvre. Avec `onEffacer`, une croix remplace la flèche (au-dessus du <select>).
+function PuceFiltre({ icone: Icone, libelle, couleur, actif, iconeClasse = "", flex = "1 1 0%", largeurMin, largeurMax, onEffacer, effacerLabel, children }) {
+  return (
+    <div className="relative min-w-0 flex items-center gap-1.5 rounded-xl pl-2.5 pr-1.5 transition-colors duration-300"
+      style={{ flex, minWidth: largeurMin, maxWidth: largeurMax, height: 36, background: actif ? `${couleur}1f` : PANEL, border: `1px solid ${actif ? couleur + "66" : PANEL_BORDER}`, color: actif ? couleur : INK }}>
+      <Icone size={13} className={`shrink-0 ${iconeClasse}`} style={{ color: actif ? couleur : MUTED }} aria-hidden="true" />
+      <span className="truncate text-[12px] font-semibold leading-none">{libelle}</span>
+      {children}
+      {onEffacer ? (
+        <button type="button" data-barre="effacer" onClick={onEffacer} aria-label={effacerLabel} className="relative z-10 ml-auto shrink-0 flex items-center justify-center rounded-full"
+          style={{ width: 26, height: 26, color: couleur, background: `${couleur}22` }}>
+          <X size={12} />
+        </button>
+      ) : (
+        <ChevronRight size={12} className="shrink-0 ml-auto mr-1 rotate-90" style={{ color: FAINT }} aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
+function BarreMobile({ t, lang, datePreset, setDatePreset, customFrom, setCustomFrom, customTo, setCustomTo, globalMp, setGlobalMp, accent }) {
+  const L = BARRE_TXT[lang] || BARRE_TXT.fr;
+  const filtre = globalMp !== "Toutes";
+  const moisLabels = DATA.mois_labels, mois = Number(DMAX.split("-")[1]);
+  const marketplaces = useMemo(() => Object.keys(DATA.gf.monthly_total_by_mp).sort(), []);
+  const libelleComplet = (p) => (p.id === "mois_courant" ? `${t.preset_mois_courant} (${moisLabels[mois - 1]})`
+    : p.id === "mois_precedent" ? `${t.preset_mois_precedent} (${moisLabels[(mois - 2 + 12) % 12]})`
+    : (t[`preset_${p.id}`] || p.label));
+  const periodeCourte = t[`preset_${datePreset}`] || (DATE_PRESETS.find((p) => p.id === datePreset) || {}).label || "";
+  const champSelect = { fontSize: 16, colorScheme: "dark" };
+  return (
+    <div data-barre="mobile" className="md:hidden transition-colors duration-300"
+      style={{ background: filtre ? `linear-gradient(90deg, ${accent.primary}22, ${accent.soft}10), rgba(10,9,8,0.975)` : "rgba(10,9,8,0.975)", WebkitBackdropFilter: "blur(14px)", backdropFilter: "blur(14px)", borderBottom: `1px solid ${filtre ? accent.soft + "40" : PANEL_BORDER}` }}>
+      <div className="flex items-center gap-1.5 px-3" style={{ height: 52 }}>
+        <button type="button" onClick={remonter} aria-label={L.haut} className="shrink-0 flex items-center pr-1.5"><HomyLogo size={20} /></button>
+        <PuceFiltre icone={CalendarDays} libelle={periodeCourte} iconeClasse="max-[389px]:hidden">
+          <select aria-label={L.periode} data-barre="periode" value={datePreset} onChange={(e) => setDatePreset(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" style={champSelect}>
+            {DATE_PRESETS.map((p) => <option key={p.id} value={p.id} style={{ background: BG }}>{libelleComplet(p)}</option>)}
+          </select>
+        </PuceFiltre>
+        <PuceFiltre icone={Store} libelle={filtre ? globalMp : L.toutes} couleur={accent.primary} actif={filtre} flex="0 1 auto" largeurMin={92} largeurMax="56%"
+          onEffacer={filtre ? () => setGlobalMp("Toutes") : null} effacerLabel={t.reset}>
+          <select aria-label={L.marketplace} data-barre="marketplace" value={globalMp} onChange={(e) => setGlobalMp(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" style={champSelect}>
+            <option value="Toutes" style={{ background: BG }}>{t.toutes_mp}</option>
+            {marketplaces.map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
+          </select>
+        </PuceFiltre>
+      </div>
+      {datePreset === "personnalise" && (
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <input type="date" aria-label={L.du} data-barre="date-du" value={customFrom} min={DMIN} max={customTo} onChange={(e) => setCustomFrom(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg px-2 font-medium tabular-nums" style={{ height: 36, background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, ...champSelect }} />
+          <span style={{ color: FAINT }}>→</span>
+          <input type="date" aria-label={L.au} data-barre="date-au" value={customTo} min={customFrom} max={DMAX} onChange={(e) => setCustomTo(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg px-2 font-medium tabular-nums" style={{ height: 36, background: PANEL, border: `1px solid ${PANEL_BORDER}`, color: INK, ...champSelect }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// BottomTabBar — barre du bas, réellement fixée à l'écran (position: fixed). L'onglet actif s'élargit et affiche son nom, les six autres
+// restent des icônes : les sept ne tiennent pas avec un libellé chacun sur 360 px. Masquée pendant la saisie dans un champ de texte
+// (le clavier prend déjà la moitié de l'écran), elle revient dès que le champ est quitté.
+function BottomTabBar({ tab, onChange, t, lang }) {
+  const accent = useContext(AccentContext);
+  const court = NAV_COURT[lang] || NAV_COURT.fr, L = BARRE_TXT[lang] || BARRE_TXT.fr;
+  const [saisie, setSaisie] = useState(false);
+  useEffect(() => {
+    const champ = (el) => !!el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"].includes(el.type)));
+    const entre = (e) => { if (champ(e.target)) setSaisie(true); };
+    const sort = () => setSaisie(false);
+    document.addEventListener("focusin", entre);
+    document.addEventListener("focusout", sort);
+    return () => { document.removeEventListener("focusin", entre); document.removeEventListener("focusout", sort); };
+  }, []);
 
   return (
-    <nav ref={containerRef} className="no-print md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch liquid-glass backdrop-blur-xl"
-      style={{ background: "rgba(16,15,13,0.92)", borderTop: `1px solid ${PANEL_BORDER}`, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-      <div className="absolute top-0 rounded-b-full" style={{
-        left: indicator.left, width: indicator.width, height: 2.5, background: accent.primary,
-        boxShadow: `0 1px 8px ${accent.primary}aa`, transition: "left 0.35s cubic-bezier(.22,1,.36,1), width 0.35s cubic-bezier(.22,1,.36,1), background 0.35s ease",
-      }} />
+    <nav aria-label={L.navigation} data-barre="bas" className="no-print md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center gap-1 px-2 pt-1.5"
+      style={{ background: "rgba(12,11,10,0.98)", WebkitBackdropFilter: "blur(14px)", backdropFilter: "blur(14px)", borderTop: `1px solid ${PANEL_BORDER}`, boxShadow: "0 -10px 28px -14px rgba(0,0,0,0.7)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", transform: saisie ? "translateY(110%)" : "none", transition: "transform 0.25s ease", pointerEvents: saisie ? "none" : "auto" }}>
       {NAV.map((n) => {
-        const active = tab === n.id;
+        const actif = tab === n.id;
         return (
-          <button key={n.id} ref={(el) => (btnRefs.current[n.id] = el)} onClick={() => onChange(n.id)} aria-label={t[n.labelKey]} title={t[n.labelKey]}
-            className="btn-lift flex-1 flex items-center justify-center py-3 min-w-0"
-            style={{ color: active ? accent.primary : FAINT }}>
-            <n.icon size={20} strokeWidth={active ? 2.3 : 1.8} />
+          <button key={n.id} type="button" onClick={() => (actif ? remonter() : onChange(n.id))} aria-label={t[n.labelKey]} aria-current={actif ? "page" : undefined} title={t[n.labelKey]}
+            className="relative flex items-center justify-center gap-1.5 min-w-0 overflow-hidden rounded-2xl"
+            style={{ flex: `${actif ? 3.1 : 1} 1 0%`, height: 44, transition: "flex-grow 0.3s cubic-bezier(.22,1,.36,1), background-color 0.25s, color 0.25s",
+              background: actif ? `${accent.primary}22` : "transparent", boxShadow: actif ? `inset 0 0 0 1px ${accent.primary}38` : "none", color: actif ? accent.primary : MUTED }}>
+            <n.icon size={20} strokeWidth={actif ? 2.2 : 1.8} className="shrink-0" aria-hidden="true" />
+            {actif && <span className="nav-libelle truncate text-[11.5px] font-semibold leading-none">{court[n.id]}</span>}
           </button>
         );
       })}
     </nav>
+  );
+}
+
+// Sous-onglets d'un onglet (Marques, Concurrence) : une seule ligne qui défile sur téléphone — avant, six pastilles s'empilaient sur
+// trois lignes — et qui se fige sous la barre du haut dès que la page a défilé (fond opaque et filet apparaissent à ce moment-là).
+// Inchangée sur ordinateur. La pastille active est recentrée dans la bande sans jamais faire défiler la page elle-même.
+function SousOnglets({ items, actif, onChange, couleurActive, texteActif }) {
+  const refDefil = useRef(null), refSentinelle = useRef(null);
+  const [colle, setColle] = useState(false);
+  useEffect(() => {
+    const c = refDefil.current, b = c && c.querySelector('[aria-pressed="true"]');
+    if (!c || !b) return;
+    try { c.scrollTo({ left: Math.max(0, b.offsetLeft - (c.clientWidth - b.offsetWidth) / 2), behavior: "smooth" }); } catch { /* défilement non pris en charge : sans effet */ }
+  }, [actif]);
+  useEffect(() => {
+    const s = refSentinelle.current;
+    if (!s || typeof IntersectionObserver === "undefined") return undefined;
+    const haut = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--barre-haut"), 10) || 53;
+    const io = new IntersectionObserver(([e]) => setColle(e.boundingClientRect.height > 0 && !e.isIntersecting && e.boundingClientRect.top < haut), { rootMargin: `-${haut}px 0px 0px 0px`, threshold: 0 });
+    io.observe(s);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <>
+      <div ref={refSentinelle} aria-hidden="true" className="md:hidden" style={{ height: 1, marginBottom: -1 }} />
+      <div data-barre="sous-onglets" className={`sous-onglets-barre ${colle ? "est-colle" : ""}`}>
+        <div ref={refDefil} data-barre="sous-onglets-defil" className="sous-onglets-defil flex items-center gap-1.5 rounded-full p-1 w-fit max-w-full" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+          {items.map((s) => (
+            <button key={s.id} type="button" aria-pressed={actif === s.id} onClick={() => onChange(s.id)}
+              className="btn-lift shrink-0 text-[12px] font-semibold px-3.5 py-1.5 rounded-full whitespace-nowrap"
+              style={{ background: actif === s.id ? couleurActive : "transparent", color: actif === s.id ? texteActif : MUTED }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -3871,6 +3989,26 @@ function DashboardApp() {
     setPriceMpFilter(globalMp);
   }, [globalMp]);
 
+  // hauteur réelle du bloc du haut (barre mobile, bannière « mode démo », dates personnalisées) : les sous-onglets se figent juste en dessous
+  const barreHautRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = barreHautRef.current;
+    if (!el) return undefined;
+    const maj = () => document.documentElement.style.setProperty("--barre-haut", `${el.offsetHeight}px`);
+    maj();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(maj) : null;
+    if (ro) ro.observe(el);
+    window.addEventListener("resize", maj);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", maj); };
+  }, []);
+  // les barres étant figées, on peut changer d'onglet depuis le bas d'une longue page : le nouvel onglet s'ouvre toujours en haut
+  // (pas au premier affichage : le navigateur garde alors sa propre position de défilement au rechargement)
+  const premierAffichage = useRef(true);
+  useEffect(() => {
+    if (premierAffichage.current) { premierAffichage.current = false; return; }
+    window.scrollTo(0, 0);
+  }, [tab]);
+
   const changeTab = (id) => {
     if (id === tab) return;
     const newIndex = NAV.findIndex((n) => n.id === id), oldIndex = NAV.findIndex((n) => n.id === tab);
@@ -4852,7 +4990,7 @@ function DashboardApp() {
 
   return (
     <AccentContext.Provider value={mpAccent}>
-    <div style={{ background: BG, color: INK, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }} className="relative overflow-x-hidden">
+    <div style={{ background: BG, color: INK, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }} className="app-racine relative">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Quicksand:wght@600;700&family=Archivo+Black&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         ::selection{background:${ORANGE}55}
@@ -4872,6 +5010,21 @@ function DashboardApp() {
           -webkit-mask-composite: xor; mask-composite: exclude;
           pointer-events: none;
         }
+        /* racine de l'application : coupe ce qui dépasse à l'horizontale SANS créer de zone de défilement (overflow-x: clip).
+           Avec « hidden », le navigateur traite la racine comme un conteneur de défilement et les éléments « sticky »
+           (barre du haut, sous-onglets) ne se figent plus à l'écran. Repli « hidden » pour les navigateurs qui ne connaissent pas « clip ». */
+        .app-racine { overflow-x: hidden; overflow-x: clip; }
+        /* sous-onglets : une seule ligne qui défile, figée sous la barre du haut sur téléphone ; inchangés dès 768 px */
+        .sous-onglets-barre { position: sticky; top: var(--barre-haut, 53px); z-index: 20; margin: 0 -20px 14px; padding: 6px 20px; border-bottom: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s; }
+        .sous-onglets-barre.est-colle { background: rgba(10,9,8,0.975); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom-color: rgba(255,255,255,0.05); }
+        .sous-onglets-defil { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+        .sous-onglets-defil::-webkit-scrollbar { display: none; }
+        @media (min-width: 768px) {
+          .sous-onglets-barre, .sous-onglets-barre.est-colle { position: static; margin: 0 0 24px; padding: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 0; }
+          .sous-onglets-defil { overflow: visible; flex-wrap: wrap; }
+        }
+        @keyframes navLibelle { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
+        .nav-libelle { animation: navLibelle 0.28s ease-out both; }
         @keyframes drift1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,-30px)} }
         @keyframes drift2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-35px,25px)} }
         @keyframes cardIn { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:translateY(0)} }
@@ -4922,12 +5075,6 @@ function DashboardApp() {
         }
       `}</style>
 
-      {demoMode && (
-        <div className="no-print sticky top-0 z-50 flex items-center justify-center gap-2 py-1.5 px-4 text-center" style={{ background: AMBER, color: "#0A0908" }}>
-          <EyeOff size={12} />
-          <span className="text-[11.5px] font-semibold">{t.demo_mode_actif}</span>
-        </div>
-      )}
       <Embers count={10} />
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="orb1 absolute" style={{ top: "-10%", left: "10%", width: 560, height: 420, background: `radial-gradient(ellipse, ${mpAccent.primary}1c, transparent 65%)`, filter: "blur(10px)", transition: "background 0.6s ease" }} />
@@ -4935,7 +5082,18 @@ function DashboardApp() {
       </div>
       <div className="grain-overlay pointer-events-none fixed inset-0 z-0" />
 
-      <header className="no-print sticky top-0 z-20 backdrop-blur-xl" style={{ background: "rgba(10,9,8,0.75)", borderBottom: `1px solid ${PANEL_BORDER}` }}>
+      {/* bloc du haut : sur téléphone, une seule barre compacte figée à l'écran (BarreMobile) ; dès 768 px, l'en-tête et le bandeau
+          de filtres d'origine, à leur place habituelle (et qui défilent avec la page, comme avant) */}
+      <div ref={barreHautRef} data-barre="haut" className="no-print sticky top-0 z-30 md:static">
+      {demoMode && (
+        <div className="relative z-50 flex items-center justify-center gap-2 py-1.5 px-4 text-center" style={{ background: AMBER, color: "#0A0908" }}>
+          <EyeOff size={12} />
+          <span className="text-[11.5px] font-semibold">{t.demo_mode_actif}</span>
+        </div>
+      )}
+      <BarreMobile t={t} lang={lang} datePreset={datePreset} setDatePreset={setDatePreset} customFrom={customFrom} setCustomFrom={setCustomFrom}
+        customTo={customTo} setCustomTo={setCustomTo} globalMp={globalMp} setGlobalMp={setGlobalMp} accent={mpAccent} />
+      <header className="hidden md:block relative z-20 backdrop-blur-xl" style={{ background: "rgba(10,9,8,0.75)", borderBottom: `1px solid ${PANEL_BORDER}` }}>
         <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <HomyLogo size={24} />
@@ -4948,7 +5106,7 @@ function DashboardApp() {
         </div>
       </header>
 
-      <div className="no-print sticky z-[15] backdrop-blur-xl transition-colors duration-300" style={{ top: 57, background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${mpAccent.primary}14, ${mpAccent.soft}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? mpAccent.soft + "40" : PANEL_BORDER_QUIET}` }}>
+      <div className="hidden md:block relative z-[15] backdrop-blur-xl transition-colors duration-300" style={{ background: globalMp !== "Toutes" ? `linear-gradient(90deg, ${mpAccent.primary}14, ${mpAccent.soft}0a)` : "rgba(10,9,8,0.55)", borderBottom: `1px solid ${globalMp !== "Toutes" ? mpAccent.soft + "40" : PANEL_BORDER_QUIET}` }}>
         <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-2 flex flex-col gap-2">
           <div className="flex items-center flex-wrap gap-1.5">
             <CalendarDays size={13} color={FAINT} className="shrink-0" />
@@ -4989,6 +5147,7 @@ function DashboardApp() {
             )}
           </div>
         </div>
+      </div>
       </div>
 
       <main key={tab} className="relative z-10 max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 pt-7 pb-24 md:pb-7 tab-slide-enter" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.18s", "--slide-from": `${slideDir * 18}px` }}>
@@ -5343,18 +5502,12 @@ function DashboardApp() {
           <>
             <PeriodSummaryCard key={`marques-${globalMp}-${datePreset}`} items={summaryMarques} t={t} />
 
-            <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit flex-wrap" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
-              {[
+            <SousOnglets actif={marquesTab} onChange={setMarquesTab} couleurActive={mpAccent.primary} texteActif={mpAccent.text}
+              items={[
                 { id: "marque", label: t.zone_marque }, { id: "repartitions", label: t.rep_tab }, { id: "produits", label: t.zone_produits_titre },
                 { id: "radar", label: t.subnav_produit_ideal }, { id: "classification", label: t.subnav_normes_cat },
                 { id: "puissances", label: t.zone_puissances },
-              ].map((s) => (
-                <button key={s.id} onClick={() => setMarquesTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full whitespace-nowrap"
-                  style={{ background: marquesTab === s.id ? mpAccent.primary : "transparent", color: marquesTab === s.id ? mpAccent.text : MUTED }}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
+              ]} />
 
             {marquesTab === "marque" && (
             <>
@@ -6080,7 +6233,8 @@ function DashboardApp() {
                 <>
                   <div className="relative mb-2">
                     <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: FAINT }} />
-                    <input value={simRecherche} onChange={(e) => setSimRecherche(e.target.value)} placeholder={t.sim_choisir_produit} autoFocus
+                    {/* pas de focus automatique : ce champ est en bas de l'onglet Suivi Prix, le prendre à l'ouverture faisait défiler la page jusqu'ici et ouvrait le clavier sur téléphone */}
+                    <input value={simRecherche} onChange={(e) => setSimRecherche(e.target.value)} placeholder={t.sim_choisir_produit}
                       className="w-full text-[12px] pl-7 pr-2 py-2 rounded-full outline-none" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: INK }} />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto">
@@ -6406,14 +6560,8 @@ function DashboardApp() {
             </div>
 
             {/* sous-navigation interne à l'onglet */}
-            <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
-              {[{ id: "synthese", label: t.summary_synthese }, { id: "produits", label: t.conc_top_produits }, { id: "prix", label: t.prix_mode }, { id: "comparatif", label: t.conc_comparatif }].map((s) => (
-                <button key={s.id} onClick={() => setConcTab(s.id)} className="btn-lift text-[12px] font-semibold px-3.5 py-1.5 rounded-full"
-                  style={{ background: concTab === s.id ? "linear-gradient(135deg, #4A9EFF, #6FB4FF)" : "transparent", color: concTab === s.id ? "#0A0908" : MUTED }}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            <SousOnglets actif={concTab} onChange={setConcTab} couleurActive="linear-gradient(135deg, #4A9EFF, #6FB4FF)" texteActif="#0A0908"
+              items={[{ id: "synthese", label: t.summary_synthese }, { id: "produits", label: t.conc_top_produits }, { id: "prix", label: t.prix_mode }, { id: "comparatif", label: t.conc_comparatif }]} />
 
             {concTab === "synthese" && (
               <>
@@ -6658,7 +6806,7 @@ function DashboardApp() {
 
       </main>
 
-      <footer className="no-print relative z-10 max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-10 flex items-center justify-between flex-wrap gap-3">
+      <footer className="no-print relative z-10 max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 pt-10 pb-28 md:py-10 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3 opacity-70">
           <HomyLogo size={16} color={MUTED} /><span style={{ color: FAINT }}>·</span>
           <BesthermLogo size={11} color={FAINT} showMark={false} /><ThomsonLogo size={10} color={FAINT} />
@@ -6689,7 +6837,7 @@ function DashboardApp() {
           </span>
         </div>
       </footer>
-      <BottomTabBar tab={tab} onChange={changeTab} t={t} />
+      <BottomTabBar tab={tab} onChange={changeTab} t={t} lang={lang} />
     </div>
     </AccentContext.Provider>
   );
