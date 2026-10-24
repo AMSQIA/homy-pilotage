@@ -15,6 +15,10 @@
  *     bureau (trois volets côte à côte dès 1280 px) ;
  *     les chiffres attendus sont recalculés
  *     dans le test, directement depuis les fichiers du dépôt, indépendamment du code de l'application ;
+ *   - le plan 2026 du suivi quotidien : objectif du jour = plan de la semaine Excel ÷ 7 × poids habituel du jour de la semaine (profil des jours recalculé dans le test, repli sur
+ *     l'ensemble des canaux quand une marketplace a moins de 8 semaines entières, rien sans objectif fiable), total de chaque semaine entière inchangé, ligne « Objectif · % du plan · écart »
+ *     (période ou jour touché), couleurs, bulle du graphique, légende et libellés dans les 4 langues ; courbe d'objectif mensuel de la tendance (tracée en dernier, points pleins,
+ *     bulle au-dessus de juillet et de novembre, libellés traduits, absente sans objectif fiable) ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
  *     comparaison « vs 2025 » (courbes et pastilles) ;
  *   - les chiffres affichés = ceux que calcule extension.js sur les vrais fichiers du dépôt (CA cumulé, unités,
@@ -270,6 +274,260 @@ function comparerSuivi(s, A, etiquette, jour = false) {
     ok(l && l.nom === nom && proche(l.part, (ca / sommePays) * 100, 0.02), `pays, rang ${i + 1} : « ${l && l.nom} » ${l && l.part} % ≠ « ${nom} » ${((ca / sommePays) * 100).toFixed(2)} %`);
   });
   ok(proche(s.pays.reduce((a, l) => a + l.part, 0), 100, 0.15), `pays : les parts font ${s.pays.reduce((a, l) => a + l.part, 0).toFixed(2)} % (100 attendus)`);
+}
+
+// ---- Plan 2026 (mise à jour du 21 octobre 2026) : objectif du jour = plan de la semaine ÷ 7 × poids habituel du jour de la semaine (la semaine garde le total du plan),
+// « % du plan » à côté du CA en tête, courbe d'objectif de l'histogramme, courbe d'objectif mensuel de la tendance. Les chiffres attendus sont recalculés ICI,
+// directement depuis les fichiers du dépôt, sans passer par le code de l'application. ----
+const dow = (iso) => new Date(iso + "T00:00:00Z").getUTCDay(); // 0 = dimanche … 6 = samedi
+// semaine Excel (WEEKNUM : dimanche→samedi, la semaine 1 contient le 1er janvier) = semaines écoulées depuis le dimanche qui ouvre la semaine 1, plus 1
+const semaineExcel = (iso) => { const y = iso.slice(0, 4), dim1 = addJ(`${y}-01-01`, -dow(`${y}-01-01`)); return Math.floor((Date.parse(iso + "T00:00:00Z") - Date.parse(dim1 + "T00:00:00Z")) / (7 * 864e5)) + 1; };
+const PROFIL_SEMAINES_MIN = 8; // un profil des jours demande au moins 8 semaines entières, chacune avec 7 jours de vente
+// CA par jour (Map jour → CA) : lignes dont la marketplace est en colonne 1 et le CA en colonne « colCa » ; garde(nomMp) choisit les canaux, « apres » écarte les jours antérieurs
+const serieJours = (lignes, noms, garde, apres = "", colCa = 5) => { const m = new Map(); for (const l of lignes) { if (l[0] <= apres || !garde(noms[l[1]])) continue; m.set(l[0], (m.get(l[0]) || 0) + l[colCa]); } return m; };
+// production : ventes Shopify après la dernière ligne de l'ODP (shopify_extension.json, schéma 1) puis 2025 du fichier data/n1_2025.json, qui ne compte que les marketplaces
+// (le « Site Web » 2025 de l'ODP est incomplet) : le site seul n'a donc pas de tranche 2025
+function tranchesAttendues(E, mpF) {
+  const odp = E.app.dmaxOdp, N1 = lireJson("data/n1_2025.json");
+  const t = [{ du: addJ(odp, 1), au: E.rap.dmax, ca: serieJours(E.ext.lignes, E.ext.mp, (m) => !mpF || m === mpF, odp) }];
+  if (mpF !== "Site Web") t.push({ du: N1.du, au: N1.au, ca: serieJours(N1.lignes, N1.mp, (m) => (mpF ? m === mpF : m !== "Site Web")) });
+  return t;
+}
+// profil des jours : pour chaque semaine entière (dimanche→samedi, 7 jours de vente), part de chaque jour dans la moyenne de sa semaine ; moyenne de ces parts sur toutes les semaines
+function profilJours(tranches) {
+  const somme = Array(7).fill(0); let nb = 0;
+  for (const { du, au, ca } of tranches) {
+    const sem = new Map(); // dimanche d'ouverture → { nombre de jours vus, CA des 7 jours }
+    for (let d = du; d <= au; d = addJ(d, 1)) {
+      const k = addJ(d, -dow(d));
+      if (!sem.has(k)) sem.set(k, { n: 0, v: Array(7).fill(0) });
+      const s = sem.get(k); s.n++; s.v[dow(d)] = ca.get(d) || 0;
+    }
+    for (const { n, v } of sem.values()) {
+      if (n < 7 || v.some((x) => !(x > 0))) continue; // semaine incomplète ou avec un jour sans vente : ignorée
+      const moy = v.reduce((a, b) => a + b, 0) / 7;
+      v.forEach((x, k) => { somme[k] += x / moy; }); nb++;
+    }
+  }
+  return { nb, poids: nb >= PROFIL_SEMAINES_MIN ? somme.map((x) => x / nb) : null };
+}
+// plan attendu d'un périmètre (mpF : nom de marketplace ou « Site Web » ; null = tous les canaux) ; null quand la marketplace n'a pas d'objectif fiable
+function planAttendu(E, mpF) {
+  const D = E.app.constante("DATA"), OBJ = E.app.constante("OBJECTIF_2026");
+  const entree = mpF ? D.mp_vs_objectif.find((m) => m.marketplace === mpF) : null;
+  const part = !mpF ? 1 : entree && entree.objectif_fiable && entree.objectif ? entree.objectif / D.kpi.objectif_annuel_total : null;
+  if (part === null) return null;
+  const propre = profilJours(tranchesAttendues(E, mpF));
+  const poids = propre.poids || (mpF ? profilJours(tranchesAttendues(E, null)).poids : null); // repli : profil de l'ensemble des canaux
+  const semaine = (iso) => (iso.slice(0, 4) === "2026" ? OBJ.hebdo.find((x) => x[0] === semaineExcel(iso)) : undefined); // le plan hebdomadaire ne concerne que 2026
+  return {
+    part, poids, propre: Boolean(propre.poids), semaines: propre.nb,
+    jour: (iso) => { const h = semaine(iso); return h ? Math.round((h[1] / 7) * (poids ? poids[dow(iso)] : 1) * part) : null; },
+    hebdo: (iso) => { const h = semaine(iso); return h ? h[1] * part : null; },
+    mois: (i) => Math.round(((mpF ? entree.objectif : D.kpi.objectif_annuel_total) * OBJ.mensuel[i]) / OBJ.annuel), // courbe mensuelle de la tendance
+  };
+}
+const TR_PLAN = {
+  fr: { leg: "Objectif (plan 2026)", per: "Objectif", jour: "Objectif du jour", nom: "Objectif 2026", mensuel: "Objectif 2026 (plan mensuel)" },
+  en: { leg: "Target (2026 plan)", per: "Target", jour: "Daily target", nom: "2026 target", mensuel: "2026 target (monthly plan)" },
+  es: { leg: "Objetivo (plan 2026)", per: "Objetivo", jour: "Objetivo del día", nom: "Objetivo 2026", mensuel: "Objetivo 2026 (plan mensual)" },
+  zh: { leg: "目标（2026 年计划）", per: "目标", jour: "当日目标", nom: "2026 年目标", mensuel: "2026 年目标（月度计划）" },
+};
+const ROUGE = "rgb(248, 113, 113)", VERT = "rgb(52, 211, 153)", GRIS = "rgb(148, 140, 126)"; // RED, GREEN et MUTED de l'application, tels que les rend le navigateur
+// tracé en escalier : que des segments horizontaux ou verticaux (une courbe lissée aurait des segments obliques ou des arcs)
+const escalier = (d) => { const p = String(d).split(/[ML]/).filter(Boolean).map((s) => s.split(",").map(Number)); return p.length > 2 && !/[CQSTAHVZ]/i.test(String(d).replace(/[ML]/g, "")) && p.every((q, i) => i === 0 || Math.abs(q[0] - p[i - 1][0]) < 0.01 || Math.abs(q[1] - p[i - 1][1]) < 0.01); };
+const fenetre = (E, n) => Array.from({ length: n }, (_, i) => addJ(E.rap.dmax, i + 1 - n)); // les n derniers jours du suivi
+let COUVERTURE_PLAN = "";
+
+const lirePlan = (page) => page.evaluate(() => {
+  const q = (s) => document.querySelector(s), plan = q('[data-suivi="plan"]'), leg = q('[data-suivi="objectif"]'), fils = plan ? [...plan.children] : [];
+  const courbe = q('[data-suivi="graphique"] .recharts-line-curve[stroke="#34D399"]'), txt = (e) => (e ? e.innerText : null);
+  return {
+    plan: txt(plan), objectif: plan ? Number(plan.dataset.objectif) : null, pct: plan ? Number(plan.dataset.pct) : null,
+    etiquette: txt(fils[0]), montant: txt(fils[1]), pctTexte: txt(fils[3]), ecartTexte: txt(fils[4]),
+    couleurs: [fils[3], fils[4]].map((e) => (e ? getComputedStyle(e).color : null)),
+    legende: txt(leg),
+    jours: [...document.querySelectorAll('[data-suivi="objectif-jour"]')].map((c) => ({ d: c.dataset.d, obj: Number(c.dataset.obj) })),
+    courbe: courbe ? courbe.getAttribute("d") : null,
+  };
+});
+// compare ce que l'application affiche (ligne du plan, légende, points et tracé de la courbe d'objectif) au plan recalculé ; jours = les jours du graphique
+function comparerPlan(o, A, P, etiquette, { jours, jourSel = null, lang = "fr" }) {
+  const ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
+  const avec = P !== null && jours.every((d) => P.jour(d) !== null);
+  if (!avec) { // pas d'objectif fiable (ou fenêtre hors du plan 2026) : ni ligne du plan, ni légende, ni courbe
+    ok(o.plan === null && o.legende === null && o.jours.length === 0 && o.courbe === null, `plan affiché (ligne « ${o.plan} », légende « ${o.legende} », ${o.jours.length} point(s), courbe ${o.courbe ? "tracée" : "absente"}) alors qu'il n'y a pas d'objectif fiable sur cette fenêtre`);
+    return;
+  }
+  const attendu = jours.map((d) => [d, P.jour(d)]), tr = TR_PLAN[lang];
+  ok(o.jours.length === attendu.length, `${o.jours.length} point(s) sur la courbe d'objectif, ${attendu.length} attendu(s)`);
+  attendu.forEach(([d, v], i) => { const l = o.jours[i]; ok(l && l.d === d && proche(l.obj, v, 1), `objectif du ${d} : ${l && l.obj} € affiché, ${v} € attendu (${P.poids ? `profil des jours ${P.propre ? "propre" : "de repli"}` : "poids égaux"}, part ${(P.part * 100).toFixed(2)} %)`); });
+  // chaque semaine entière affichée garde le total du plan (7 arrondis : 4 € au plus d'écart)
+  for (const dim of jours.filter((d) => dow(d) === 0 && addJ(d, 6) <= jours[jours.length - 1])) {
+    const somme = [0, 1, 2, 3, 4, 5, 6].reduce((a, k) => a + ((o.jours.find((l) => l.d === addJ(dim, k)) || {}).obj || 0), 0);
+    ok(proche(somme, P.hebdo(dim), 4), `semaine du ${dim} : ${somme} € d'objectifs journaliers pour ${Math.round(P.hebdo(dim))} € au plan de la semaine entière`);
+  }
+  ok(o.legende !== null && contient(o.legende, tr.leg), `légende de la courbe d'objectif « ${o.legende} » (« ${tr.leg} » attendu en ${lang})`);
+  ok(o.courbe !== null && escalier(o.courbe), "la courbe d'objectif n'est pas un escalier (segments horizontaux et verticaux)");
+  const objAtt = jourSel ? P.jour(jourSel) : attendu.reduce((a, [, v]) => a + v, 0);
+  ok(o.plan !== null && proche(o.objectif, objAtt, jourSel ? 1 : attendu.length), `objectif ${jourSel ? `du ${jourSel}` : "de la période"} : ${o.objectif} € affiché, ${objAtt} € attendu`);
+  if (o.plan === null) return;
+  const pct = (A.total / objAtt) * 100, ec = A.total - o.objectif;
+  ok(proche(o.pct, pct, 0.2), `% du plan ${o.pct} affiché, ${pct.toFixed(1)} attendu (CA ${fmtNum(A.total)} € pour ${fmtNum(objAtt)} € d'objectif)`);
+  const libelle = tr[jourSel ? "jour" : "per"];
+  ok(o.etiquette === libelle, `libellé « ${o.etiquette} » (« ${libelle} » attendu en ${lang}${jourSel ? ", jour touché" : ""})`);
+  const montant = jourSel ? `${fmtNum(o.objectif)} €` : kApp(o.objectif);
+  ok(norm(o.montant) === montant, `montant de l'objectif « ${norm(o.montant)} » ≠ attendu « ${montant} »`);
+  const pctTexte = `${Math.abs(pct - 100) < 0.5 ? pct.toFixed(1) : Math.round(pct)} %`;
+  ok(norm(o.pctTexte) === pctTexte, `part du plan « ${norm(o.pctTexte)} » ≠ attendue « ${pctTexte} »`);
+  ok(norm(o.ecartTexte) === ecartApp(ec), `écart au plan « ${norm(o.ecartTexte)} » ≠ attendu « ${ecartApp(ec)} »`);
+  const couleur = Math.round(Math.abs(ec)) === 0 ? GRIS : ec > 0 ? VERT : ROUGE;
+  ok(o.couleurs.every((c) => c === couleur), `couleur du % et de l'écart ${o.couleurs.join(" / ")} (${couleur} attendu : ${ec > 0 ? "au-dessus" : "en dessous"} du plan)`);
+}
+// bulle du graphique du suivi : on place la souris sur la i-ème barre sans cliquer
+async function survolerJour(page, i) {
+  const pos = await page.evaluate((k) => {
+    const r = document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle')[k], g = document.querySelector('[data-suivi="graphique"] .recharts-cartesian-grid');
+    if (!r || !g) return null;
+    const a = r.getBoundingClientRect(), b = g.getBoundingClientRect();
+    return { x: a.left + a.width / 2, y: b.top + b.height / 2 };
+  }, i);
+  if (!pos) return null;
+  await page.mouse.move(pos.x, pos.y); await page.waitForTimeout(450);
+  const texte = await page.evaluate(() => { const el = document.querySelector('[data-suivi="graphique"] .recharts-tooltip-wrapper'); return el ? el.innerText : ""; });
+  await page.mouse.move(2, 2); await page.waitForTimeout(150);
+  return norm(texte);
+}
+// la bulle du i-ème jour de la fenêtre : libellé traduit de l'objectif du jour, montant, écart du CA du jour à cet objectif (les montants de la bulle sont arrondis jour par jour)
+async function comparerBulle(page, E, n, i, mpF, P, etiquette, lang = "fr") {
+  const d = fenetre(E, n)[i], tr = TR_PLAN[lang], ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
+  const tip = await survolerJour(page, i);
+  if (!ok(tip !== null, "barre introuvable pour la bulle")) return;
+  const pt = (await lirePlan(page)).jours.find((l) => l.d === d);
+  if (!P || P.jour(d) === null) { ok(!contient(tip, tr.jour), `bulle du ${d} : « ${tr.jour} » affiché alors qu'il n'y a pas d'objectif (${tip})`); return; }
+  const A = suiviAttendu(E, n, d, mpF), tot = Math.round(A.mp) + Math.round(A.site);
+  ok(contient(tip, tr.jour), `bulle du ${d} : libellé « ${tr.jour} » absent (${tip})`);
+  ok(pt && contient(tip, `${fmtNum(pt.obj)} €`), `bulle du ${d} : objectif ${pt && fmtNum(pt.obj)} € absent (${tip})`);
+  ok(pt && contient(tip, varApp((tot / pt.obj - 1) * 100)), `bulle du ${d} : écart du CA à l'objectif ${pt && varApp((tot / pt.obj - 1) * 100)} absent (${tip})`);
+}
+
+async function verifierPlan(browser, base, E) {
+  // garde-fou du test lui-même : semaines Excel connues du plan 2026 (semaine 1 = 28 déc. 2025 → 3 janv. 2026, semaine 41 = 4 → 10 oct.)
+  verifier(semaineExcel("2026-01-01") === 1 && semaineExcel("2026-01-03") === 1 && semaineExcel("2026-01-04") === 2 && semaineExcel("2026-10-04") === 41 && semaineExcel("2026-10-10") === 41 && semaineExcel("2026-10-11") === 42, "plan : la semaine Excel recalculée par le test est inexacte");
+  const P0 = planAttendu(E, null);
+  if (verifier(P0 && P0.poids, `plan : profil des jours attendu introuvable sans filtre (${P0 ? P0.semaines : 0} semaine(s) entière(s), 8 nécessaires)`)) {
+    verifier(proche(P0.poids.reduce((a, b) => a + b, 0), 7, 1e-9) && Math.max(...P0.poids) - Math.min(...P0.poids) > 0.05, `plan : poids des jours (${P0.poids.map((x) => x.toFixed(2)).join(" ")}) : moyenne de 1 sur la semaine et jours différents attendus`);
+  }
+  // a) bureau, français, sans filtre : période par défaut, bulle, période la plus longue (semaines entières), jour touché
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser);
+    await ouvrirDashboard(page, base);
+    const s0 = await lireSuivi(page), n = (s0.puces.find((p) => p.actif) || { n: 7 }).n;
+    comparerPlan(await lirePlan(page), suiviAttendu(E, n), P0, `plan ${n} j`, { jours: fenetre(E, n) });
+    await comparerBulle(page, E, n, Math.min(3, n - 1), null, P0, `plan ${n} j`);
+    await comparerBulle(page, E, n, n - 1, null, P0, `plan ${n} j`);
+    const plus = s0.puces.reduce((m, p) => (p.n > m ? p.n : m), 0);
+    if (plus !== n) {
+      await page.locator(`[data-suivi="puces"] button[data-n="${plus}"]`).click(); await page.waitForTimeout(500);
+      comparerPlan(await lirePlan(page), suiviAttendu(E, plus), P0, `plan ${plus} j`, { jours: fenetre(E, plus) });
+      await page.locator(`[data-suivi="puces"] button[data-n="${n}"]`).click(); await page.waitForTimeout(400);
+    }
+    const jt = fenetre(E, n)[Math.min(3, n - 1)];
+    if (verifier(await cliquerJour(page, Math.min(3, n - 1)), "plan : barre introuvable")) {
+      comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt), P0, `plan jour ${jt}`, { jours: fenetre(E, n), jourSel: jt });
+      await page.locator('[data-suivi="reset"]').click(); await page.waitForTimeout(400);
+      comparerPlan(await lirePlan(page), suiviAttendu(E, n), P0, `plan ${n} j (après retour)`, { jours: fenetre(E, n) });
+    }
+    verifier(erreurs.length === 0, `erreurs JavaScript (plan) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // b) filtre marketplace : part de l'objectif annuel de la marketplace ; profil propre quand elle a assez de semaines, sinon profil de l'ensemble ; rien sans objectif fiable
+  const propres = [], replis = [], sans = [];
+  for (const mp of ["Leroy Merlin", "Bricomarché", "Boulanger", "Site Web", "Autre"]) {
+    const { ctx, page, erreurs } = await ouvrir(browser);
+    await ouvrirDashboard(page, base, { marketplace: mp });
+    const s = await lireSuivi(page), n = (s.puces.find((p) => p.actif) || { n: 7 }).n, P = planAttendu(E, mp);
+    (P ? (P.propre ? propres : replis) : sans).push(mp);
+    comparerPlan(await lirePlan(page), suiviAttendu(E, n, null, mp), P, `plan filtre ${mp}`, { jours: fenetre(E, n) });
+    if (P) await comparerBulle(page, E, n, Math.min(3, n - 1), mp, P, `plan filtre ${mp}`);
+    const jt = fenetre(E, n)[Math.min(3, n - 1)];
+    if (P && (await cliquerJour(page, Math.min(3, n - 1)))) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt, mp), P, `plan filtre ${mp}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt });
+    verifier(erreurs.length === 0, `erreurs JavaScript (plan, filtre ${mp}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  COUVERTURE_PLAN = `profil propre : ${propres.join(", ") || "aucun"} ; repli sur l'ensemble des canaux : ${replis.join(", ") || "aucun"} ; sans objectif : ${sans.join(", ") || "aucun"}`;
+  // c) autres langues : libellés de la ligne du plan, de la légende et de la bulle, aussi sur un jour touché
+  for (const lang of ["en", "es", "zh"]) {
+    const { ctx, page, erreurs } = await ouvrir(browser);
+    await ouvrirDashboard(page, base, { lang });
+    const s = await lireSuivi(page), n = (s.puces.find((p) => p.actif) || { n: 7 }).n, jt = fenetre(E, n)[Math.min(3, n - 1)];
+    comparerPlan(await lirePlan(page), suiviAttendu(E, n), P0, `plan ${lang.toUpperCase()}`, { jours: fenetre(E, n), lang });
+    await comparerBulle(page, E, n, Math.min(3, n - 1), null, P0, `plan ${lang.toUpperCase()}`, lang);
+    if (await cliquerJour(page, Math.min(3, n - 1))) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt), P0, `plan ${lang.toUpperCase()}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt, lang });
+    verifier(erreurs.length === 0, `erreurs JavaScript (plan ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+}
+
+// ---- Courbe de tendance : objectif mensuel du plan 2026, tracé en dernier (sinon le masque opaque de la fourchette anticipée le cache), points pleins, libellés traduits ----
+const TENDANCE = '.recharts-wrapper:has(.recharts-area-curve[stroke-dasharray="4 3"])'; // le seul graphique en aires qui porte la fourchette anticipée
+const lireTendance = (page) => page.evaluate((sel) => {
+  const w = document.querySelector(sel);
+  if (!w) return null;
+  const aires = [...w.querySelectorAll(".recharts-area")], trait = (a) => (a.querySelector(".recharts-area-curve") || a).getAttribute("stroke");
+  const vertes = aires.filter((a) => trait(a) === "#34D399"), pts = vertes.length ? [...vertes[0].querySelectorAll(".recharts-area-dots circle")] : [];
+  return {
+    nbAires: aires.length, vertes: vertes.length, rang: vertes.length ? aires.indexOf(vertes[0]) : -1, tirets: vertes.length ? vertes[0].querySelector(".recharts-area-curve").getAttribute("stroke-dasharray") : null,
+    points: pts.map((c) => ({ fill: c.getAttribute("fill"), opacite: c.getAttribute("fill-opacity") })),
+    texte: document.body.innerText,
+  };
+}, TENDANCE);
+// bulle de la tendance au-dessus du mois i (0 = janvier) : la souris se place sur l'abscisse de l'initiale du mois
+async function survolerMois(page, i) {
+  await page.evaluate((sel) => { const w = document.querySelector(sel); if (w) w.scrollIntoView({ block: "center" }); }, TENDANCE);
+  await page.waitForTimeout(500);
+  const pos = await page.evaluate(([sel, k]) => {
+    const w = document.querySelector(sel), t = w && [...w.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick")][k];
+    if (!t) return null;
+    const a = t.getBoundingClientRect(), b = w.getBoundingClientRect();
+    return { x: a.left + a.width / 2, y: b.top + b.height * 0.4 };
+  }, [TENDANCE, i]);
+  if (!pos) return null;
+  await page.mouse.move(pos.x, pos.y); await page.waitForTimeout(600);
+  const texte = await page.evaluate((sel) => { const el = document.querySelector(sel + " .recharts-tooltip-wrapper"); return el ? el.innerText : ""; }, TENDANCE);
+  await page.mouse.move(2, 2); await page.waitForTimeout(150);
+  return norm(texte);
+}
+async function verifierTendance(browser, base, E) {
+  const cas = [["fr", null], ["en", null], ["es", null], ["zh", null], ["fr", "Leroy Merlin"], ["fr", "Site Web"], ["fr", "Autre"]];
+  for (const [lang, mp] of cas) {
+    const { ctx, page, erreurs } = await ouvrir(browser);
+    await ouvrirDashboard(page, base, { lang, marketplace: mp || undefined });
+    const P = planAttendu(E, mp), tr = TR_PLAN[lang], et = `tendance ${lang.toUpperCase()}${mp ? `, filtre ${mp}` : ""}`, ok = (c, m) => verifier(c, `${et} : ${m}`);
+    await page.evaluate((sel) => { const w = document.querySelector(sel); if (w) w.scrollIntoView({ block: "center" }); }, TENDANCE);
+    let T = null;
+    for (let k = 0; k < 40; k++) { // les aires s'animent à l'affichage : les points n'existent qu'une fois l'animation finie
+      T = await lireTendance(page);
+      if (T && (P ? T.points.length === 12 : T.nbAires >= 5)) break;
+      await page.waitForTimeout(250);
+    }
+    if (!ok(T !== null, "graphique de tendance introuvable")) { await ctx.close(); continue; }
+    if (!P) { // pas d'objectif fiable : ni courbe verte ni légende
+      ok(T.vertes === 0 && !contient(T.texte, tr.mensuel), `courbe d'objectif mensuel (${T.vertes} tracé(s)) ou légende affichée sans objectif fiable`);
+    } else {
+      ok(T.vertes === 1, `${T.vertes} courbe(s) d'objectif mensuel, 1 attendue`);
+      ok(contient(T.texte, tr.mensuel), `légende « ${tr.mensuel} » absente (traduction)`);
+      ok(T.rang === T.nbAires - 1, `la courbe d'objectif est la ${T.rang + 1}e aire sur ${T.nbAires} : elle doit être tracée en dernier, après le masque de la fourchette anticipée`);
+      ok(T.tirets === "6 4", `courbe d'objectif en pointillés « 6 4 » attendue (${T.tirets})`);
+      ok(T.points.length === 12 && T.points.every((p) => p.fill === "#34D399" && p.opacite === "1"), `points de la courbe d'objectif : ${T.points.length} point(s), pleins attendus (${JSON.stringify(T.points.slice(0, 2))})`);
+      for (const i of [6, 10]) { // juillet (réel) et novembre (sous le masque de la fourchette anticipée)
+        const tip = await survolerMois(page, i);
+        ok(tip !== null && contient(tip, `${tr.nom} : ${fmtNum(P.mois(i))} €`), `bulle du mois ${i + 1} : « ${tr.nom} : ${fmtNum(P.mois(i))} € » attendu (${tip})`);
+      }
+    }
+    verifier(erreurs.length === 0, `erreurs JavaScript (${et}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
 }
 
 async function verifierSuivi(browser, base, E) {
@@ -538,6 +796,8 @@ async function main() {
 
     // 1 bis) suivi quotidien : période, jour touché, an dernier, top 10, pays (chiffres recalculés dans le test depuis les fichiers du dépôt)
     await verifierSuivi(browser, base, E);
+    await verifierPlan(browser, base, E);
+    await verifierTendance(browser, base, E);
 
     // 2) trois autres langues
     for (const lang of ["en", "es", "zh"]) {
@@ -630,7 +890,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
+  console.log(`SMOKE_OK · bloc « Données à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), plan 2026 (objectif du jour pondéré par le profil des jours de la semaine, % du plan, courbe d'objectif du suivi et courbe mensuelle de la tendance, 4 langues ; ${COUVERTURE_PLAN}), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif / ${E.yoy} % vs 2025, filtres marketplace, 7 onglets, mobile (tableaux défilables) : aucune erreur JavaScript`);
   return 0;
 }
 
