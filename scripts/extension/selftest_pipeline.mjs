@@ -120,6 +120,7 @@ export async function testerPipeline(ok) {
   ok(r2(sM.stats.ca) === 194 && sM.stats.qte === 5 && sM.stats.commandes === 3 && r2(sM.stats.net) === 194 && r2(sM.stats.taxes) === 38.8, "pipeline : totaux du jour = ventes nettes de Shopify (194 €), 5 unités, 3 commandes");
   ok(memes(sM.commandes.map((c) => [c.mp, c.n]), [["Leroy Merlin", 1], ["Amazon FR", 1], [MP_AUTRE, 1]]), "pipeline : commandes comptées si CA > 0 (ni le 0 € ni le remboursement)");
   ok(memes(sM.pays.map((p) => [p.pays, p.mp, p.ca]), [["France", "Leroy Merlin", 150], ["France", MP_AUTRE, 0], ["Belgique", "Amazon FR", 50], ["Espagne", MP_AUTRE, 60], ["Italie", "Amazon FR", -66]]), "pipeline : pays traduits (Belgium → Belgique…), CA par jour × pays × marketplace");
+  ok(memes(sM.pays.map((p) => [p.pays, p.mp, p.qte]), [["France", "Leroy Merlin", 3], ["France", MP_AUTRE, 1], ["Belgique", "Amazon FR", 1], ["Espagne", MP_AUTRE, 1], ["Italie", "Amazon FR", -1]]) && sM.pays.reduce((t, p) => t + p.qte, 0) === sM.stats.qte, "pipeline : quantité par jour × pays × marketplace (retour en négatif, ajustement sans quantité), somme = unités du jour (onglet Répartitions)");
   const [pa, pb] = [nomA, nomB].sort();
   ok(sM.paires.length === 1 && sM.paires[0].a === pa && sM.paires[0].b === pb && sM.paires[0].n === 1, "pipeline : paires de produits d'une même commande (ordre alphabétique)");
   ok(sM.stats.passerellesInconnues.size === 1 && sM.stats.passerellesInconnues.has("carrefourx") && sM.stats.sansPaiement === 1 && sM.stats.sansPaiementListe.length === 0, "pipeline : passerelle inconnue → « Autre » ; commande à 0 € sans paiement tolérée");
@@ -208,6 +209,7 @@ export async function testerPipeline(ok) {
   const sS = traiterBoutique("site", jeuxS(D1, 0), ref, fen1);
   ok(memes(sS.lignes.map((l) => [l.mp, l.produit, l.qte, l.ca]), [[MP_SITE, nomB, 1, 200], [MP_SITE, nomA, 2, 300], [MP_SITE, "Produit XYZ inconnu", 1, 10]]), "pipeline : site web = ventes nettes (CA HT = net), ligne vide écartée");
   ok(r2(sS.stats.ca) === 510 && sS.stats.commandes === 3 && memes(sS.pays.map((p) => [p.pays, p.ca]), [["France", 210], ["Allemagne", 300]]), "pipeline : site : 510 €, 3 commandes, pays traduits");
+  ok(sS.pays.reduce((t, p) => t + p.qte, 0) === sS.lignes.reduce((t, l) => t + l.qte, 0) && sS.pays.every((p) => Number.isFinite(p.qte)), "pipeline : site : la somme des quantités par pays égale celle des lignes");
   ok(sS.vendeurs.get("Produit XYZ inconnu")?.get("Thomson") === 1 && avertissementsDe(sS).some((a) => /absents de la table/.test(a) && /Produit XYZ inconnu/.test(a)), "pipeline : produit inconnu signalé, marque du fournisseur conservée");
   ok(sS.stats.sansPaiement === 0 && sS.stats.passerellesInconnues.size === 0, "pipeline : le site n'a pas de passerelle de paiement à résoudre");
 
@@ -296,6 +298,7 @@ export async function testerPipeline(ok) {
     // décodage / réencodage identiques
     const dec = decoder(e3);
     ok(dec.lignes.length === e3.lignes.length && dec.commandes.length === e3.commandes.length && dec.pays.length === e3.pays_jour.length && dec.marques.get(nomA) === "Bestherm", "fusion : décodage de l'extraction (dictionnaires → valeurs)");
+    ok(e3.pays_jour.length > 0 && e3.pays_jour.every((r) => r.length === 5 && Number.isFinite(r[4])) && dec.pays.every((p) => Number.isFinite(p.qte)) && JSON.stringify(fusionner(e3, {}, AUJ).pays_jour) === JSON.stringify(e3.pays_jour), "fusion : la quantité par pays (5e champ de pays_jour) traverse la fusion, le décodage et le réencodage à l'identique");
     ok(JSON.stringify(fusionner(e3, {}, AUJ).lignes) === JSON.stringify(e3.lignes) && JSON.stringify(fusionner(e3, {}, AUJ).produits) === JSON.stringify(e3.produits), "fusion : sans nouvelle boutique, les lignes sont reconduites à l'identique");
     // conservation : pays et commandes depuis AN-1, paires depuis AN ; lignes quotidiennes de toutes les années
     {
@@ -304,6 +307,7 @@ export async function testerPipeline(ok) {
       ok(e.lignes.length === 1 && e.pays_jour.length === 0 && e.commandes.length === 0 && e.paires.length === 0, "fusion : détail pays, commandes et paires antérieurs à l'année précédente écartés, lignes quotidiennes conservées");
       const e25 = fusionner(null, { site: vieux("site", "2025-03-01") }, AUJ), e26 = fusionner(null, { site: vieux("site", "2026-03-01") }, AUJ);
       ok(e25.pays_jour.length === 1 && e25.commandes.length === 1 && e25.paires.length === 0 && e26.paires.length === 1, "fusion : pays et commandes gardés depuis l'année précédente, paires seulement pour l'année en cours");
+      ok(e25.pays_jour[0].length === 4 && validerExtension(e25).ok && e25.pays_jour[0][3] === 10, "fusion : un jour de pays sans quantité (extraction antérieure) est reconduit tel quel à 4 champs, extraction toujours valide");
     }
     // sérialisation : relue à l'identique, une enregistrement par ligne
     const texte = serialiser(e3);

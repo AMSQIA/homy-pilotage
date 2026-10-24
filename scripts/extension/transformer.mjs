@@ -264,7 +264,7 @@ export function traiterBoutique(id, jeux, ref, fen) {
       if (!pa) { pa = l.pays || PAYS_INCONNU; if (l.pays) st.paysInconnus.add(l.pays); }
       st.ca += l.ht; st.lignes++;
       lignes.ajouter(`${g.d}\u0000${mp}\u0000${p.nom}`, l.qte, l.ht);
-      pays.ajouter(`${g.d}\u0000${pa}\u0000${mp}`, 0, l.ht);
+      pays.ajouter(`${g.d}\u0000${pa}\u0000${mp}`, l.qte, l.ht); // quantité par pays : onglet Marques › Répartitions
       if (!l.ajustement && l.qte > 0 && l.ht > 0 && p.nom !== PRODUIT_LIVRAISON) produitsAchetes.add(p.nom);
     }
     if (g.d >= depuisPaires && caCommande > 0.005 && produitsAchetes.size > 1) {
@@ -282,7 +282,7 @@ export function traiterBoutique(id, jeux, ref, fen) {
   return {
     id, du, au,
     lignes: [...lignes.m].map(([k, v]) => { const [d, mp, produit] = k.split("\u0000"); return { d, mp, produit, qte: v.qte, ca: r2(v.ca) }; }),
-    pays: [...pays.m].map(([k, v]) => { const [d, p, mp] = k.split("\u0000"); return { d, pays: p, mp, ca: r2(v.ca) }; }),
+    pays: [...pays.m].map(([k, v]) => { const [d, p, mp] = k.split("\u0000"); return { d, pays: p, mp, qte: v.qte, ca: r2(v.ca) }; }),
     commandes: [...commandes].map(([k, n]) => { const [d, mp] = k.split("\u0000"); return { d, mp, n }; }),
     paires: [...paires].map(([k, n]) => { const [d, a, b] = k.split("\u0000"); return { d, a, b, n }; }),
     vendeurs, stats: st,

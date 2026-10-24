@@ -54,7 +54,7 @@ function fabriquer(lignes, { commandes = [], pays = [], paires = [], au = "2026-
     schema: SCHEMA, du: lignes.map((l) => l[0]).sort()[0], au, boutiques: { marketplaces: { au }, site: { au } },
     mp, pays: pa, produits: noms.map((n) => [n, vendeurs[n] ?? null]),
     lignes: lignes.map(([d, m, p, q, ca]) => [d, im.get(m), ip.get(p), q, ca]),
-    pays_jour: pays.map(([d, p, m, ca]) => [d, ic.get(p), im.get(m), ca]),
+    pays_jour: pays.map(([d, p, m, ca, q]) => (q === undefined ? [d, ic.get(p), im.get(m), ca] : [d, ic.get(p), im.get(m), ca, q])), // quantité facultative
     commandes: commandes.map(([d, m, n]) => [d, im.get(m), n]),
     paires: paires.map(([d, a, b, n]) => [d, ip.get(a), ip.get(b), n, 0]),
   };
@@ -100,7 +100,8 @@ export function testerSocle(ok) {
   }
   ok(D.brand_coverage_pct[2025] === 100 && D.brand_coverage_pct[2026] === r1((1 - 30 / caAn) * 100), "socle : part du CA dont le produit figure dans la table");
   const sansVendeur = construire(fabriquer(L, { vendeurs: {} }), REF, {});
-  ok(sansVendeur.appliquee && sansVendeur.C.DATA.monthly_by_brand.Thomson && memes(sansVendeur.C.DATA.monthly_by_brand.Thomson[2025], mois(n1, (l) => l[2] === P2)) && sansVendeur.C.DATA.monthly_by_brand.Bestherm, "socle : sans fournisseur Shopify, marque de la table de référence (ou Bestherm si absent)");
+  ok(sansVendeur.appliquee && sansVendeur.C.DATA.monthly_by_brand.Thomson && memes(sansVendeur.C.DATA.monthly_by_brand.Thomson[2025], mois(n1, (l) => l[2] === P2)) && sansVendeur.C.DATA.monthly_by_brand.Bestherm && memes(sansVendeur.C.SKU_MARQUE, ["Bestherm", "Thomson", "Bestherm"]), "socle : sans fournisseur Shopify, marque de la table de référence (ou Bestherm si absent)");
+  ok(memes(C.SKU_MARQUE, ["Bestherm", "Thomson", "Thomson"]) && C.SKU_MARQUE.length === C.SKU_PRODUIT.length, "socle : marque de chaque produit (celle du fournisseur Shopify), parallèle à SKU_PRODUIT");
 
   // marketplaces
   const mps = ["Amazon FR", "Leroy Merlin", "Site Web"];
@@ -145,6 +146,19 @@ export function testerSocle(ok) {
 
   // pays, semaines
   ok(memes(C.PAYS_MONTHLY, [["Belgique", "Amazon FR", 2026, 2, 1000], ["France", "Amazon FR", 2025, 3, 200], ["France", "Site Web", 2026, 3, 180]]), "socle : ventes par pays (2024 et après la dernière donnée ignorées)");
+  // quantités par pays (6e élément) : sommées par mois comme le CA ; une année ne les porte que si TOUTES ses lignes en ont une (jamais de quantité partielle)
+  {
+    const paysQ = [["2026-03-02", "France", "Site Web", 150, 3], ["2026-03-13", "France", "Site Web", 30, 1], ["2026-02-10", "Belgique", "Amazon FR", 1000, 10], ["2025-03-02", "France", "Amazon FR", 200, 2], ["2024-05-01", "France", "Amazon FR", 999, 9], ["2026-03-15", "France", "Amazon FR", 5, 5]];
+    const rq = (p) => construire(fabriquer(L, { commandes, pays: p, paires }), REF, {});
+    const pm = (p) => { const x = rq(p); return x.appliquee ? x.C.PAYS_MONTHLY : x.erreurs; };
+    ok(memes(pm(paysQ), [["Belgique", "Amazon FR", 2026, 2, 1000, 10], ["France", "Amazon FR", 2025, 3, 200, 2], ["France", "Site Web", 2026, 3, 180, 4]]), "socle : quantités par pays sommées par mois (2024 et lignes après la dernière donnée ignorées)");
+    ok(memes(pm(paysQ.map((p) => (p[0].startsWith("2025") ? p.slice(0, 4) : p))), [["Belgique", "Amazon FR", 2026, 2, 1000, 10], ["France", "Amazon FR", 2025, 3, 200], ["France", "Site Web", 2026, 3, 180, 4]]), "socle : une année dont toutes les lignes portent une quantité la garde, l'autre reste sans quantité");
+    ok(memes(pm(paysQ.map((p, i) => (i === 1 ? p.slice(0, 4) : p))), [["Belgique", "Amazon FR", 2026, 2, 1000], ["France", "Amazon FR", 2025, 3, 200, 2], ["France", "Site Web", 2026, 3, 180]]), "socle : une seule ligne sans quantité retire les quantités de toute son année");
+    ok(memes(pm(paysQ.map((p, i) => (i === 4 || i === 5 ? p.slice(0, 4) : p))), pm(paysQ)), "socle : une ligne sans quantité hors période (2024, après la dernière donnée) ne retire rien");
+    ok(memes(pm(paysQ.map((p) => p.slice(0, 4))), [["Belgique", "Amazon FR", 2026, 2, 1000], ["France", "Amazon FR", 2025, 3, 200], ["France", "Site Web", 2026, 3, 180]]), "socle : extraction sans aucune quantité par pays (ancien format) : CA seul, rien d'inventé");
+    ok(rq(paysQ.map((p, i) => (i === 3 ? [...p.slice(0, 4), null] : p))).appliquee && !rq(paysQ.map((p, i) => (i === 3 ? [...p.slice(0, 4), "2"] : p))).appliquee, "socle : quantité par pays absente (null) tolérée, non numérique refusée");
+    ok(rq(paysQ.map((p, i) => (i === 2 ? [...p.slice(0, 4), -4] : p))).C?.PAYS_MONTHLY[0][5] === -4, "socle : une quantité négative (remboursement) est conservée telle quelle");
+  }
   const sem = new Map(); for (const l of an) sem.set(excelWeekOf(l[0]), (sem.get(excelWeekOf(l[0])) ?? 0) + l[4]);
   ok(memes(C.WEEKLY_TOTALS.map((r) => [r[0], r[1]]), [...sem].sort((a, b) => a[0] - b[0]).map(([w, ca]) => [w, r2(ca)])) && R.semaineMaxComplete === 11 && excelWeekOf("2026-03-14") === 11, "socle : ventes par semaine Excel (dimanche → samedi), dernière semaine complète = 11");
   ok(S(C.WEEKLY_BY_MP.map((r) => r[2])) === caAn && S(C.WEEKLY_BY_PROD.map((r) => r[2])) === caAn && S(C.WEEKLY_BY_MP.map((r) => r[3])) === qAn, "socle : semaines par marketplace et par produit = total");

@@ -20,7 +20,7 @@
  *  ext = { schema: 2, du, au, boutiques: { id: { au, … } },
  *          mp: [nom…], pays: [nom…], produits: [[nom, marqueVendeur, …]…],
  *          lignes:    [[jour, iMp, iProduit, quantité, caHT]…]        ventes par jour × marketplace × produit
- *          pays_jour: [[jour, iPays, iMp, caHT]…]                      ventes par jour × pays × marketplace
+ *          pays_jour: [[jour, iPays, iMp, caHT, quantité?]…]           ventes par jour × pays × marketplace (quantité facultative : voir PAYS_MONTHLY)
  *          commandes: [[jour, iMp, nbCommandes]…]                      commandes (CA > 0) par jour × marketplace
  *          paires:    [[jour, iProduitA, iProduitB, nbCommandes, boutique]…]  commandes contenant les deux produits (AN seulement) }
  *  ref = { objectif_annuel, objectifs_mp: { mp: { objectif, fiable } },
@@ -89,7 +89,7 @@ export function validerExtension(ext) {
   const idx = (x, max) => Number.isInteger(x) && x >= 0 && x < max;
   const num = (...v) => v.every((x) => typeof x === "number" && Number.isFinite(x));
   controle("lignes", ext.lignes, 5, ([, im, ip, q, ca]) => (!idx(im, n.mp) || !idx(ip, n.produits) ? "index hors dictionnaire" : !num(q, ca) ? "valeur non numérique" : null));
-  controle("pays_jour", ext.pays_jour, 4, ([, ic, im, ca]) => (!idx(ic, n.pays) || !idx(im, n.mp) ? "index hors dictionnaire" : !num(ca) ? "valeur non numérique" : null));
+  controle("pays_jour", ext.pays_jour, 4, ([, ic, im, ca, q]) => (!idx(ic, n.pays) || !idx(im, n.mp) ? "index hors dictionnaire" : !num(ca) || (q !== undefined && q !== null && !num(q)) ? "valeur non numérique" : null));
   controle("commandes", ext.commandes, 3, ([, im, nb]) => (!idx(im, n.mp) ? "index hors dictionnaire" : !num(nb) ? "valeur non numérique" : null));
   controle("paires", ext.paires, 4, ([, ia, ib, nb]) => (!idx(ia, n.produits) || !idx(ib, n.produits) ? "index hors dictionnaire" : !num(nb) ? "valeur non numérique" : null));
   return { ok: e.length === 0, erreurs: e };
@@ -271,16 +271,21 @@ function construireInterne(ext, ref, opts, AN, rap) {
     cmdAn += n; cmdMp.set(M[im], (cmdMp.get(M[im]) || 0) + n);
   }
 
-  /* ---- PAYS_MONTHLY : [pays, marketplace, année, mois, CA HT] (AN-1 et AN) */
-  const paysMap = new Map();
-  for (const [d, ic, im, ca] of ext.pays_jour) {
+  /* ---- PAYS_MONTHLY : [pays, marketplace, année, mois, CA HT, quantité] (AN-1 et AN). La quantité (6e élément) n'est donnée pour une année que si
+   *      TOUTES ses lignes de l'extraction en portent une : jamais de quantité partielle (l'onglet Répartitions affiche alors le CA et le signale). */
+  const paysMap = new Map(), anSansQte = new Set();
+  for (const [d, ic, im, ca, q] of ext.pays_jour) {
     const y = +d.slice(0, 4);
     if (d > dmax || y < Y1 || y > AN) continue;
+    const sansQte = typeof q !== "number" || !Number.isFinite(q);
+    if (sansQte) anSansQte.add(y);
     const k = `${PA[ic]}|${M[im]}|${y}|${+d.slice(5, 7)}`;
-    let r = paysMap.get(k); if (!r) { r = [PA[ic], M[im], y, +d.slice(5, 7), 0]; paysMap.set(k, r); }
-    r[4] += ca;
+    let r = paysMap.get(k); if (!r) { r = [PA[ic], M[im], y, +d.slice(5, 7), 0, 0]; paysMap.set(k, r); }
+    r[4] += ca; if (!sansQte) r[5] += q;
   }
-  const PAYS_MONTHLY = [...paysMap.values()].map((r) => [r[0], r[1], r[2], r[3], r2(r[4])]).sort((a, b) => cmp(a[0], b[0]) || cmp(a[1], b[1]) || a[2] - b[2] || a[3] - b[3]);
+  const PAYS_MONTHLY = [...paysMap.values()]
+    .map((r) => (anSansQte.has(r[2]) ? [r[0], r[1], r[2], r[3], r2(r[4])] : [r[0], r[1], r[2], r[3], r2(r[4]), r[5]]))
+    .sort((a, b) => cmp(a[0], b[0]) || cmp(a[1], b[1]) || a[2] - b[2] || a[3] - b[3]);
 
   /* ---- tableaux parallèles aux produits */
   const SKU_DESTOCKAGE = SKU_PRODUIT.map((n) => metaDe(n).destockage);
@@ -290,6 +295,7 @@ function construireInterne(ext, ref, opts, AN, rap) {
   const SKU_VERTICAL = SKU_PRODUIT.map((n) => metaDe(n).vertical);
   const SKU_SOUS_FAMILLE = SKU_PRODUIT.map((n) => metaDe(n).sous);
   const SKU_SOUS_SOUS_FAMILLE = SKU_PRODUIT.map((n) => metaDe(n).sousSous);
+  const SKU_MARQUE = SKU_PRODUIT.map((n) => metaDe(n).marque); // marque du vendeur Shopify (sinon de la table de référence) : onglet Répartitions
   const PRODUCT_TO_CATEGORY = {};
   for (const n of SKU_PRODUIT) if (metaDe(n).cat) PRODUCT_TO_CATEGORY[n] = metaDe(n).cat;
 
@@ -491,7 +497,7 @@ function construireInterne(ext, ref, opts, AN, rap) {
 
   const C = {
     DATA, SKU_PRODUIT, SKU_MPS, SKU_MONTHLY, SKU_DESTOCKAGE, SKU_FAMILLE, SKU_WIFI, SKU_PLINTHE, SKU_VERTICAL,
-    SKU_SOUS_FAMILLE, SKU_SOUS_SOUS_FAMILLE, PRODUCT_TO_CATEGORY, PAYS_MONTHLY, SKU_CUT_N1,
+    SKU_SOUS_FAMILLE, SKU_SOUS_SOUS_FAMILLE, SKU_MARQUE, PRODUCT_TO_CATEGORY, PAYS_MONTHLY, SKU_CUT_N1,
     WEEKLY_TOTALS, WEEKLY_BY_MP, WEEKLY_BY_PROD, ELASTICITE_DATA, SIMULATION_PRIX, BASKET_PAIRS, ABC_BY_SKU, SEASONALITY_INDEX,
   };
   const jours = new Set(L.filter((x) => x.y === AN).map((x) => x.d));

@@ -13,6 +13,7 @@ import { construire, squelette } from "./socle.js"; // calcul de tous les chiffr
 import SHOPIFY_EXT from "./shopify_extension.json"; // ventes des deux boutiques Shopify, jour par jour (actualisé chaque matin)
 import REFERENTIEL from "./data/referentiel.json"; // table de référence : nom, marque, famille, norme de chaque produit ; objectifs du plan
 import HORS_SHOPIFY from "./data/hors_shopify.json"; // chiffres sans source Shopify (publicité), conservés tels quels
+import { construireRepartitions, vue as repVue, matrice as repMatrice, partsParMarketplace as repParts, replier, attribuerCouleurs, dispoQte, infoMois, AUTRES_PRODUITS, NB_SERIES, GRIS } from "./repartitions.js"; // répartitions pays / marque / type de produit × mois × marketplace (page Marques) // onglet Marques › Répartitions : calculs purs
 
 /* ============================================================================ DONNÉES (Shopify uniquement, HT) */
 // Plus aucun fichier Excel : tous les chiffres ci-dessous sont recalculés au chargement par socle.js à partir des ventes des
@@ -26,7 +27,8 @@ import HORS_SHOPIFY from "./data/hors_shopify.json"; // chiffres sans source Sho
 //  SKU_PRODUIT       produits vendus (année précédente et en cours) ; SKU_MONTHLY : [indexProduit, indexMp, année, mois, ca, qté] ;
 //                    SKU_MPS : marketplaces ; SKU_DESTOCKAGE / SKU_FAMILLE / SKU_WIFI / SKU_PLINTHE / SKU_VERTICAL /
 //                    SKU_SOUS_FAMILLE / SKU_SOUS_SOUS_FAMILLE : tableaux parallèles à SKU_PRODUIT (table de référence)
-//  PAYS_MONTHLY      [pays, marketplace, année, mois, ca] (année précédente et en cours) ; SKU_CUT_N1 : ventes de l'année
+//  PAYS_MONTHLY      [pays, marketplace, année, mois, ca, quantité] (année précédente et en cours ; la quantité n'est présente que pour une année dont toutes
+//                    les lignes d'extraction en portent une) ; SKU_MARQUE : marque de chaque produit (parallèle à SKU_PRODUIT) ; SKU_CUT_N1 : ventes de l'année
 //                    précédente du 1er du mois au jour de DMAX, [indexProduit, indexMp, ca, qté]
 //  WEEKLY_*          semaines Excel (dimanche→samedi, semaine 1 = celle du 1er janvier) de l'année en cours
 //  ELASTICITE_DATA   élasticité-prix par produit × marketplace : régression log-log (ln qté ~ ln prix) sur les semaines complètes
@@ -45,7 +47,7 @@ const SOCLE = (() => {
 })();
 const {
   DATA, ELASTICITE_DATA, SIMULATION_PRIX, SKU_PRODUIT, SKU_MPS, SKU_MONTHLY, SKU_DESTOCKAGE, SKU_FAMILLE, SKU_WIFI, SKU_PLINTHE,
-  SKU_VERTICAL, SKU_SOUS_FAMILLE, SKU_SOUS_SOUS_FAMILLE, PRODUCT_TO_CATEGORY, ABC_BY_SKU, SEASONALITY_INDEX, PAYS_MONTHLY,
+  SKU_VERTICAL, SKU_SOUS_FAMILLE, SKU_SOUS_SOUS_FAMILLE, SKU_MARQUE, PRODUCT_TO_CATEGORY, ABC_BY_SKU, SEASONALITY_INDEX, PAYS_MONTHLY,
   SKU_CUT_N1, BASKET_PAIRS, WEEKLY_TOTALS, WEEKLY_BY_MP, WEEKLY_BY_PROD,
 } = SOCLE.C;
 
@@ -650,6 +652,7 @@ function StaggerRow({ children, index, style = {}, className = "" }) {
 
 const I18N = {
   fr: {
+    /* repartitions */ rep_tab: "Répartitions", rep_titre: "Répartitions par mois et par marketplace", rep_pays: "Pays", rep_marque: "Marque", rep_type: "Type de produit", rep_categorie: "Catégorie", rep_sous: "Sous-catégorie", rep_ca: "CA HT", rep_qte: "Quantités", rep_evolution: "Évolution mensuelle", rep_classement: "Classement", rep_detail: "Détail par marketplace et par mois", rep_total: "Total", rep_toutes: "Toutes les marketplaces", rep_marketplace: "Marketplace", rep_marketplaces: "Sous-total marketplaces", rep_valeurs: "Valeurs", rep_parts: "Parts", rep_graphique: "Graphique", rep_tableau: "Tableau", rep_montant: "Montant", rep_part: "Part", rep_part_de: "Part de {x} dans le total de chaque case (marketplace × mois)", rep_mix: "Répartition", rep_col_part: "Part", rep_vide: "Aucune vente sur cette sélection.", rep_retirer: "Retirer ce filtre", rep_autres: "Autres ({n})", rep_autres_produits: "Autres produits", rep_marque_inconnue: "Marque non renseignée", rep_tous_pays: "Tous les pays", rep_toutes_marques: "Toutes les marques", rep_tous_types: "Tous les types de produit", rep_astuce_classement: "Touchez une ligne pour isoler son détail par marketplace.", rep_astuce_mp: "Touchez une marketplace pour filtrer le graphique et le classement.", rep_qte_indispo: "Quantités indisponibles pour cette année et ce découpage (l'extraction Shopify ne les fournit pas) : le CA est affiché.", rep_site_prec: "Site web 2025 : ses ventes ne commencent qu'en mai 2025 dans Shopify : ne pas le comparer à 2026 sur l'année entière.", rep_en_cours: "Mois en cours, données jusqu'au {d}", rep_en_cours_court: "mois en cours", rep_lien_marque: "Détail par mois et par marketplace", rep_hors_france: "Hors France",
     /* donnees */ donnees_titre: "Données Shopify à jour", donnees_jusqua: "jusqu'au {date}", donnees_socle: "Source unique : Shopify (marketplaces BESTHERM et site web), du {du} au {au}", donnees_perime: "Non actualisé depuis {n} j", donnees_tout: "Tous les chiffres du tableau de bord (KPI, courbes, marketplaces, marques, produits, pays, catégories, prix, élasticités, paniers, comparaisons avec 2025) sont recalculés à partir des ventes Shopify.", donnees_base: "Marketplaces : CA HT = (ventes nettes + taxes) ÷ 1,2, la marketplace étant celle de la passerelle de paiement de chaque commande. Site web : ventes nettes hors taxes, remises et retours déduits, comme dans Shopify.", donnees_site_depuis: "Le site web n'existe dans Shopify que depuis le {du} : ses ventes antérieures ne sont pas dans les chiffres, donc les comparaisons avec 2025 sont partielles pour le site et pour le total.", donnees_bricoman: "Bricoman ne se distingue pas de Leroy Merlin dans Shopify : ses ventes sont comptées dans Leroy Merlin.", donnees_hors: "Ne viennent pas de Shopify (conservés tels quels) : publicité, concurrence, objectifs du plan, famille et norme de chaque produit, fiches du catalogue.", donnees_maj: "Actualisé chaque matin · dernière extraction : {date}.", donnees_graph: "CA HT par jour (30 derniers jours)", suivi_jours: "{n} j", suivi_ca: "CA HT", suivi_vs: "vs {plage}", suivi_n1: "{an} · mêmes jours", suivi_n1_mp: "{an} · marketplaces", suivi_toucher: "Touchez un jour pour voir son top 10, ses marketplaces et ses pays", suivi_top10: "Top 10 produits", suivi_pays: "Part du CA par pays", suivi_aucune: "Aucune vente sur ces jours", suivi_autres: "Autres", suivi_nouveau: "nouveau", suivi_u: "u.", suivi_pt: "pt", suivi_entiere: "Période entière", suivi_delta_mp: "Δ marketplaces", suivi_tab_top: "Produits", suivi_tab_mp: "Marketplaces", suivi_tab_pays: "% par pays", suivi_top10_mp: "Top 10 marketplaces", suivi_meme_date: "Même date", suivi_meme_semaine: "Même jour de semaine", suivi_obj_leg: "Objectif (plan 2026)", suivi_obj_jour: "Objectif du jour", suivi_obj_per: "Objectif", obj_2026_nom: "Objectif 2026", obj_2026_mensuel: "Objectif 2026 (plan mensuel)", suivi_commandes: "Commandes", suivi_panier: "Panier moyen", donnees_mp: "Marketplaces", donnees_site: "Site web", donnees_source: "Source : Shopify", donnees_indispo_titre: "Données Shopify indisponibles", donnees_indispo_msg: "Les ventes Shopify sont illisibles ou incomplètes : le tableau de bord ne peut pas s'afficher. La prochaine actualisation du matin les reconstruit ; sinon, contactez le support.",
     nav_apercu: "Vue d'ensemble", nav_marketplaces: "Marketplaces", nav_marques: "Marques & Produits", nav_prix: "Suivi Prix", nav_ads: "Campagnes Ads", nav_concurrence: "Concurrence", nav_data: "Data", data_hint: "Sélectionne un ou plusieurs produits pour générer un rapport Excel détaillé", data_titre: "Extraction de données", data_intro: "Choisis des produits et génère un rapport Excel avec répartition par canal, prix HT/TTC et évolution mensuelle — comme un export à la demande.", data_recherche_placeholder: "Rechercher un produit…", data_aucun_resultat: "Aucun produit trouvé", data_aucune_selection: "Aucun produit sélectionné", data_produits_selectionnes_sg: "produit sélectionné", data_produits_selectionnes_pl: "produits sélectionnés", data_tout_deselectionner: "Tout désélectionner", data_generation_en_cours: "Génération…", data_generer_excel: "Générer Excel", data_erreur_generation: "Erreur lors de la génération — réessaie, ou vérifie ta connexion (le fichier de mise en forme se charge depuis internet).", data_note_contenu: "Le rapport contient 3 onglets : synthèse, répartition par canal (marketplace, prix HT/TTC), et évolution mensuelle 2024-2026. TVA appliquée : 20% (standard France, à ajuster si besoin).", promo_titre: "Sélection prix promo", promo_externe_desc: "Outil collaboratif partagé avec toute l'équipe en temps réel — s'ouvre dans un nouvel onglet.", promo_ouvrir_outil: "Ouvrir l'outil collaboratif",
     pilotage: "Pilotage", marketplace_label: "Marketplace :", toutes_mp: "Toutes marketplaces", mode_presentation: "Mode présentation", reset: "réinitialiser",
@@ -711,6 +714,7 @@ sum_en: "en", sum_sur: "sur", sum_soit_lower: "soit", sum_vs_meme_periode_an_der
     vises: "visés",
   },
   en: {
+    /* repartitions */ rep_tab: "Breakdowns", rep_titre: "Breakdowns by month and marketplace", rep_pays: "Country", rep_marque: "Brand", rep_type: "Product type", rep_categorie: "Category", rep_sous: "Sub-category", rep_ca: "Revenue excl. VAT", rep_qte: "Units", rep_evolution: "Monthly trend", rep_classement: "Ranking", rep_detail: "Detail by marketplace and month", rep_total: "Total", rep_toutes: "All marketplaces", rep_marketplace: "Marketplace", rep_marketplaces: "Marketplaces subtotal", rep_valeurs: "Values", rep_parts: "Share", rep_graphique: "Chart", rep_tableau: "Table", rep_montant: "Amount", rep_part: "Share", rep_part_de: "Share of {x} in each cell's total (marketplace × month)", rep_mix: "Mix", rep_col_part: "Share", rep_vide: "No sales for this selection.", rep_retirer: "Remove this filter", rep_autres: "Other ({n})", rep_autres_produits: "Other products", rep_marque_inconnue: "Brand not set", rep_tous_pays: "All countries", rep_toutes_marques: "All brands", rep_tous_types: "All product types", rep_astuce_classement: "Tap a row to isolate its detail by marketplace.", rep_astuce_mp: "Tap a marketplace to filter the chart and the ranking.", rep_qte_indispo: "Units are unavailable for this year and breakdown (the Shopify extraction does not provide them): revenue is shown.", rep_site_prec: "Website 2025: its sales only start in May 2025 in Shopify: do not compare it with 2026 over the full year.", rep_en_cours: "Current month, data through {d}.", rep_en_cours_court: "current month", rep_lien_marque: "Detail by month and marketplace", rep_hors_france: "Excl. France",
     /* donnees */ donnees_titre: "Shopify data up to date", donnees_jusqua: "through {date}", donnees_socle: "Single source: Shopify (BESTHERM marketplaces and website), from {du} to {au}", donnees_perime: "Not updated for {n} d", donnees_tout: "Every figure in the dashboard (KPIs, curves, marketplaces, brands, products, countries, categories, prices, elasticities, baskets, comparisons with 2025) is recalculated from Shopify sales.", donnees_base: "Marketplaces: revenue excl. VAT = (net sales + taxes) ÷ 1.2, the marketplace being that of each order's payment gateway. Website: net sales excl. taxes, discounts and returns deducted, as in Shopify.", donnees_site_depuis: "The website only exists in Shopify since {du}: earlier website sales are not in the figures, so comparisons with 2025 are partial for the website and for the total.", donnees_bricoman: "Bricoman cannot be told apart from Leroy Merlin in Shopify: its sales are counted in Leroy Merlin.", donnees_hors: "Not from Shopify (kept as is): advertising, competition, plan targets, each product's family and standard, catalogue sheets.", donnees_maj: "Updated every morning · last extraction: {date}.", donnees_graph: "Daily revenue excl. VAT (last 30 days)", suivi_jours: "{n} d", suivi_ca: "Revenue excl. VAT", suivi_vs: "vs {plage}", suivi_n1: "{an} · same days", suivi_n1_mp: "{an} · marketplaces", suivi_toucher: "Tap a day to see its top 10, marketplaces and countries", suivi_top10: "Top 10 products", suivi_pays: "Revenue share by country", suivi_aucune: "No sales on these days", suivi_autres: "Others", suivi_nouveau: "new", suivi_u: "pcs", suivi_pt: "pt", suivi_entiere: "Whole period", suivi_delta_mp: "Δ marketplaces", suivi_tab_top: "Products", suivi_tab_mp: "Marketplaces", suivi_tab_pays: "% by country", suivi_top10_mp: "Top 10 marketplaces", suivi_meme_date: "Same date", suivi_meme_semaine: "Same weekday", suivi_obj_leg: "Target (2026 plan)", suivi_obj_jour: "Daily target", suivi_obj_per: "Target", obj_2026_nom: "2026 target", obj_2026_mensuel: "2026 target (monthly plan)", suivi_commandes: "Orders", suivi_panier: "Avg. order value", donnees_mp: "Marketplaces", donnees_site: "Website", donnees_source: "Source: Shopify", donnees_indispo_titre: "Shopify data unavailable", donnees_indispo_msg: "The Shopify sales are unreadable or incomplete, so the dashboard cannot be displayed. The next morning update rebuilds them; otherwise contact support.",
     nav_apercu: "Overview", nav_marketplaces: "Marketplaces", nav_marques: "Brands & Products", nav_prix: "Price Tracking", nav_ads: "Ad Campaigns", nav_concurrence: "Competition", nav_data: "Data", data_hint: "Select one or more products to generate a detailed Excel report", data_titre: "Data extraction", data_intro: "Pick products and generate an Excel report with channel breakdown, HT/TTC prices and monthly trend — an export on demand.", data_recherche_placeholder: "Search a product…", data_aucun_resultat: "No product found", data_aucune_selection: "No product selected", data_produits_selectionnes_sg: "product selected", data_produits_selectionnes_pl: "products selected", data_tout_deselectionner: "Deselect all", data_generation_en_cours: "Generating…", data_generer_excel: "Generate Excel", data_erreur_generation: "Error while generating — try again, or check your connection (the formatting library loads from the internet).", data_note_contenu: "The report has 3 tabs: summary, channel breakdown (marketplace, HT/TTC prices), and 2024-2026 monthly trend. VAT applied: 20% (standard France rate, adjust if needed).", promo_titre: "Promo price selection", promo_externe_desc: "Collaborative tool shared with the whole team in real time — opens in a new tab.", promo_ouvrir_outil: "Open the collaborative tool",
     pilotage: "Dashboard", marketplace_label: "Marketplace:", toutes_mp: "All marketplaces", mode_presentation: "Presentation mode", reset: "reset",
@@ -772,6 +776,7 @@ sum_en: "in", sum_sur: "for", sum_soit_lower: "i.e.", sum_vs_meme_periode_an_der
     vises: "targeted",
   },
   zh: {
+    /* repartitions */ rep_tab: "分布", rep_titre: "按月份和平台的分布", rep_pays: "国家", rep_marque: "品牌", rep_type: "产品类型", rep_categorie: "品类", rep_sous: "子品类", rep_ca: "销售额（不含税）", rep_qte: "销量", rep_evolution: "月度走势", rep_classement: "排名", rep_detail: "按平台和月份的明细", rep_total: "合计", rep_toutes: "全部平台", rep_marketplace: "平台", rep_marketplaces: "平台小计", rep_valeurs: "数值", rep_parts: "占比", rep_graphique: "图表", rep_tableau: "表格", rep_montant: "金额", rep_part: "占比", rep_part_de: "{x} 在每个单元格合计中的占比（平台 × 月份）", rep_mix: "构成", rep_col_part: "占比", rep_vide: "该选择下没有销售。", rep_retirer: "移除此筛选", rep_autres: "其他（{n}）", rep_autres_produits: "其他产品", rep_marque_inconnue: "未标注品牌", rep_tous_pays: "所有国家", rep_toutes_marques: "所有品牌", rep_tous_types: "所有产品类型", rep_astuce_classement: "点按一行，查看其按平台的明细。", rep_astuce_mp: "点按某个平台，即可筛选图表和排名。", rep_qte_indispo: "该年份和该维度没有销量数据（Shopify 提取数据未提供）：现显示销售额。", rep_site_prec: "2025 年官网：其销售在 Shopify 中自 2025 年 5 月才开始，请勿与 2026 全年直接比较。", rep_en_cours: "当月数据截至 {d}。", rep_en_cours_court: "当月", rep_lien_marque: "按月份和平台查看明细", rep_hors_france: "不含法国",
     /* donnees */ donnees_titre: "Shopify 数据已更新", donnees_jusqua: "截至 {date}", donnees_socle: "唯一数据来源：Shopify（BESTHERM 平台和官网），{du} 至 {au}", donnees_perime: "已 {n} 天未更新", donnees_tout: "看板中的所有数据（KPI、曲线、平台、品牌、产品、国家、品类、价格、弹性、购物篮、与 2025 年的对比）均根据 Shopify 销售重新计算。", donnees_base: "平台：销售额不含税 =（净销售额 + 税）÷ 1.2，平台以每笔订单的支付网关为准。官网：不含税的净销售额，已扣除折扣和退货，与 Shopify 一致。", donnees_site_depuis: "官网自 {du} 起才存在于 Shopify：此前的官网销售不在数据中，因此官网和总计与 2025 年的对比并不完整。", donnees_bricoman: "Shopify 中无法区分 Bricoman 与 Leroy Merlin：其销售计入 Leroy Merlin。", donnees_hors: "非 Shopify 来源（保持原样）：广告、竞争、计划目标、每个产品的系列和标准、目录资料。", donnees_maj: "每天早上更新 · 最近一次提取：{date}。", donnees_graph: "每日销售额（不含税，近 30 天）", suivi_jours: "{n} 天", suivi_ca: "销售额（不含税）", suivi_vs: "对比 {plage}", suivi_n1: "{an} 年同期", suivi_n1_mp: "{an} 年 · 平台", suivi_toucher: "点按某一天，查看当日前 10 名产品、平台和各国占比", suivi_top10: "产品前 10 名", suivi_pays: "各国销售占比", suivi_aucune: "这些天没有销售", suivi_autres: "其他", suivi_nouveau: "新品", suivi_u: "件", suivi_pt: "pt", suivi_entiere: "整个期间", suivi_delta_mp: "Δ 平台", suivi_tab_top: "产品", suivi_tab_mp: "平台", suivi_tab_pays: "国家占比", suivi_top10_mp: "平台前 10 名", suivi_meme_date: "同一日期", suivi_meme_semaine: "同一星期几", suivi_obj_leg: "目标（2026 年计划）", suivi_obj_jour: "当日目标", suivi_obj_per: "目标", obj_2026_nom: "2026 年目标", obj_2026_mensuel: "2026 年目标（月度计划）", suivi_commandes: "订单数", suivi_panier: "平均客单价", donnees_mp: "平台", donnees_site: "官网", donnees_source: "数据来源：Shopify", donnees_indispo_titre: "Shopify 数据不可用", donnees_indispo_msg: "Shopify 销售数据无法读取或不完整，看板无法显示。次日早上的更新会重新生成；否则请联系支持人员。",
     nav_apercu: "总览", nav_marketplaces: "电商平台", nav_marques: "品牌与产品", nav_prix: "价格追踪", nav_ads: "广告活动", nav_concurrence: "竞争分析", nav_data: "数据", data_hint: "选择一个或多个产品以生成详细的Excel报告", data_titre: "数据提取", data_intro: "选择产品并生成包含渠道分布、含税/未含税价格及月度趋势的Excel报告 — 按需导出。", data_recherche_placeholder: "搜索产品…", data_aucun_resultat: "未找到产品", data_aucune_selection: "未选择产品", data_produits_selectionnes_sg: "个产品已选择", data_produits_selectionnes_pl: "个产品已选择", data_tout_deselectionner: "取消全选", data_generation_en_cours: "生成中…", data_generer_excel: "生成Excel", data_erreur_generation: "生成时出错 — 请重试，或检查网络连接（格式库需从互联网加载）。", data_note_contenu: "报告包含3个工作表：汇总、渠道分布（平台、含税/未含税价格）、以及2024-2026年月度趋势。适用增值税：20%（法国标准税率，如需可调整）。", promo_titre: "促销价格选择", promo_externe_desc: "与团队实时共享的协作工具 — 将在新标签页中打开。", promo_ouvrir_outil: "打开协作工具",
     pilotage: "管理面板", marketplace_label: "电商平台：", toutes_mp: "所有平台", mode_presentation: "演示模式", reset: "重置",
@@ -833,6 +838,7 @@ sum_en: "于", sum_sur: "，共", sum_soit_lower: "即", sum_vs_meme_periode_an_
     vises: "",
   },
   es: {
+    /* repartitions */ rep_tab: "Desgloses", rep_titre: "Desgloses por mes y por marketplace", rep_pays: "País", rep_marque: "Marca", rep_type: "Tipo de producto", rep_categorie: "Categoría", rep_sous: "Subcategoría", rep_ca: "Ventas sin IVA", rep_qte: "Unidades", rep_evolution: "Evolución mensual", rep_classement: "Clasificación", rep_detail: "Detalle por marketplace y por mes", rep_total: "Total", rep_toutes: "Todos los marketplaces", rep_marketplace: "Marketplace", rep_marketplaces: "Subtotal marketplaces", rep_valeurs: "Valores", rep_parts: "Cuotas", rep_graphique: "Gráfico", rep_tableau: "Tabla", rep_montant: "Importe", rep_part: "Cuota", rep_part_de: "Cuota de {x} en el total de cada casilla (marketplace × mes)", rep_mix: "Reparto", rep_col_part: "Cuota", rep_vide: "Sin ventas en esta selección.", rep_retirer: "Quitar este filtro", rep_autres: "Otros ({n})", rep_autres_produits: "Otros productos", rep_marque_inconnue: "Marca sin asignar", rep_tous_pays: "Todos los países", rep_toutes_marques: "Todas las marcas", rep_tous_types: "Todos los tipos de producto", rep_astuce_classement: "Toca una fila para aislar su detalle por marketplace.", rep_astuce_mp: "Toca un marketplace para filtrar el gráfico y la clasificación.", rep_qte_indispo: "Unidades no disponibles para este año y este desglose (la extracción de Shopify no las incluye): se muestran las ventas.", rep_site_prec: "Sitio web 2025: sus ventas solo empiezan en mayo de 2025 en Shopify: no lo compares con 2026 sobre el año completo.", rep_en_cours: "Mes en curso, datos hasta el {d}", rep_en_cours_court: "mes en curso", rep_lien_marque: "Detalle por mes y por marketplace", rep_hors_france: "Sin Francia",
     /* donnees */ donnees_titre: "Datos de Shopify actualizados", donnees_jusqua: "hasta el {date}", donnees_socle: "Fuente única: Shopify (marketplaces BESTHERM y sitio web), del {du} al {au}", donnees_perime: "Sin actualizar desde hace {n} d", donnees_tout: "Todas las cifras del panel (KPI, curvas, marketplaces, marcas, productos, países, categorías, precios, elasticidades, cestas, comparaciones con 2025) se recalculan a partir de las ventas de Shopify.", donnees_base: "Marketplaces: ventas sin IVA = (ventas netas + impuestos) ÷ 1,2, siendo la marketplace la de la pasarela de pago de cada pedido. Sitio web: ventas netas sin impuestos, con descuentos y devoluciones deducidos, como en Shopify.", donnees_site_depuis: "El sitio web solo existe en Shopify desde el {du}: las ventas anteriores del sitio no están en las cifras, por lo que las comparaciones con 2025 son parciales para el sitio y para el total.", donnees_bricoman: "Bricoman no se distingue de Leroy Merlin en Shopify: sus ventas se cuentan en Leroy Merlin.", donnees_hors: "No vienen de Shopify (se conservan tal cual): publicidad, competencia, objetivos del plan, familia y norma de cada producto, fichas del catálogo.", donnees_maj: "Actualizado cada mañana · última extracción: {date}.", donnees_graph: "Ventas diarias sin IVA (últimos 30 días)", suivi_jours: "{n} d", suivi_ca: "Ventas sin IVA", suivi_vs: "vs {plage}", suivi_n1: "{an} · mismos días", suivi_n1_mp: "{an} · marketplaces", suivi_toucher: "Toca un día para ver su top 10, sus marketplaces y sus países", suivi_top10: "Top 10 productos", suivi_pays: "Cuota de ventas por país", suivi_aucune: "Sin ventas en estos días", suivi_autres: "Otros", suivi_nouveau: "nuevo", suivi_u: "uds.", suivi_pt: "pt", suivi_entiere: "Todo el período", suivi_delta_mp: "Δ marketplaces", suivi_tab_top: "Productos", suivi_tab_mp: "Marketplaces", suivi_tab_pays: "% por país", suivi_top10_mp: "Top 10 marketplaces", suivi_meme_date: "Misma fecha", suivi_meme_semaine: "Mismo día de la semana", suivi_obj_leg: "Objetivo (plan 2026)", suivi_obj_jour: "Objetivo del día", suivi_obj_per: "Objetivo", obj_2026_nom: "Objetivo 2026", obj_2026_mensuel: "Objetivo 2026 (plan mensual)", suivi_commandes: "Pedidos", suivi_panier: "Ticket medio", donnees_mp: "Marketplaces", donnees_site: "Sitio web", donnees_source: "Fuente: Shopify", donnees_indispo_titre: "Datos de Shopify no disponibles", donnees_indispo_msg: "Las ventas de Shopify son ilegibles o están incompletas, por lo que el panel no puede mostrarse. La actualización de la próxima mañana las reconstruye; si no, contacta con soporte.",
     nav_apercu: "Resumen", nav_marketplaces: "Marketplaces", nav_marques: "Marcas y Productos", nav_prix: "Seguimiento de Precios", nav_ads: "Campañas Ads", nav_concurrence: "Competencia", nav_data: "Datos", data_hint: "Selecciona uno o varios productos para generar un informe Excel detallado", data_titre: "Extraccion de datos", data_intro: "Elige productos y genera un informe Excel con reparto por canal, precios HT/TTC y evolucion mensual — una exportacion bajo demanda.", data_recherche_placeholder: "Buscar un producto…", data_aucun_resultat: "Ningun producto encontrado", data_aucune_selection: "Ningun producto seleccionado", data_produits_selectionnes_sg: "producto seleccionado", data_produits_selectionnes_pl: "productos seleccionados", data_tout_deselectionner: "Deseleccionar todo", data_generation_en_cours: "Generando…", data_generer_excel: "Generar Excel", data_erreur_generation: "Error al generar — intentalo de nuevo, o verifica tu conexion (la libreria de formato se carga desde internet).", data_note_contenu: "El informe tiene 3 pestanas: resumen, reparto por canal (marketplace, precios HT/TTC), y evolucion mensual 2024-2026. IVA aplicado: 20% (tasa estandar de Francia, ajustar si es necesario).", promo_titre: "Seleccion de precios promo", promo_externe_desc: "Herramienta colaborativa compartida con todo el equipo en tiempo real — se abre en una pestana nueva.", promo_ouvrir_outil: "Abrir la herramienta colaborativa", pilotage: "Panel de control", marketplace_label: "Marketplace:", toutes_mp: "Todas las marketplaces", mode_presentation: "Modo presentación", reset: "reiniciar", analyser_periode: "Analizar el período:", vs_an_dernier: "el año pasado", ht_suffix: "Todos los importes sin IVA", ca_cumule: "Facturación HT acumulada YTD", ca_cumule_hint: "Suma de la facturación HT de todos los pedidos desde el 1 de enero de 2026", toutes_marketplaces_suffix: "todas las marketplaces", objectif_2026: "de", objectif_non_defini: "objetivo no definido", panier_moyen: "Precio medio HT", panier_moyen_hint: "Facturación HT total ÷ número de pedidos, 2026", unites_vendues: "unidades vendidas", meilleure_vente: "Mejor venta 2026", meilleure_vente_hint: "Producto con mayor facturación HT acumulada desde enero", vs_meilleure_n1: "Vs mejor venta N-1", vs_meilleure_n1_hint: "Mismo producto, facturación HT comparada con la misma ventana 2025", en_2025: "en el mismo período de 2025", non_comparable: "no comparable", indispo_par_mp: "no disponible por marketplace", detail_non_conserve: "detalle por marketplace no conservado para 2025", tendance_titre: "Tendencia de facturación HT — una curva por año", tendance_hint: "Un gráfico por año, misma escala vertical para comparar las curvas honestamente", ca_ht_total_titre: "Facturación HT total — todas las marketplaces, a la fecha", ca_ht_total_hint: "Suma de la facturación HT 2026 de todas las marketplaces monitorizadas", au_rythme: "según lo previsto", top3: "Top 3", top3_hint: "Las 3 marketplaces con mayor facturación HT acumulada 2026", de_word: "de", nouveau: "nuevo", est_fin_annee: "Previsión fin de año", objectif_non_defini_mp: "Objetivo anual no definido para esta marketplace", legende_reel: "Real", legende_anticipe: "Previsto", reparti_saisonnier: "según el plan mensual 2026", repartition_pays_titre: "Reparto por país", repartition_pays_hint: "Pedidos reales por país — no una estimación de ads. 2024 excluido (sin detalle de país ese año)", aucune_donnee_pays: "Sin datos de país para esta selección — verifica que el período incluya 2025 o 2026.", pub_par_pays: "Publicidad por país", depense_ads: "gasto en ads", conc_titre: "Competencia", conc_hint: "Datos recopilados manualmente mediante búsqueda web — Francia. Ningún precio, ranking o volumen inventado.", conc_position_heater: "Posición Heater — ", conc_position_cooling: "Posición Cooling — ", conc_radiateurs: "Radiadores — ", conc_secheserviettes: "Toalleros — ", conc_produits_suivis: "Productos monitorizados", conc_produits_suivis_hint: "Selección actual (segmento/subcategoría/marketplace)", conc_prix_moyen: "Precio medio", conc_prix_moyen_hint: "Sobre los productos cuyo precio pudo verificarse", conc_fourchette_prix: "Rango de precios", conc_fourchette_prix_hint: "Del más barato al más caro, solo precios verificados", conc_en_promo: "En promoción", conc_en_promo_hint: "Productos que muestran un descuento vs precio de referencia", conc_sources_qualite: "Fuentes y calidad", conc_sources_qualite_hint: "Fiabilidad de la recopilación por subcategoría y marketplace — metodología y límites propios de cada fuente", conc_marques_visibles: "Marcas más visibles", conc_marques_visibles_hint: "Marcas más presentes en la recopilación, todas las marketplaces combinadas (número de apariciones, no cuota de mercado real)", conc_aucun_produit: "Ningún producto para esta selección", conc_sponsorise: "Patrocinado", conc_prix_nd: "Precio n/d", conc_comparatif_prix_mp: "Comparativa de precios por marketplace", conc_comparatif_prix_mp_hint: "Solo precios verificados — los productos sin un precio extraído de forma fiable no aparecen aquí", conc_aucun_prix_verifie: "Ningún precio verificado para esta selección", conc_moy: "prom.", conc_vs_marche: "Bestherm/Thomson vs mercado", conc_vs_marche_hint: "Precios Bestherm/Thomson comparados con la media de los competidores (Bestherm/Thomson excluidos del cálculo de esa media) — solo donde se pudo verificar un precio real de la competencia", conc_pas_de_comparaison: "Aún no hay precio de competidor verificado en la misma subcategoría que un producto Bestherm/Thomson, para esta selección — comparación imposible por ahora en lugar de aproximada.", conc_exporter: "Exportar:", conc_nomme_date: "Nombrado con la fecha del día · refleja la selección actual (segmento/subcategoría/marketplace)", zone_marque: "Marca", zone_produits_titre: "Productos", zone_normes: "Normas", zone_puissances: "Potencias", subnav_produit_ideal: "Producto ideal", subnav_normes_cat: "Normas y Categorías", topflop_titre: "Tops y Flops", topflop_hint: "Filtrable por fecha + marketplace como el resto de la app · accesorios y piezas de repuesto excluidos", top5_hint: "Mejores resultados en la selección actual", flop5_hint: "Peores resultados en la selección actual, accesorios excluidos", aucune_donnee: "Sin datos", cycle_vie_titre: "Ciclo de vida del producto", cycle_vie_hint: "Compara julio-septiembre 2026 con el mismo período de 2025 (no los meses anteriores, para no confundir estacionalidad con tendencia real) — respeta el filtro de marketplace", panier_titre: "Comprados frecuentemente juntos", panier_hint: "Productos realmente comprados juntos (mismo número de pedido), 2025+2026 — dato global, aún no filtrable por marketplace o período", panier_croise_hint: "Radiador + toallero en el mismo pedido — señal de reforma completa de baño", panier_croise_titre: "Ventas cruzadas radiador × toallero", panier_toutes_hint: "Todos los pares combinados, incluida la misma gama en distintas potencias", panier_toutes_titre: "Todos los pares — top 8", prix_regulier_ideal: "Precio regular ideal", prix_promo_ideal: "Precio promo ideal*", toutes_categories: "Todas las categorías", aucune_donnee_qte: "Sin datos de cantidad para esta selección", puissances_vendues_titre: "Potencias más vendidas", puissances_vendues_hint: "Cantidad vendida por potencia, filtrable por fecha + marketplace como el resto de la app", supply_titre: "Supply", supply_hint: "Construido solo con datos realmente disponibles — clasificación ABC (2026), histórico de ventas (2024-2026). No existe ningún dato de stock, transporte o proveedor en los archivos proporcionados.", comparatif_prix_titre: "Comparativa por producto", comparatif_prix_hint: "Precio más alto y más bajo entre marketplaces (2026), quién vende más, diferencia en %, precio medio ponderado. Marketplaces \"No identificada\"/\"Otra\" excluidas de la comparativa — no son marketplaces reales identificables.", cp_vend_plus: "Vende más", cp_prix_moyen: "Precio medio", signal_premium: "Posicionamiento premium", signal_sensible: "Sensible al precio", signal_neutre: "Señal neutra", radar_fiabilite_insuffisante: "Datos insuficientes para un perfil fiable", radar_plus_proche: "Mas cercano al perfil ideal", radar_plus_loin: "Mas alejado del perfil ideal", radar_score_hint: "Diferencia media entre los atributos del producto y el perfil ideal — mas bajo = mas cercano. Descriptivo, no un juicio de calidad.", elasticite_titre: "Elasticidad precio por referencia", elasticite_hint: "Regresion log-log cantidad~precio, por semana 2026 (HT o TTC: mismo resultado, el IVA no cambia la pendiente). Umbrales: >=8 semanas de datos y >=3% de variacion de precio antes de calcular.", elast_fiable_uniquement: "Solo fiables (R2 >= 0.3)", elast_peu_fiable: "poco fiable", elast_semaines: "semanas de datos", elast_variation_prix: "variacion de precio", elast_prix_moyen: "precio medio", elast_cat_elastique: "Elastico (<=-1)", elast_cat_inelastique: "Inelastico", elast_cat_positif: "Positivo (atipico)", simulation_titre: "Simulacion — subida de precio del 5%", simulation_hint: "Impacto estimado en el volumen (elasticidad medida) y en la facturacion neta, si el precio subiera un 5% y nada mas cambiara. Una simulacion, no una prediccion garantizada.", marge_manoeuvre_titre: "Margen de maniobra", marge_manoeuvre_sub: "El precio influye poco en estos volumenes", prudence_titre: "Precaucion de precio", prudence_sub: "Una subida haria huir volumenes importantes", sim_ca_actuel: "facturacion en juego", sim_volume: "volumen", sim_pas_de_signal: "ninguna senal fuerte detectada", sim_titre: "Simulador precio -> cantidad", sim_hint: "Elija un producto y un marketplace, proponga un precio: el volumen y la facturacion proyectados se recalculan en vivo, a partir de la elasticidad medida para esa referencia.", sim_choisir_produit: "Elegir un producto", sim_choisir_mp: "Marketplace", sim_prix_actuel: "Precio medio observado", sim_prix_propose: "Precio propuesto", sim_qte_actuelle: "Volumen actual (semana)", sim_qte_projetee: "Volumen proyectado", sim_ca_semaine_actuel: "Facturacion actual (semana)", sim_ca_semaine_projete: "Facturacion proyectada", sim_hors_plage: "Este precio supera el rango observado historicamente — la proyeccion se convierte en una extrapolacion, menos fiable.", sim_aucun_resultat: "Sin datos de elasticidad para este producto.", resultat: "resultado", resultats: "resultados", tous_produits_titre: "Todos los productos", tous_produits_hint: "Facturación y cantidad vendida, año 2026 completo (year-to-date) — incluye liquidación de stock, a diferencia de los Tops/Flops de arriba", ap_destockage_badge: "liquidación", zone_hebdo: "Vista semanal", zone_hebdo_hint: "Datos reales semanales — facturación, cantidad, reparto por marketplace, transportista, origen de envíos y productos top", repartition_mp_semaine: "Reparto por marketplace", part_ca_pct: "Parte de la facturación (%)", expeditions_titre: "Envíos", expeditions_hint: "Transportista real usado para los pedidos enviados esta semana", entrepot_titre: "Origen de los envíos", entrepot_hint: "Almacén desde donde salieron los pedidos esta semana — un flujo de envío, no una foto del stock actualmente disponible", top_semaine_titre: "Productos top de la semana", qte_semaine_courte: "sem.", tendance_4_semaines: "Tendencia — últimas 4 semanas", zone_abc: "Clasificación ABC — 2026", sku_classes: "SKU clasificados", zone_saison: "Estacionalidad — índice 2024-2025", preset_mois_courant: "Mes en curso", preset_mois_precedent: "Mes anterior", preset_annee_courante: "Año en curso", preset_annee_passee: "Año anterior", preset_personnalise: "Personalizado", yoy_variation_forte: "Variación muy fuerte — verifica el valor absoluto N-1, a menudo una base de comparación baja más que una tendencia real",
     sum_ca_titre: "Facturación", sum_vs_mois_prec: "Vs mes anterior", sum_objectif_titre: "Objetivo", sum_ytd_titre: "Year-to-date", sum_panier_moyen_titre: "Ticket medio", sum_repartition_marque_titre: "Reparto por marca", sum_mp_leader: "Marketplace líder", sum_position: "Posición", sum_evolution_bestherm: "Evolución Bestherm", sum_top5_produits: "Top 5 productos", sum_normes_titre: "Normas", sum_top_cat: "Categoría / subcategoría top", sum_performance: "Rendimiento", sum_budget_investi: "Presupuesto invertido", sum_periode_titre: "Período",
@@ -1748,6 +1754,7 @@ const CHAT_INTENTS = [
   // sous-onglets — placés en tête pour être testés avant les intentions
   // génériques homonymes (ex. "prix concurrents" doit gagner sur le "prix"
   // générique qui route vers l'onglet Prix, pas Concurrence)
+  { keywords: ["repartition", "répartition", "ventilation", "ca par pays", "quantites par pays", "quantités par pays", "par type de produit", "type de produit"], tab: "marques", sousTab: "repartitions", label: "Répartitions (pays, marque, type de produit)" },
   { keywords: ["produit ideal", "produit idéal", "radar produit", "profil ideal"], tab: "marques", sousTab: "radar", label: "Produit idéal" },
   { keywords: ["puissance", "wattage"], tab: "marques", sousTab: "puissances", label: "Puissances" },
   { keywords: ["classification marque"], tab: "marques", sousTab: "classification", label: "Classification par marque" },
@@ -2784,7 +2791,7 @@ const IA_OUTILS = {
 
   proposer_dashboard: (p) => {
     const TABS = ["apercu", "marketplaces", "marques", "prix", "ads", "concurrence", "data"];
-    const SOUS = { marques: ["marque", "produits", "classification", "radar", "puissances"], concurrence: ["synthese", "produits", "prix", "comparatif"] };
+    const SOUS = { marques: ["marque", "repartitions", "produits", "classification", "radar", "puissances"], concurrence: ["synthese", "produits", "prix", "comparatif"] };
     const PERIODES = ["mois_courant", "mois_precedent", "annee_courante", "annee_passee"];
     if (!TABS.includes(p.tab)) return { erreur: "tab invalide", tabs_valides: TABS };
     const action = { tab: p.tab };
@@ -2835,6 +2842,443 @@ async function demanderAIA({ question, historique = [], lang = "fr", signal, onO
   throw new Error("trop d'étapes sans réponse finale");
 }
 // ===== ASSISTANT IA — FIN ======================================================
+
+// ===== RÉPARTITIONS (page Marques) — pays, marque, type de produit × mois × marketplace ====================
+/* Trois découpages du même cube (repartitions.js), en CA HT et en quantités :
+   · le graphique empile les entités mois par mois (valeurs ou parts) ; « Autres » regroupe au-delà de six ; une table équivalente est disponible ;
+   · le classement donne les deux mesures et sert de filtre : toucher une entité isole son détail dans le tableau du dessous ;
+   · le tableau croise marketplace × mois pour l'entité choisie — le montant, ou la part de l'entité dans chaque case (« la répartition
+     entre Bestherm et Thomson, par mois et par marketplace ») ; le site web est isolé sous le sous-total des marketplaces ; toucher une
+     marketplace filtre le graphique et le classement.
+   Le filtre marketplace global verrouille la marketplace du graphique (comme l'onglet Normes & Catégories). Le filtre de dates global ne
+   s'applique pas : l'onglet est mensuel, l'année se choisit ici. Aucun chiffre n'est estimé : une quantité absente (pays 2025) est dite telle. */
+let REP_CACHE = null;
+const REP_HORS_FRANCE = ["France"]; // « hors France » : les marchés étrangers pèsent peu à côté du marché national
+const repartitions = () => (REP_CACHE ||= construireRepartitions({ SKU_PRODUIT, SKU_MARQUE, SKU_MPS, SKU_MONTHLY, PRODUCT_TO_CATEGORY, SKU_SOUS_SOUS_FAMILLE, PAYS_MONTHLY }));
+const REP_FOND = "#100F0E"; // fond d'une carte (verre sur #0A0908) : séparation des segments empilés et fond des cellules figées
+const REP_FOND_ACTIF = "#1F1612"; // ligne choisie (fond d'une carte + 10 % d'orange)
+const REP_CHALEUR = "247,82,18"; // rampe séquentielle du tableau : une seule teinte, plus claire et plus saturée quand le montant monte
+const repHexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(",");
+const repPct = (x) => (x > 0 && x < 0.005 ? "< 1 %" : `${Math.round(x * 100)} %`);
+// cellule du tableau : « 1,23 M », « 123 k », « 4,5 k », « 820 » en CA ; entier en quantités ; « — » quand il n'y a rien
+function repCellule(v, qte) {
+  const x = v * demoFactor;
+  if (!(Math.abs(x) >= 0.5)) return "—";
+  if (qte) return new Intl.NumberFormat("fr-FR").format(Math.round(x));
+  const a = Math.abs(x);
+  if (a >= 1e6) return `${(x / 1e6).toFixed(2).replace(".", ",")} M`;
+  if (a >= 1e4) return `${Math.round(x / 1e3)} k`;
+  if (a >= 1e3) return `${(x / 1e3).toFixed(1).replace(".", ",")} k`;
+  return String(Math.round(x));
+}
+function repAxe(v, qte) {
+  const x = v * demoFactor;
+  if (!qte) return fmtEURk(v);
+  return x >= 1e4 ? `${Math.round(x / 1e3)} k` : x >= 1e3 ? `${(x / 1e3).toFixed(1).replace(".", ",")} k` : String(Math.round(x));
+}
+function RepSegment({ options, value, onChange, attr, ariaLabel, offTitre }) {
+  return (
+    <div className="flex items-center gap-0.5 p-0.5 rounded-full max-w-full" role="group" aria-label={ariaLabel} data-rep={attr} style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+      {options.map(([k, lib, off]) => (
+        <button key={k} data-k={k} aria-pressed={k === value} disabled={off} title={off ? offTitre : undefined} onClick={() => onChange(k)}
+          className="btn-lift text-[11px] font-semibold px-2.5 min-[420px]:px-3 py-1 rounded-full whitespace-nowrap"
+          style={{ background: k === value ? `${ORANGE}26` : "transparent", color: k === value ? ORANGE_SOFT : MUTED, opacity: off ? 0.4 : 1 }}>
+          {lib}
+        </button>
+      ))}
+    </div>
+  );
+}
+// Grille mois × lignes (tableau du graphique et détail par marketplace). Première colonne figée ; sur petit écran le total reste collé
+// au nom (les deux restent visibles pendant le défilement des mois) ; un dégradé à droite signale qu'il reste des colonnes à découvrir.
+const REP_L1 = { etroit: 124, large: 176 }; // largeur de la colonne des noms (px) : les noms plus longs sont tronqués (infobulle = nom entier)
+function RepGrille({ lignes, moisT, moisL, enCours, libEnCours, libPremiere, libTotal, libMix, fmt, fond, texte, attr, etroit }) {
+  const avecMix = lignes.some((l) => l.mix);
+  const bord = `1px solid ${PANEL_BORDER_QUIET}`;
+  const L1 = etroit ? REP_L1.etroit : REP_L1.large;
+  const refDefil = useRef(null);
+  const [suite, setSuite] = useState(false); // il reste du contenu à droite
+  useEffect(() => { // après chaque rendu : la largeur du contenu change avec la mesure choisie
+    const el = refDefil.current;
+    if (el) setSuite(el.scrollWidth - el.clientWidth - el.scrollLeft > 6);
+  });
+  useEffect(() => {
+    const el = refDefil.current;
+    if (!el) return undefined;
+    const maj = () => setSuite(el.scrollWidth - el.clientWidth - el.scrollLeft > 6);
+    el.addEventListener("scroll", maj, { passive: true });
+    window.addEventListener("resize", maj);
+    return () => { el.removeEventListener("scroll", maj); window.removeEventListener("resize", maj); };
+  }, []);
+  const colTotal = (fondLigne) => (etroit ? { position: "sticky", left: L1, zIndex: 1, background: fondLigne, borderRight: bord } : { borderLeft: bord });
+  const entete = (extra) => ({ background: REP_FOND, ...extra });
+  const thTotal = (
+    <th key="total" scope="col" className="font-semibold py-1.5 text-right whitespace-nowrap" style={{ color: MUTED, paddingLeft: 12, paddingRight: 8, minWidth: 64, ...(etroit ? { ...colTotal(REP_FOND), zIndex: 2 } : colTotal(REP_FOND)) }}>{libTotal}</th>
+  );
+  const thMois = moisT.map((m, i) => (
+    <th key={i} scope="col" title={i === enCours && libEnCours ? `${moisL[i]} · ${libEnCours}` : moisL[i]} className="font-semibold px-1 py-1.5 text-right whitespace-nowrap" style={{ color: i === enCours ? ORANGE_SOFT : MUTED }}>{m}{i === enCours ? " •" : ""}</th>
+  ));
+  return (
+    <div className="relative" data-rep-defil={attr}>
+      <div ref={refDefil} className="overflow-x-auto" data-rep={attr}>
+        <table className="w-full text-[11px] tabular-nums" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: avecMix ? 820 : 660 }}>
+          <thead>
+            <tr>
+              <th scope="col" className="text-left font-semibold px-2 py-1.5 whitespace-nowrap" style={entete({ position: "sticky", left: 0, zIndex: 2, color: FAINT, fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", minWidth: L1 })}>{libPremiere}</th>
+              {etroit && thTotal}
+              {thMois}
+              {!etroit && thTotal}
+              {avecMix && <th scope="col" className="font-semibold pl-3 pr-1 py-1.5 text-left whitespace-nowrap" style={{ color: FAINT, fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase" }}>{libMix}</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((l) => {
+              const fort = l.kind === "total" || l.kind === "sous";
+              const fondLigne = l.actif ? REP_FOND_ACTIF : REP_FOND;
+              const haut = fort || l.separe ? bord : "none";
+              const nom = <>{l.pastille && <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ background: l.pastille }} />}<span className="truncate">{l.lib}</span></>;
+              const cellTotal = (
+                <td key="total" data-total="1" data-v={Math.round(l.total * 100) / 100} title={texte(l, -1)} className="py-0.5 text-right font-semibold" style={{ paddingLeft: 12, paddingRight: 8, borderTop: haut, color: INK, ...colTotal(fondLigne) }}>{fmt(l.total, l.baseTotal)}</td>
+              );
+              return (
+                <tr key={l.cle} data-rep-ligne={l.cle} data-kind={l.kind || "ligne"}>
+                  <th scope="row" className="text-left px-2 py-0.5 whitespace-nowrap font-medium" style={{ position: "sticky", left: 0, zIndex: 1, background: fondLigne, borderTop: haut, boxShadow: l.actif ? `inset 2px 0 0 ${ORANGE}` : "none", color: fort ? INK : l.actif ? ORANGE_SOFT : INK, minWidth: L1 }}>
+                    {l.onClick ? (
+                      <button type="button" onClick={l.onClick} aria-pressed={!!l.actif} title={l.titre ? `${l.lib} · ${l.titre}` : l.lib} className="btn-lift flex items-center gap-1.5 text-left py-1" style={{ color: "inherit", fontWeight: fort ? 700 : 500, maxWidth: L1 - 16 }}>{nom}</button>
+                    ) : (
+                      <span title={l.lib} className="flex items-center gap-1.5 py-1" style={{ fontWeight: fort ? 700 : 500, maxWidth: L1 - 16 }}>{nom}</span>
+                    )}
+                  </th>
+                  {etroit && cellTotal}
+                  {Array.from(l.mois, (v, i) => (
+                    <td key={i} data-mois={i + 1} data-v={Math.round(v * 100) / 100} title={texte(l, i)} className="px-1 py-0.5 text-right" style={{ background: l.actif && !fond ? REP_FOND_ACTIF : fond ? fond(v, l.baseMois ? l.baseMois[i] : 0, l) : "transparent", borderTop: haut, color: v ? INK : FAINT, fontWeight: fort ? 700 : 400 }}>{fmt(v, l.baseMois ? l.baseMois[i] : 0)}</td>
+                  ))}
+                  {!etroit && cellTotal}
+                  {avecMix && <td className="pl-3 pr-1 py-0.5" style={{ borderTop: haut }}>{l.mix}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {suite && <div aria-hidden="true" data-rep="suite" style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: 26, pointerEvents: "none", background: `linear-gradient(90deg, transparent, ${REP_FOND})` }} />}
+    </div>
+  );
+}
+function RepartitionsView({ t, lang, globalMp, accent, lent, onLent }) {
+  const rep = useMemo(() => repartitions(), []);
+  const info = useMemo(() => infoMois(DMAX), []);
+  const loc = lang === "zh" ? "zh-CN" : lang;
+  const annees = useMemo(() => rep.annees.slice(-2).reverse(), [rep]);
+  const [niveau, setNiveau] = useState("categorie"); // type de produit : categorie | sous
+  const [mesure, setMesure] = useState("ca"); // ca | qte
+  const [an, setAn] = useState(() => (annees.includes(info.an) ? info.an : annees[0]));
+  const [mpLocal, setMpLocal] = useState("Toutes"); // marketplace choisie en touchant une ligne du tableau (le filtre global l'emporte)
+  const [focus, setFocus] = useState(null); // entité isolée dans le tableau
+  const [empile, setEmpile] = useState("valeurs"); // valeurs | parts
+  const [affichage, setAffichage] = useState("graphique"); // graphique | tableau
+  const [modeM, setModeM] = useState("montant"); // montant | part
+  const [horsFrance, setHorsFrance] = useState(false); // découpage par pays seulement
+  const [larg, setLarg] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1280));
+  useEffect(() => {
+    const f = () => setLarg(window.innerWidth);
+    window.addEventListener("resize", f);
+    return () => window.removeEventListener("resize", f);
+  }, []);
+  const etroit = larg < 520;
+
+  const dimId = lent === "type" ? niveau : lent;
+  const exclure = lent === "pays" && horsFrance ? REP_HORS_FRANCE : null;
+  const qOk = dispoQte(rep, dimId, an);
+  const mes = mesure === "qte" && !qOk ? "ca" : mesure; // jamais de quantité inventée : on affiche le CA et on le dit
+  const qte = mes === "qte";
+  const mpVerrou = globalMp !== "Toutes";
+  const scope = mpVerrou ? globalMp : mpLocal;
+  const scopeMp = scope === "Toutes" ? null : scope;
+  useEffect(() => { setFocus(null); setModeM("montant"); }, [dimId]);
+
+  const V = useMemo(() => repVue(rep, { dim: dimId, an, mesure: mes, mp: scopeMp, exclure }), [rep, dimId, an, mes, scopeMp, exclure]);
+  const Vb = useMemo(() => repVue(rep, { dim: dimId, an, mesure: mes === "ca" ? "qte" : "ca", mp: scopeMp, exclure }), [rep, dimId, an, mes, scopeMp, exclure]);
+  const autreMesure = useMemo(() => new Map(Vb.ents.map((e) => [e.nom, e.total])), [Vb]);
+  const { visibles, autres } = useMemo(() => replier(V.ents), [V]);
+  const { couleur, pile } = useMemo(() => attribuerCouleurs(dimId, visibles.map((e) => e.nom)), [dimId, visibles]);
+  const entM = focus && rep.dims[dimId].ents.includes(focus) && !(exclure && exclure.includes(focus)) ? focus : null;
+  const modeEff = entM ? modeM : "montant";
+  const M = useMemo(() => repMatrice(rep, { dim: dimId, an, mesure: mes, ent: entM, exclure }), [rep, dimId, an, mes, entM, exclure]);
+  const P = useMemo(() => repParts(rep, { dim: dimId, an, mesure: mes, exclure }), [rep, dimId, an, mes, exclure]);
+  const mixC = useMemo(() => attribuerCouleurs(dimId, P.ents.slice(0, NB_SERIES)), [dimId, P]);
+
+  const fmtMois = (opt) => Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(2026, i, 15)).toLocaleDateString(loc, { month: opt, timeZone: "UTC" }));
+  const moisAxe = useMemo(() => fmtMois(etroit ? "narrow" : "short"), [loc, etroit]);
+  const moisT = useMemo(() => fmtMois("short"), [loc]);
+  const moisL = useMemo(() => fmtMois("long"), [loc]);
+  const fmtCourt = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(loc, { day: "numeric", month: "short" });
+  const enCours = an === info.an && info.partiel ? info.mois - 1 : -1;
+
+  const libelle = (nom) => (nom === AUTRES_PRODUITS ? (dimId === "marque" ? t.rep_marque_inconnue : t.rep_autres_produits) : dimId === "pays" ? translatePays(nom, lang) : dimId === "categorie" || dimId === "sous" ? translateCat(nom, lang) : nom);
+  const libMp = (mp) => (mp === SUIVI_SITE ? t.donnees_site : mp === "Autre" ? t.suivi_autres : mp);
+  const fmtV = (v) => (qte ? `${fmtNum(v)} ${t.suivi_u}` : fmtEURplain(v));
+  const dimLib = { pays: t.rep_pays, marque: t.rep_marque, categorie: t.rep_categorie, sous: t.rep_sous }[dimId];
+  const lentLib = { pays: t.rep_pays, marque: t.rep_marque, type: t.rep_type }[lent];
+  const tousLib = { pays: exclure ? t.rep_hors_france : t.rep_tous_pays, marque: t.rep_toutes_marques, categorie: t.rep_tous_types, sous: t.rep_tous_types }[dimId];
+  const sourceVue = (nom) => (nom === null ? t.rep_autres.replace("{n}", autres ? autres.nb : 0) : libelle(nom));
+  const choisirEntite = (nom) => setFocus((cur) => (cur === nom ? null : nom));
+  const choisirMp = (mp) => { if (!mpVerrou) setMpLocal((cur) => (cur === mp ? "Toutes" : mp)); };
+  const choisirPart = () => { if (!entM && V.ents.length) setFocus(V.ents[0].nom); setModeM("part"); };
+
+  // ---- graphique : empilement fixe (l'ordre suit la palette), « Autres » au sommet
+  const series = useMemo(() => [...pile.map((nom, k) => ({ cle: `k${k}`, nom, c: couleur.get(nom) || GRIS })), ...(autres ? [{ cle: "kA", nom: null, c: GRIS }] : [])], [pile, couleur, autres]);
+  const donnees = useMemo(() => moisAxe.map((m, i) => {
+    const r = { i, mois: m, total: V.totalMois[i], items: [] };
+    pile.forEach((nom, k) => {
+      const e = visibles.find((x) => x.nom === nom);
+      const v = e ? e.mois[i] : 0;
+      r[`k${k}`] = v; r.items.push({ nom, v, c: couleur.get(nom) || GRIS });
+    });
+    if (autres) { r.kA = autres.mois[i]; r.items.push({ nom: null, v: autres.mois[i], c: GRIS }); }
+    return r;
+  }), [moisAxe, V, pile, visibles, autres, couleur]);
+  const focusCle = entM ? (pile.includes(entM) ? `k${pile.indexOf(entM)}` : autres ? "kA" : null) : null;
+  const bulle = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const r = payload[0].payload;
+    const lignes = r.items.filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+    return (
+      <div style={{ background: "#16140F", border: `1px solid ${PANEL_BORDER}`, borderRadius: 10, padding: "8px 10px", fontSize: 11.5, minWidth: 190 }}>
+        <div style={{ color: INK, fontWeight: 600, marginBottom: 5 }}>{moisL[r.i]} {an} · <span className="tabular-nums">{r.total > 0 ? fmtV(r.total) : "—"}</span>{r.i === enCours && <span style={{ color: FAINT, fontWeight: 400 }}> · {t.rep_en_cours_court}</span>}</div>
+        <div className="flex flex-col gap-0.5">
+          {lignes.map((x) => (
+            <div key={x.nom === null ? "autres" : x.nom} className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-1.5" style={{ color: MUTED }}><span className="w-2 h-2 rounded-sm" style={{ background: x.c }} />{sourceVue(x.nom)}</span>
+              <span className="tabular-nums font-semibold" style={{ color: INK }}>{fmtV(x.v)} <span style={{ color: FAINT, fontWeight: 400 }}>{repPct(x.v / r.total)}</span></span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+  const celles = (cle) => donnees.map((r) => <Cell key={`${cle}${r.i}`} fillOpacity={(focusCle && focusCle !== cle ? 0.25 : 1) * (r.i === enCours ? 0.6 : 1)} />);
+
+  // ---- tableau du graphique : toutes les entités, mois par mois
+  const lignesTab = useMemo(() => [
+    ...V.ents.map((e) => ({ cle: e.nom, lib: libelle(e.nom), mois: e.mois, total: e.total, pastille: pile.includes(e.nom) ? couleur.get(e.nom) : null, actif: entM === e.nom, onClick: () => choisirEntite(e.nom) })),
+    { cle: "__total", kind: "total", lib: t.rep_total, mois: V.totalMois, total: V.total },
+  ], [V, pile, couleur, entM, lang]);
+
+  // ---- classement : les deux mesures et la part de la mesure choisie
+  const maxPart = V.total > 0 && V.ents.length ? V.ents[0].total / V.total : 0;
+
+  // ---- détail par marketplace
+  const mixDe = (mps) => {
+    const lignesMix = P.lignes.filter((l) => mps === null || mps.includes(l.mp));
+    const visiblesMix = mixC.pile;
+    const tot = lignesMix.reduce((s, l) => s + l.total, 0);
+    if (!(tot > 0)) return null;
+    const vals = visiblesMix.map((nom) => { const k = P.ents.indexOf(nom); return lignesMix.reduce((s, l) => s + (l.v[k] || 0), 0); });
+    const reste = tot - vals.reduce((s, v) => s + v, 0);
+    const segs = [...visiblesMix.map((nom, k) => ({ nom, v: vals[k], c: mixC.couleur.get(nom) || GRIS })), ...(reste > tot * 0.0005 ? [{ nom: null, v: reste, c: GRIS }] : [])].filter((s) => s.v > 0);
+    const titre = segs.map((s) => `${s.nom === null ? t.rep_autres.replace("{n}", Math.max(0, P.ents.length - visiblesMix.length)) : libelle(s.nom)} ${repPct(s.v / tot)}`).join(" · ");
+    return (
+      <div className="flex items-center" style={{ width: 96, height: 8, gap: 1 }} title={titre} role="img" aria-label={titre}>
+        {segs.map((s) => <span key={s.nom === null ? "autres" : s.nom} style={{ flex: `${s.v} 1 0`, minWidth: 2, height: "100%", background: s.c, borderRadius: 1.5 }} />)}
+      </div>
+    );
+  };
+  const lignesMp = M.lignes.filter((l) => l.mp !== SUIVI_SITE);
+  const ligneSite = M.lignes.find((l) => l.mp === SUIVI_SITE);
+  const sommeLignes = (ls) => {
+    const o = { mois: new Float64Array(12), baseMois: new Float64Array(12), total: 0, baseTotal: 0 };
+    for (const l of ls) { for (let i = 0; i < 12; i++) { o.mois[i] += l.mois[i]; o.baseMois[i] += l.baseMois[i]; } o.total += l.total; o.baseTotal += l.baseTotal; }
+    return o;
+  };
+  const sousTotal = ligneSite && lignesMp.length ? sommeLignes(lignesMp) : null;
+  const ligneDe = (l) => ({ cle: l.mp, lib: libMp(l.mp), mois: l.mois, total: l.total, baseMois: l.baseMois, baseTotal: l.baseTotal, actif: scopeMp === l.mp, onClick: mpVerrou ? undefined : () => choisirMp(l.mp), titre: mpVerrou ? undefined : t.rep_astuce_mp, mix: mixDe([l.mp]), mp: l.mp });
+  const lignesDetail = [
+    ...lignesMp.map(ligneDe),
+    ...(sousTotal ? [{ cle: "__sous", kind: "sous", lib: t.rep_marketplaces, ...sousTotal, mix: mixDe(lignesMp.map((l) => l.mp)) }] : []),
+    ...(ligneSite ? [{ ...ligneDe(ligneSite), separe: !sousTotal }] : []),
+    { cle: "__total", kind: "total", lib: t.rep_total, mois: M.total.mois, total: M.total.total, baseMois: M.total.baseMois, baseTotal: M.total.baseTotal, mix: mixDe(null) },
+  ];
+  const maxCell = Math.max(1, ...M.lignes.flatMap((l) => Array.from(l.mois)));
+  const coulFocus = entM ? (couleur.get(entM) || mixC.couleur.get(entM) || GRIS) : ORANGE;
+  const rgbFocus = repHexRgb(coulFocus === GRIS ? "#7C756A" : coulFocus);
+  const fondCellule = (v, base, l) => {
+    if (l.kind === "total" || l.kind === "sous") return "transparent";
+    if (modeEff === "part") return base > 0 && v > 0 ? `rgba(${rgbFocus},${(0.05 + 0.6 * (v / base)).toFixed(3)})` : "transparent";
+    return v > 0 ? `rgba(${REP_CHALEUR},${(0.06 + 0.56 * Math.pow(v / maxCell, 0.65)).toFixed(3)})` : "transparent";
+  };
+  const fmtCase = (v, base) => (modeEff === "part" ? (base > 0 && v > 0 ? repPct(v / base) : "—") : repCellule(v, qte));
+  const texteCase = (l, i) => {
+    const v = i < 0 ? l.total : l.mois[i], base = i < 0 ? l.baseTotal : l.baseMois[i];
+    const quand = i < 0 ? `${an}` : `${moisL[i]} ${an}`;
+    return `${l.lib} · ${quand} : ${fmtV(v)}${modeEff === "part" && base > 0 ? ` (${repPct(v / base)})` : ""}`;
+  };
+  const texteTab = (l, i) => `${l.lib} · ${i < 0 ? an : `${moisL[i]} ${an}`} : ${fmtV(i < 0 ? l.total : l.mois[i])}`;
+  const nbEntites = V.ents.length;
+  const note = (txt, cle) => <div key={cle} className="flex items-start gap-1.5 text-[10.5px] mt-2" style={{ color: FAINT }} data-rep={cle}><Info size={11} className="shrink-0 mt-[1px]" />{txt}</div>;
+  const siteDansPerimetre = scopeMp === null || scopeMp === SUIVI_SITE;
+
+  return (
+    <div data-rep="bloc" data-lentille={lent} data-mesure={mes} data-an={an}>
+      {/* choix : découpage, niveau (type de produit), mesure, année */}
+      <div className="flex items-center gap-x-3 gap-y-2 flex-wrap mb-4" data-rep="commandes">
+        <RepSegment attr="lentille" ariaLabel={t.rep_titre} value={lent} onChange={onLent} options={[["pays", t.rep_pays], ["marque", t.rep_marque], ["type", t.rep_type]]} />
+        {lent === "pays" && (
+          <button type="button" data-rep="hors-france" aria-pressed={horsFrance} onClick={() => setHorsFrance((x) => !x)} className="btn-lift text-[11px] font-semibold px-3 py-1.5 rounded-full whitespace-nowrap inline-flex items-center gap-1.5"
+            style={{ background: horsFrance ? `${ORANGE}26` : PANEL_QUIET, color: horsFrance ? ORANGE_SOFT : MUTED, border: `1px solid ${horsFrance ? `${ORANGE}55` : PANEL_BORDER_QUIET}` }}>
+            {horsFrance && <Check size={11} />}{t.rep_hors_france}
+          </button>
+        )}
+        {lent === "type" && <RepSegment attr="niveau" ariaLabel={t.rep_type} value={niveau} onChange={setNiveau} options={[["categorie", t.rep_categorie], ["sous", t.rep_sous]]} />}
+        <RepSegment attr="mesure" ariaLabel={`${t.rep_ca} / ${t.rep_qte}`} value={mes} onChange={setMesure} offTitre={t.rep_qte_indispo} options={[["ca", t.rep_ca], ["qte", t.rep_qte, !qOk]]} />
+        <RepSegment attr="annee" ariaLabel="" value={an} onChange={setAn} options={annees.map((a) => [a, String(a)])} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-5 mb-5">
+        {/* évolution mensuelle */}
+        <GlassCard className="p-4 sm:p-5 min-w-0" quiet scrollReveal>
+          <div className="flex items-start justify-between gap-x-3 gap-y-2 flex-wrap">
+            <div className="min-w-0">
+              <Eyebrow tone="quiet">{t.rep_evolution} · {lentLib}{lent === "type" ? ` · ${dimLib}` : ""}</Eyebrow>
+              <div className="flex items-baseline gap-x-2 gap-y-0.5 flex-wrap">
+                <span className="text-[26px] sm:text-[30px] font-semibold tabular-nums leading-none" style={{ color: INK }} data-rep="total" data-valeur={Math.round(V.total * 100) / 100}>{V.total > 0 ? fmtV(V.total) : "—"}</span>
+                <span className="text-[11px]" style={{ color: FAINT }}>{an} · {scopeMp === null ? t.rep_toutes : libMp(scopeMp)}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {affichage === "graphique" && <RepSegment attr="empile" ariaLabel="" value={empile} onChange={setEmpile} options={[["valeurs", t.rep_valeurs], ["parts", t.rep_parts]]} />}
+              <RepSegment attr="affichage" ariaLabel="" value={affichage} onChange={setAffichage} options={[["graphique", t.rep_graphique], ["tableau", t.rep_tableau]]} />
+            </div>
+          </div>
+          {scopeMp !== null && (
+            <div className="mt-2">
+              {mpVerrou ? (
+                <span className="text-[11px] font-semibold inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ color: accent.primary, background: `${accent.primary}18` }} data-rep="filtre-mp"><Lock size={11} /> {libMp(scopeMp)}</span>
+              ) : (
+                <button type="button" onClick={() => setMpLocal("Toutes")} className="btn-lift text-[11px] font-semibold inline-flex items-center gap-1 pl-2.5 pr-2 py-1 rounded-full" style={{ color: ORANGE_SOFT, background: `${ORANGE}1F`, border: `1px solid ${ORANGE}40` }} data-rep="filtre-mp" title={t.rep_retirer}>
+                  {libMp(scopeMp)} <X size={11} />
+                </button>
+              )}
+            </div>
+          )}
+          {!nbEntites ? (
+            <div className="text-[12px] py-8 text-center" style={{ color: FAINT }} data-rep="vide">{t.rep_vide}</div>
+          ) : affichage === "graphique" ? (
+            <>
+              <div className="mt-3 h-[230px] sm:h-[330px]" data-rep="graphique" style={{ cursor: "default" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={donnees} margin={{ top: 6, right: 6, bottom: 0, left: 0 }} stackOffset={empile === "parts" ? "expand" : "none"} barCategoryGap="14%">
+                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <XAxis dataKey="i" tickFormatter={(i) => moisAxe[i]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} interval={0} />
+                    <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={empile === "parts" ? 38 : 44} tickFormatter={empile === "parts" ? (v) => `${Math.round(v * 100)} %` : (v) => repAxe(v, qte)} />
+                    <Tooltip content={bulle} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
+                    {series.map((s, k) => (
+                      <Bar key={s.cle} dataKey={s.cle} stackId="r" fill={s.c} stroke={REP_FOND} strokeWidth={1.5} isAnimationActive={false} radius={k === series.length - 1 ? [4, 4, 0, 0] : undefined}
+                        onClick={s.nom === null ? undefined : () => choisirEntite(s.nom)}>{celles(s.cle)}</Bar>
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex items-center gap-x-3 gap-y-1 flex-wrap mt-2 text-[11px]" style={{ color: MUTED }} data-rep="legende">
+                {series.map((s) => (
+                  <button key={s.cle} type="button" disabled={s.nom === null} onClick={() => s.nom !== null && choisirEntite(s.nom)} aria-pressed={s.nom !== null && entM === s.nom}
+                    className="inline-flex items-center gap-1.5 py-0.5" style={{ opacity: focusCle && focusCle !== s.cle ? 0.45 : 1, color: s.nom !== null && entM === s.nom ? INK : MUTED, cursor: s.nom === null ? "default" : "pointer" }}>
+                    <span className="w-2 h-2 rounded-sm" style={{ background: s.c }} />{sourceVue(s.nom)}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-3" data-rep="tableau-entites">
+              <div style={{ maxHeight: 420, overflowY: "auto" }}>
+                <RepGrille attr="grille-entites" lignes={lignesTab} moisT={moisT} moisL={moisL} enCours={enCours} libEnCours={t.rep_en_cours_court} libPremiere={dimLib} libTotal={t.rep_total} fmt={(v) => repCellule(v, qte)} fond={null} texte={texteTab} etroit={etroit} />
+              </div>
+            </div>
+          )}
+          {mesure === "qte" && !qOk && note(t.rep_qte_indispo, "note-qte")}
+          {an !== info.an && siteDansPerimetre && note(t.rep_site_prec, "note-site")}
+          {enCours >= 0 && affichage === "graphique" && nbEntites > 0 && (
+            <div className="flex items-center gap-1.5 text-[10.5px] mt-2" style={{ color: FAINT }} data-rep="note-en-cours"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: GRIS, opacity: 0.6 }} />{t.rep_en_cours.replace("{d}", fmtCourt(DMAX))}</div>
+          )}
+        </GlassCard>
+
+        {/* classement : CA, quantités, part */}
+        <GlassCard className="p-4 sm:p-5 min-w-0" quiet scrollReveal>
+          <Eyebrow tone="quiet">{t.rep_classement} · {lentLib}{lent === "type" ? ` · ${dimLib}` : ""}</Eyebrow>
+          {!nbEntites ? (
+            <div className="text-[12px] py-6 text-center" style={{ color: FAINT }}>{t.rep_vide}</div>
+          ) : (
+            <>
+              <div className="grid items-center gap-x-3 text-[9.5px] uppercase tracking-[0.12em] font-semibold px-2 pb-1" style={{ gridTemplateColumns: "minmax(0,1fr) auto auto 40px", color: FAINT }}>
+                <span />
+                <span className="text-right" style={{ minWidth: 76, color: !qte ? MUTED : FAINT }}>{t.rep_ca}</span>
+                <span className="text-right" style={{ minWidth: 52, color: qte ? MUTED : FAINT }}>{t.rep_qte}</span>
+                <span className="text-right">{t.rep_col_part}</span>
+              </div>
+              <div style={{ maxHeight: 360, overflowY: "auto" }} data-rep="classement">
+                {V.ents.map((e) => {
+                  const visible = pile.includes(e.nom), c = couleur.get(e.nom);
+                  const part = V.total > 0 ? e.total / V.total : 0;
+                  const ca = qte ? autreMesure.get(e.nom) : e.total, q = qte ? e.total : autreMesure.get(e.nom);
+                  const actif = entM === e.nom;
+                  return (
+                    <button key={e.nom} type="button" data-rep-ligne={e.nom} data-valeur={Math.round(e.total * 100) / 100} aria-pressed={actif} onClick={() => choisirEntite(e.nom)}
+                      className="btn-lift relative grid items-center gap-x-3 w-full text-left px-2 py-1.5 rounded-lg text-[12px]"
+                      style={{ gridTemplateColumns: "minmax(0,1fr) auto auto 40px", background: actif ? `${ORANGE}1A` : "transparent", boxShadow: actif ? `inset 0 0 0 1px ${ORANGE}55` : "none" }}>
+                      <span aria-hidden="true" style={{ position: "absolute", left: 8, bottom: 2, height: 2, width: `calc((100% - 16px) * ${maxPart > 0 ? part / maxPart : 0})`, background: visible ? c : GRIS, opacity: 0.6, borderRadius: 1 }} />
+                      <span className="flex items-center gap-1.5 min-w-0" style={{ color: INK }}>
+                        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: visible ? c : "transparent", border: visible ? "none" : `1px solid ${GRIS}` }} />
+                        <span className="truncate">{libelle(e.nom)}</span>
+                      </span>
+                      <span className="text-right tabular-nums" style={{ minWidth: 76, color: !qte ? INK : MUTED, fontWeight: !qte ? 600 : 400 }}>{ca === undefined ? "—" : fmtEURplain(ca)}</span>
+                      <span className="text-right tabular-nums" style={{ minWidth: 52, color: qte ? INK : MUTED, fontWeight: qte ? 600 : 400 }}>{q === undefined || (!qOk && !qte) ? "—" : fmtNum(q)}</span>
+                      <span className="text-right tabular-nums" style={{ color: MUTED }}>{repPct(part)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid items-center gap-x-3 text-[12px] px-2 pt-2 mt-1" style={{ gridTemplateColumns: "minmax(0,1fr) auto auto 40px", borderTop: `1px solid ${PANEL_BORDER_QUIET}`, color: INK, fontWeight: 700 }} data-rep="classement-total">
+                <span>{t.rep_total}</span>
+                <span className="text-right tabular-nums" style={{ minWidth: 76 }}>{fmtEURplain(qte ? Vb.total : V.total)}</span>
+                <span className="text-right tabular-nums" style={{ minWidth: 52 }}>{(qte ? V.dispo : Vb.dispo) && (qte || qOk) ? fmtNum(qte ? V.total : Vb.total) : "—"}</span>
+                <span className="text-right tabular-nums" style={{ color: MUTED }}>100 %</span>
+              </div>
+              <div className="text-[10.5px] mt-2 px-0.5" style={{ color: FAINT }} data-rep="astuce">{t.rep_astuce_classement}</div>
+            </>
+          )}
+        </GlassCard>
+      </div>
+
+      {/* détail par marketplace : montant, ou part de l'entité dans chaque case */}
+      <GlassCard className="p-4 sm:p-5" quiet scrollReveal>
+        <div className="flex items-start justify-between gap-x-3 gap-y-2 flex-wrap">
+          <div className="min-w-0">
+            <Eyebrow tone="quiet">{t.rep_detail}</Eyebrow>
+            <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[12px]" style={{ color: MUTED }}>
+              {entM ? (
+                <button type="button" onClick={() => setFocus(null)} className="btn-lift inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-full text-[11.5px] font-semibold" title={t.rep_retirer} data-rep="filtre-entite"
+                  style={{ color: INK, background: `${coulFocus}26`, border: `1px solid ${coulFocus}66` }}>
+                  <span className="w-2 h-2 rounded-sm" style={{ background: coulFocus }} />{libelle(entM)}<X size={11} style={{ color: MUTED }} />
+                </button>
+              ) : <span className="font-semibold" style={{ color: INK }}>{tousLib}</span>}
+              <span style={{ color: FAINT }}>· {qte ? t.rep_qte : t.rep_ca} · {an}</span>
+            </div>
+          </div>
+          <RepSegment attr="mode" ariaLabel="" value={modeEff} onChange={(k) => (k === "part" ? choisirPart() : setModeM("montant"))} options={[["montant", t.rep_montant], ["part", t.rep_part]]} />
+        </div>
+        {modeEff === "part" && entM && <div className="text-[10.5px] mt-1.5" style={{ color: FAINT }} data-rep="legende-part">{t.rep_part_de.replace("{x}", libelle(entM))}</div>}
+        <div className="mt-3">
+          {!M.dispo || !M.lignes.length ? (
+            <div className="text-[12px] py-6 text-center" style={{ color: FAINT }}>{t.rep_vide}</div>
+          ) : (
+            <RepGrille attr="grille-mp" lignes={lignesDetail} moisT={moisT} moisL={moisL} enCours={enCours} libEnCours={t.rep_en_cours_court} libPremiere={t.rep_marketplace} libTotal={t.rep_total} libMix={t.rep_mix} fmt={fmtCase} fond={fondCellule} texte={texteCase} etroit={etroit} />
+          )}
+        </div>
+        {!mpVerrou && <div className="text-[10.5px] mt-2 px-0.5" style={{ color: FAINT }} data-rep="astuce-mp">{t.rep_astuce_mp}</div>}
+      </GlassCard>
+    </div>
+  );
+}
 
 function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
   const [texte, setTexte] = useState("");
@@ -3590,10 +4034,11 @@ function DashboardApp() {
   // ===== Concurrence — veille collectée manuellement, cf. COMPETITION_DATA =====
   // structure : segments (Heater/Cooling) -> sous-catégories -> marketplaces -> produits
   const [concSegment, setConcSegment] = useState("Heater");
+  const [repLent, setRepLent] = useState("pays"); // découpage de l'onglet Répartitions (retrouvé au retour, choisi par le lien depuis « Marque »)
   const [marquesTab, setMarquesTab] = useState(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("sousTab");
-      return fromUrl && ["marque", "produits", "classification", "radar", "puissances"].includes(fromUrl) ? fromUrl : "marque";
+      return fromUrl && ["marque", "repartitions", "produits", "classification", "radar", "puissances"].includes(fromUrl) ? fromUrl : "marque";
     } catch { return "marque"; }
   });
   const [wattageCat, setWattageCat] = useState("Toutes");
@@ -4678,7 +5123,7 @@ function DashboardApp() {
 
             <div className="flex items-center gap-1.5 mb-6 rounded-full p-1 w-fit flex-wrap" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
               {[
-                { id: "marque", label: t.zone_marque }, { id: "produits", label: t.zone_produits_titre },
+                { id: "marque", label: t.zone_marque }, { id: "repartitions", label: t.rep_tab }, { id: "produits", label: t.zone_produits_titre },
                 { id: "radar", label: t.subnav_produit_ideal }, { id: "classification", label: t.subnav_normes_cat },
                 { id: "puissances", label: t.zone_puissances },
               ].map((s) => (
@@ -4719,7 +5164,15 @@ function DashboardApp() {
                 </BarChart>
               </ResponsiveContainer>
               {SOUS_INFOS && (<div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: FAINT }}><Info size={11} /> {t.marque_reconstituee} {DATA.brand_coverage_pct["2026"]}%</div>)}
+              <div className="flex justify-end mt-2"><button type="button" data-rep="lien-marque" onClick={() => { setRepLent("marque"); setMarquesTab("repartitions"); }} className="btn-lift inline-flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ color: ORANGE_SOFT, background: `${ORANGE}14`, border: `1px solid ${ORANGE}33` }}>{t.rep_lien_marque} <ChevronRight size={13} /></button></div>
             </GlassCard>
+            </>
+            )}
+
+            {marquesTab === "repartitions" && (
+            <>
+            <ZoneLabel first>{t.rep_titre}</ZoneLabel>
+            <RepartitionsView t={t} lang={lang} globalMp={globalMp} accent={mpAccent} lent={repLent} onLent={setRepLent} />
             </>
             )}
 

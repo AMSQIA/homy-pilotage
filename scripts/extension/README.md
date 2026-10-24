@@ -17,12 +17,13 @@ Tous les onglets s'arrêtent au même jour, `DMAX`, et s'accordent entre eux au 
 | `socle.js` | Moteur de calcul pur, utilisé par `App.jsx` au chargement : recalcule les 22 constantes du tableau de bord à partir de l'extraction et de la table de référence. Atomique : au moindre problème il ne construit rien et l'application affiche un écran d'erreur (jamais un tableau à moitié juste) |
 | `data/referentiel.json` | Table de référence, **sans aucune vente** : nom, marque de secours, norme NF/CE, famille et sous-familles de chaque produit, correspondance référence (SKU) et titre Shopify → produit, passerelle de paiement → marketplace, objectifs du plan (annuel et par marketplace) |
 | `data/hors_shopify.json` | Chiffres qui n'existent pas dans Shopify (publicité par marketplace et par pays), conservés tels quels |
+| `repartitions.js` | Module pur de l'onglet Marques › Répartitions : pays, marque, catégorie, sous-catégorie × marketplace × mois, en CA HT et en quantités ; palette validée (voir plus bas) |
 | `scripts/extension/refresh_extension.mjs` | Commandes `check`, `plan`, `apply`, `status` : fenêtres de dates, collecte, contrôles, fusion, écriture |
 | `scripts/extension/transformer.mjs` | Transformation pure des résultats ShopifyQL en agrégats quotidiens, et tous les contrôles de cohérence |
 | `scripts/extension/collecte.mjs` | Sources des résultats : relais (script), transcription du connecteur Shopify de Claude, fichiers |
 | `scripts/extension/site_query.mjs` | Client du relais en lecture seule `api/mcp-site.mjs` (les deux boutiques) |
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence de tout le tableau de bord sur les vraies données (`selftest_socle.mjs` : moteur sur un jeu fictif aux résultats connus ; `selftest_pipeline.mjs` : chaîne d'extraction sur des résultats ShopifyQL synthétiques, ligne de commande comprise) |
-| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium |
+| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions, `--plan` que le plan 2026 du suivi quotidien et la tendance |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
 
 `App.jsx` n'est jamais modifié par l'actualisation quotidienne : pas de conflit avec les envois manuels, un commit de quelques centaines de ko par jour.
@@ -100,6 +101,28 @@ de la fourchette anticipée, avec des points pleins ; tous ces libellés sont tr
 Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
 contre un calcul indépendant fait dans le test (CA, variation et écart en € de chaque produit, parts de pays, onglets mobile compris).
 
+## Répartitions (onglet Marques › Répartitions)
+
+Trois découpages du même cube — **pays**, **marque** (Bestherm · HOM'Y · Thomson) et **type de produit** (catégorie ou sous-catégorie) — croisés avec la marketplace (le site web en fait partie) et le mois, en CA HT et en
+quantités, année précédente et année en cours. `repartitions.js` les calcule depuis les constantes que `socle.js` construit au chargement ; rien n'est écrit en plus dans `shopify_extension.json`, hormis la quantité par pays.
+
+| Constante | Forme | Remarque |
+|---|---|---|
+| `PAYS_MONTHLY` | `[pays, marketplace, année, mois, CA HT, quantité]` | 6e élément (quantité) pour une année seulement si **toutes** ses lignes `pays_jour` portent une quantité ; sinon 5 éléments pour toute l'année : jamais de quantité partielle |
+| `SKU_MARQUE` | marque de chaque produit, parallèle à `SKU_PRODUIT` | celle du fournisseur Shopify, sinon celle de la table de référence, sinon Bestherm |
+| `SKU_MONTHLY` | `[iProduit, iMarketplace, année, mois, CA HT, quantité]` | marque, catégorie (`PRODUCT_TO_CATEGORY`) et sous-catégorie (`SKU_SOUS_SOUS_FAMILLE`) en dérivent |
+
+- `pays_jour` : `[jour, iPays, iMp, CA HT, quantité]`. La quantité (5e élément, facultative) est celle des mêmes lignes de vente que le détail par produit (`transformer.mjs`) ; `refresh_extension.mjs` la reconduit à la
+  fusion (`decoder`, `fusionner`). Une extraction plus ancienne, à 4 éléments par ligne, reste valide : l'écran affiche alors le CA par pays et désactive « Quantités » pour ce découpage. **Reconstruire tout l'historique**
+  (voir plus bas) donne les quantités par pays de toutes les années ; une actualisation incrémentale ne remplace que les jours repris : les jours plus anciens d'une extraction sans quantités gardent leurs 4 éléments.
+- `construireRepartitions(constantes)` renvoie un cube ; `vue`, `matrice` et `partsParMarketplace` (avec `exclure: ["France"]` pour « hors France ») en tirent le graphique, le classement et le détail ; `dispoQte` dit si
+  les quantités existent pour un découpage et une année (sinon l'écran affiche le CA et le signale).
+- Un remboursement compté dans un mois postérieur à la vente peut rendre une case négative : le montant est conservé tel quel (voir « Limites connues »).
+- Palette de 8 teintes (`PALETTE`), couleur fixe par entité (`COULEURS_FIXES`), « Autres » en gris (`GRIS`). Validation : `node <dataviz>/scripts/validate_palette.js "#F75212,#3F93F4,#0DAC79,#987CE9,#E66162,#00A4BA,#C28408,#DD5DA2" --mode dark`
+  sur le fond #0A0908 puis #161514 ; à refaire si une teinte change.
+- Tests : `selftest.mjs` (chaque total retombe sur les KPI, `monthly_by_brand`, `category_by_mp` ; détail par pays = détail par produit ; « hors France » ; couleurs ; valeur négative), `selftest_socle.mjs` et `selftest_pipeline.mjs`
+  (quantité par pays), `smoke.mjs` (écran case par case, 4 langues, mobile).
+
 ## Garde-fous
 
 - Boutique vérifiée à chaque extraction (`shopDomain`) : rien n'est écrit si un résultat vient de l'autre boutique. Les résultats sont
@@ -166,7 +189,7 @@ Toutes les commandes se lancent depuis la racine du dépôt.
 ### Reconstruire tout l'historique (rarement)
 
 Supprimer `shopify_extension.json` (ou lancer `apply --du 2024-01-01 --boutique marketplaces`), puis `apply --cache <dossier>` : BESTHERM depuis
-2024-01-01 (≈ 47 fenêtres de 14 jours × 3 requêtes), le site depuis 2025-05-01. Le cache permet de reprendre après une interruption sans tout relire.
+2024-01-01 (≈ 47 fenêtres de 14 jours × 3 requêtes), le site depuis 2025-05-01. Le cache permet de reprendre après une interruption sans tout relire. Cette reconstruction est aussi ce qui donne les **quantités par pays** à toutes les années d'une extraction antérieure à leur ajout.
 
 ### Ajouter une référence, un titre, une passerelle, un produit
 
@@ -197,6 +220,7 @@ boutique en échec sans extraction antérieure.
   (hypothèse). Une passerelle nouvelle tombe dans « Autre » tant qu'elle n'est pas ajoutée à `passerelles`.
 - Un retour est compté à la date du remboursement (comme le tableau de bord Shopify), pas à la date de la commande d'origine : un mois peut être
   réduit par des retours de commandes plus anciennes.
+- Dans Marques › Répartitions, un remboursement compté à sa date peut rendre une case (ou un pays entier) négative : le montant est affiché tel quel, la case n'est pas colorée, le classement la place en dernier.
 - Le jeu `payments` donne la passerelle ; une commande payée par deux passerelles est classée selon la plus importante (signalé).
 - Les marques viennent du fournisseur Shopify : un produit livré par un autre fournisseur change de marque dans les courbes.
 - Les classes ABC sont recalculées sur le CA (pas sur la classe des entrepôts de l'ODP) ; l'élasticité exclut la première semaine, partielle.

@@ -1,5 +1,65 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 24 octobre 2026 — onglet Marques › Répartitions (pays, marque, type de produit × mois × marketplace), version Shopify seul
+
+**Demande** : placer sur la page Marques, « à l'endroit le plus pertinent » et « comme un vrai visual data manager » : (1) le CA et les quantités par pays, par mois et par
+marketplace et site web ; (2) la répartition du CA et des quantités entre Bestherm et Thomson, par mois et par marketplace ; (3) la répartition par type de produit, avec le CA et les
+quantités par mois et par marketplace. L'écran est en ligne depuis le 24 octobre sur la version actuelle (calculée sur l'ODP) ; cette section le reporte sur la version Shopify seul pour
+que le passage à Shopify seul n'en perde rien.
+
+**Où** : nouveau sous-onglet **Marques › Répartitions** (entre « Marque » et « Produits » ; adresse directe `?tab=marques&sousTab=repartitions`), plus un lien « Détail par mois et par
+marketplace » sous le graphique de l'onglet « Marque ». Les trois demandes sont trois découpages du même cube (entité × marketplace × mois) : elles se lisent de la même façon, dans un
+seul écran, et l'onglet « Marque » reste léger (« garde l'essentiel »).
+
+**Ce que l'écran montre**
+
+- **Commandes** : découpage (Pays | Marque | Type de produit, avec Catégorie | Sous-catégorie), mesure (CA HT | Quantités), année (2026 | 2025) ; « Hors France » pour le découpage par pays
+  (la France pèse l'essentiel du CA : sans ce bouton, les autres marchés sont des filets illisibles).
+- **Évolution mensuelle** : histogramme empilé en valeurs ou en parts de 100 % ; six entités tracées une à une, le reste regroupé en « Autres (n) » en gris ; bulle (mois, total, montant et part
+  de chaque entité) ; légende cliquable ; vue « Tableau » équivalente ; mois en cours estompé et signalé.
+- **Classement** : CA, quantités et part de chaque entité, trié par la mesure choisie ; toucher une ligne isole l'entité dans le détail.
+- **Détail par marketplace et par mois** : montant (carte de chaleur à une seule teinte) ou **part de l'entité dans chaque case** ; sous-total des marketplaces, site web isolé dessous, total ;
+  barre de répartition entre entités sur chaque ligne ; toucher une marketplace filtre le graphique et le classement. Sur mobile, le total reste collé au nom de la marketplace pendant le défilement des mois.
+- Le filtre marketplace global (haut de l'application) verrouille le périmètre du graphique et du classement (pastille avec cadenas). Le filtre de dates global ne s'applique pas : l'écran est mensuel,
+  l'année se choisit dans l'onglet.
+
+**Données** — tout est recalculé par `socle.js` au chargement à partir de `shopify_extension.json` : même jour et mêmes totaux que le reste du tableau de bord. Aucun nouveau fichier ; une seule
+information nouvelle à extraire, la quantité par pays (voir ci-dessous).
+
+| Découpage | Source |
+|---|---|
+| Pays | `PAYS_MONTHLY` : `[pays, marketplace, année, mois, CA HT, quantité]` (quantité : voir ci-dessous) |
+| Marque | `SKU_MONTHLY` × **`SKU_MARQUE`** (nouvelle constante de `socle.js` : marque de chaque produit, parallèle à `SKU_PRODUIT` — celle du fournisseur Shopify, sinon celle de la table de référence, sinon Bestherm) |
+| Catégorie | `SKU_MONTHLY` × `PRODUCT_TO_CATEGORY` ; les produits hors catalogue (pièces, accessoires, livraison) forment « Autres produits » |
+| Sous-catégorie | `SKU_MONTHLY` × `SKU_SOUS_SOUS_FAMILLE` des produits catégorisés |
+
+- **Quantités par pays** : l'extraction ne portait que le CA par pays. `transformer.mjs` ajoute désormais la quantité de chaque ligne jour × pays × marketplace (5e élément de `pays_jour`) : ce sont les
+  mêmes lignes de vente que le détail par produit, les deux se recoupent donc exactement ; `refresh_extension.mjs` la reconduit à la fusion. `socle.js` donne la quantité (6e élément de `PAYS_MONTHLY`) pour une
+  année **seulement si toutes ses lignes pays en portent une** : jamais de quantité partielle, jamais d'estimation. Une extraction plus ancienne (4 éléments par ligne) reste valide : le CA par pays
+  s'affiche, le bouton « Quantités » est désactivé pour le découpage par pays et l'écran le dit. Les quantités par marque et par type de produit viennent du détail par produit : toujours présentes.
+- **À faire une fois** : la première extraction complète de l'historique (« Reconstruire tout l'historique », `README.md` du dossier `scripts/extension`) porte les quantités par pays pour **2025 comme pour 2026**
+  (contrairement à la version ODP, qui n'a pas de quantités par pays en 2025). Une actualisation du matin qui reprend quelques jours sur une extraction plus ancienne, sans quantités, laisse l'année sans
+  quantités par pays jusqu'à cette reconstruction ; `selftest.mjs` l'affiche en information (ce n'est pas une erreur : état prévu) et l'écran l'indique.
+- **Totaux** : chaque découpage retombe sur les KPI ; les marques sur `monthly_by_brand` ; les catégories sur `category_by_mp` ; le détail par pays sur le détail par produit, marketplace par marketplace
+  et mois par mois (quantités exactes, CA à quelques centimes près : les lignes pays et les lignes produit sont arrondies chacune de leur côté, `selftest.mjs` tolère `0,02 × √(nombre de lignes) + 1 €`).
+- **Valeurs négatives** : un remboursement compté à sa date (et non à celle de la commande) peut rendre une case, voire un pays entier, négatif ; le montant est conservé tel quel (somme exacte), la case
+  n'est pas colorée, le classement le place en dernier.
+- **Site web 2025** : la boutique du site n'existe dans Shopify que depuis mai 2025 ; une note l'indique en 2025 quand le site est dans le périmètre. Ne pas le comparer à 2026 sur l'année entière.
+
+**Couleurs** — palette de 8 teintes sur fond sombre, **validée avec `validate_palette.js`** de la compétence dataviz (clarté OKLCH 0,48–0,67, chroma ≥ 0,1, contraste ≥ 3:1 sur #0A0908 et sur le fond d'une carte,
+écart daltonien ≥ 14,5 et en vision normale ≥ 21,5 entre teintes voisines). La couleur suit l'entité, jamais son rang : France orange, Belgique bleu, Espagne vert, etc. ; **Bestherm #F75212, HOM'Y #8B5CF6,
+Thomson #D50032**, empilés dans cet ordre fixe (l'orange et le rouge, trop proches, ne se touchent jamais) ; « Autres » en gris neutre. Le nom est toujours écrit (légende, classement, bulle) : la couleur n'est
+jamais seule à identifier une entité.
+
+**Fichiers** : `repartitions.js` (nouveau : calculs purs, couleurs), `socle.js` (`SKU_MARQUE`, quantité par pays), `scripts/extension/transformer.mjs` et `refresh_extension.mjs` (quantité par pays), `App.jsx` (écran, textes
+en 4 langues, sous-onglet, assistant), `api/chat.mjs` (sous-onglet `repartitions` pour l'assistant IA), `selftest.mjs`, `selftest_socle.mjs`, `selftest_pipeline.mjs`, `smoke.mjs`.
+
+**Tests** : `selftest.mjs` (3 bis) contrôle sur les vraies données que chaque total par découpage, par mois et par marketplace retombe sur les KPI, `monthly_by_brand` et `category_by_mp`, que le détail par pays égale le
+détail par produit, que « Hors France » retire exactement la France, que « Autres » ne perd rien, que les couleurs suivent l'entité, qu'une valeur négative reste cohérente et que les quantités par pays n'apparaissent que
+si toute l'année en porte ; `selftest_socle.mjs` et `selftest_pipeline.mjs` couvrent la quantité par pays (année mixte, ligne manquante, ancien format, quantité négative). `smoke.mjs` recalcule dans le test les chiffres
+attendus et vérifie l'écran case par case (total, classement, légende, bulle, vue tableau, parts, entité et marketplace choisies, repli sans quantités, couleurs des marques, lien depuis « Marque », filtre global,
+4 langues, mobile 390 et 360 px). `node scripts/extension/smoke.mjs --repartitions` ne lance que cet écran.
+
 ## Mise à jour du 21 octobre 2026 — objectif du jour pondéré par jour de la semaine, « % du plan » et courbes d'objectif
 
 **Demande** : avis sur les deux courbes d'objectif ajoutées ce jour-là par une autre session (objectif mensuel dans la courbe de tendance ; « objectif du jour » = objectif de la semaine

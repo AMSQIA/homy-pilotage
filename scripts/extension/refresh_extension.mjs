@@ -139,7 +139,7 @@ export function decoder(ext) {
   const o = ouvrir();
   const nom = (i) => ext.produits[i][0];
   for (const [d, im, ip, qte, ca] of ext.lignes) o.lignes.push({ d, mp: ext.mp[im], produit: nom(ip), qte, ca });
-  for (const [d, ic, im, ca] of ext.pays_jour) o.pays.push({ d, pays: ext.pays[ic], mp: ext.mp[im], ca });
+  for (const [d, ic, im, ca, qte] of ext.pays_jour) o.pays.push({ d, pays: ext.pays[ic], mp: ext.mp[im], ca, qte: typeof qte === "number" ? qte : null }); // qte : absente des extractions antérieures
   for (const [d, im, n] of ext.commandes) o.commandes.push({ d, mp: ext.mp[im], n });
   for (const [d, ia, ib, n, s] of ext.paires) o.paires.push({ d, a: nom(ia), b: nom(ib), n, s: s ? 1 : 0 });
   for (const [n, m] of ext.produits) o.marques.set(n, m ?? null);
@@ -188,7 +188,7 @@ export function fusionner(precedent, blocs, today, an = AN_DEFAUT) {
     mp, pays: paysNoms,
     produits: noms.map((n) => [n, marques.get(n) ?? null]),
     lignes: lignes.map((l) => [l.d, iMp.get(l.mp), iProd.get(l.produit), l.qte, r2(l.ca)]),
-    pays_jour: paysK.map((l) => [l.d, iPays.get(l.pays), iMp.get(l.mp), r2(l.ca)]),
+    pays_jour: paysK.map((l) => (typeof l.qte === "number" ? [l.d, iPays.get(l.pays), iMp.get(l.mp), r2(l.ca), l.qte] : [l.d, iPays.get(l.pays), iMp.get(l.mp), r2(l.ca)])),
     commandes: cmdK.map((l) => [l.d, iMp.get(l.mp), l.n]),
     paires: pairesK.map((l) => [l.d, iProd.get(l.a), iProd.get(l.b), l.n, l.s]),
   };
