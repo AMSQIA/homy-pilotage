@@ -23,7 +23,7 @@ Tous les onglets s'arrêtent au même jour, `DMAX`, et s'accordent entre eux au 
 | `scripts/extension/collecte.mjs` | Sources des résultats : relais (script), transcription du connecteur Shopify de Claude, fichiers |
 | `scripts/extension/site_query.mjs` | Client du relais en lecture seule `api/mcp-site.mjs` (les deux boutiques) |
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence de tout le tableau de bord sur les vraies données (`selftest_socle.mjs` : moteur sur un jeu fictif aux résultats connus ; `selftest_pipeline.mjs` : chaîne d'extraction sur des résultats ShopifyQL synthétiques, ligne de commande comprise) |
-| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions, `--plan` que le plan 2026 du suivi quotidien et la tendance |
+| `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions, `--plan` que le plan 2026 du suivi quotidien et la tendance, `--navigation` que la navigation mobile (barres du haut et du bas figées, filtres, sous-onglets, saisie, 4 langues) |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
 
 `App.jsx` n'est jamais modifié par l'actualisation quotidienne : pas de conflit avec les envois manuels, un commit de quelques centaines de ko par jour.

@@ -2,7 +2,7 @@
 /**
  * Test d'affichage du tableau de bord construit sur les ventes Shopify, sur le build de production (dossier dist/).
  *
- *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier] [--racine dossier] [--plan | --repartitions]
+ *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier] [--racine dossier] [--plan | --repartitions | --navigation]
  *
  * Lance un petit serveur statique, ouvre l'application dans Chromium (Playwright) et vérifie :
  *   - le bloc « Données Shopify à jour » (titre, date de dernière donnée, pastille de fraîcheur, graphique du CA par jour ouvert par
@@ -23,6 +23,12 @@
  *     marketplace (site web compris), « Hors France », entité choisie, marketplace choisie, vue tableau, parts, 4 langues, mobile (390 et 360 px) ; chaque case du détail est recalculée dans le test
  *     depuis les constantes du tableau de bord (sans repartitions.js) ; les quantités par pays n'existent, pour une année, que si toutes ses lignes d'extraction en portent une (sinon : CA seul,
  *     bouton « Quantités » désactivé, jamais d'estimation) ; option --repartitions pour ne lancer que cet écran ;
+ *   - la navigation mobile (24 octobre 2026) : sur téléphone (390 et 360 px), barre du haut (logo, période, marketplace — une seule ligne de 53 px) et barre du bas
+ *     (7 onglets, nom court de l'onglet actif) réellement collées à l'écran avant et après un long défilement ; un appui change d'onglet et remonte en haut de page,
+ *     un appui sur l'onglet actif aussi ; filtres de période et de marketplace (croix de remise à zéro, dates personnalisées, champs en 16 px contre le zoom d'iOS) ;
+ *     sous-onglets de Marques et de Concurrence sur une seule ligne qui défile et se fige sous la barre du haut ; aucun champ n'a le focus à l'ouverture de Suivi Prix ;
+ *     barre du bas retirée pendant la saisie ; bannière « mode démo » dans le bloc figé ; 4 langues ; dès 768 px, disposition d'origine conservée ;
+ *     option --navigation pour ne lancer que cet écran ;
  *   - les trois vues conservées à la demande de l'utilisateur : liste des produits classés par CA, % de l'objectif par pays,
  *     comparaison « vs 2025 » (courbes et pastilles) ;
  *   - les chiffres affichés = ceux que calcule socle.js sur les vrais fichiers du dépôt (CA cumulé, unités, % de l'objectif,
@@ -98,8 +104,9 @@ function serveur() {
 const echecs = [];
 const verifier = (cond, msg) => { if (!cond) echecs.push(msg); return cond; };
 
-async function ouvrir(browser, { largeur = 1280, hauteur = 900, avance = 0, langue = "fr-FR" } = {}) {
-  const ctx = await browser.newContext({ locale: langue, viewport: { width: largeur, height: hauteur } });
+async function ouvrir(browser, { largeur = 1280, hauteur = 900, avance = 0, langue = "fr-FR", tactile = false } = {}) {
+  // tactile : émulation d'un téléphone (écran tactile, rendu mobile) — nécessaire aux appuis (tap) de la navigation mobile
+  const ctx = await browser.newContext({ locale: langue, viewport: { width: largeur, height: hauteur }, ...(tactile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
   const page = await ctx.newPage();
   const erreurs = [];
   page.on("pageerror", (e) => erreurs.push(`pageerror: ${e.message}`));
@@ -1088,6 +1095,182 @@ async function verifierRepartitions(browser, base, E) {
     await ctx.close();
   }
 }
+// ---- Navigation mobile (24 octobre 2026) : barre du haut et barre du bas figées à l'écran, filtres compacts, sous-onglets sur une ligne ----
+const ONGLETS = ["apercu", "marketplaces", "marques", "prix", "ads", "concurrence", "data"];
+// libellé complet (aria-label, repris des textes de l'application) et libellé court affiché sur l'onglet actif de la barre du bas
+const NAV_LIBELLES = {
+  fr: { long: ["Vue d'ensemble", "Marketplaces", "Marques & Produits", "Suivi Prix", "Campagnes Ads", "Concurrence", "Data"], court: ["Aperçu", "Marketplaces", "Marques", "Prix", "Ads", "Concurrence", "Data"], toutes: "Toutes" },
+  en: { long: ["Overview", "Marketplaces", "Brands & Products", "Price Tracking", "Ad Campaigns", "Competition", "Data"], court: ["Overview", "Marketplaces", "Brands", "Prices", "Ads", "Competition", "Data"], toutes: "All" },
+  es: { long: ["Resumen", "Marketplaces", "Marcas y Productos", "Seguimiento de Precios", "Campañas Ads", "Competencia", "Datos"], court: ["Resumen", "Marketplaces", "Marcas", "Precios", "Ads", "Competencia", "Datos"], toutes: "Todas" },
+  zh: { long: ["总览", "电商平台", "品牌与产品", "价格追踪", "广告活动", "竞争分析", "数据"], court: ["总览", "平台", "品牌", "价格", "广告", "竞争", "数据"], toutes: "全部" },
+};
+const SEL_HAUT = '[data-barre="haut"]', SEL_BAS = '[data-barre="bas"]', SEL_MOBILE = '[data-barre="mobile"]';
+const rectDe = (page, sel) => page.evaluate((s) => {
+  const e = document.querySelector(s);
+  if (!e) return null;
+  const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+  return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), position: cs.position, display: cs.display, transform: cs.transform };
+}, sel);
+const attendreCond = async (page, cond, arg, ms = 3500) => { for (let i = 0; i < ms / 100; i++) { if (await page.evaluate(cond, arg)) return true; await page.waitForTimeout(100); } return false; };
+const etatBarreBas = (page) => page.evaluate((sel) => {
+  const bs = [...document.querySelector(sel).querySelectorAll("button")], act = bs.filter((x) => x.getAttribute("aria-current") === "page");
+  return { n: act.length, idx: bs.indexOf(act[0]), texte: act[0] ? act[0].innerText.trim() : "", labels: bs.map((x) => x.getAttribute("aria-label")), sy: window.scrollY, debord: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+}, SEL_BAS);
+
+async function verifierNavigation(browser, base) {
+  // ===== téléphone, 390 et 360 px : barres figées, onglets, filtres, sous-onglets, saisie, mode démo =====
+  for (const [largeur, hauteur] of [[390, 844], [360, 740]]) {
+    const E = `mobile ${largeur} px · navigation`;
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur, tactile: true });
+    await ouvrirDashboard(page, base);
+    // 1) les deux barres sont collées à l'écran, avant comme après un long défilement ; le contenu garde l'essentiel de la hauteur
+    let h = await rectDe(page, SEL_HAUT), b = await rectDe(page, SEL_BAS);
+    verifier(h && h.position === "sticky" && h.top === 0 && h.h >= 50 && h.h <= 56, `${E} : barre du haut absente, non collée ou de hauteur inattendue (${JSON.stringify(h)})`);
+    verifier(b && b.position === "fixed" && b.bottom === hauteur && b.h >= 54 && b.h <= 60, `${E} : barre du bas non fixée en bas de l'écran (${JSON.stringify(b)})`);
+    verifier(h && b && hauteur - h.h - b.h >= hauteur * 0.8, `${E} : les barres laissent moins de 80 % de l'écran au contenu (${h && b && hauteur - h.h - b.h}px sur ${hauteur})`);
+    await page.evaluate(() => window.scrollTo(0, 1500)); await page.waitForTimeout(400);
+    h = await rectDe(page, SEL_HAUT); b = await rectDe(page, SEL_BAS);
+    verifier((await page.evaluate(() => window.scrollY)) > 1000, `${E} : la page n'a pas défilé`);
+    verifier(h.top === 0 && b.bottom === hauteur, `${E} : après défilement de 1 500 px les barres ont bougé (haut ${h.top}, bas ${b.bottom} / ${hauteur})`);
+    if (shotsDir && largeur === 390) await page.screenshot({ path: path.join(shotsDir, "navigation-mobile.png") });
+    // 2) les sept onglets : onglet actif unique avec son nom court, page remontée en haut, pas de débordement
+    for (let i = 0; i < ONGLETS.length; i++) {
+      await page.evaluate(() => window.scrollTo(0, 900)); await page.waitForTimeout(150);
+      await page.locator(`${SEL_BAS} button`).nth(i).tap(); await page.waitForTimeout(450);
+      await attendreCond(page, () => window.scrollY <= 5); // l'onglet actif (i = 0 au premier tour) remonte en défilement lissé
+      const e = await etatBarreBas(page);
+      verifier(e.n === 1 && e.idx === i && e.texte === NAV_LIBELLES.fr.court[i], `${E} : onglet ${ONGLETS[i]} — actif « ${e.texte} » (attendu « ${NAV_LIBELLES.fr.court[i]} »), ${e.n} actif(s)`);
+      verifier(e.sy <= 5, `${E} : onglet ${ONGLETS[i]} ouvert à ${e.sy}px du haut au lieu du haut de page`);
+      verifier(e.debord <= 1, `${E} : onglet ${ONGLETS[i]} — débordement horizontal de ${e.debord}px`);
+    }
+    // 3) appui sur l'onglet déjà actif : retour en haut de page
+    await page.evaluate(() => window.scrollTo(0, 800)); await page.waitForTimeout(200);
+    await page.locator(`${SEL_BAS} [aria-current="page"]`).tap();
+    verifier(await attendreCond(page, () => window.scrollY < 5), `${E} : un appui sur l'onglet actif ne remonte pas en haut de page`);
+    await ctx.close();
+  }
+  // ===== filtres de la barre du haut (période, marketplace, croix, dates personnalisées) =====
+  for (const [largeur, hauteur] of [[390, 844], [360, 740]]) {
+    const E = `mobile ${largeur} px · filtres`;
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur, tactile: true });
+    await ouvrirDashboard(page, base);
+    const puces = () => page.evaluate((sel) => [...document.querySelectorAll(`${sel} select`)].map((s) => ({ v: s.value, texte: s.parentElement.innerText.replace(/\s+/g, " ").trim().split(" ").slice(0, 4).join(" "), taille: getComputedStyle(s).fontSize })), SEL_MOBILE);
+    let p = await puces();
+    verifier(p.length === 2 && p[0].v === "annee_courante" && p[0].texte.startsWith("Année en cours") && p[1].v === "Toutes" && p[1].texte.startsWith("Toutes"), `${E} : puces initiales inattendues (${JSON.stringify(p)})`);
+    verifier(p.every((x) => x.taille === "16px"), `${E} : sélecteurs en ${p.map((x) => x.taille)} (16 px attendus : en dessous, iOS zoome la page)`);
+    await page.locator('[data-barre="periode"]').selectOption("mois_courant"); await page.waitForTimeout(600);
+    p = await puces();
+    verifier(p[0].v === "mois_courant" && p[0].texte.startsWith("Mois en cours"), `${E} : période « mois en cours » non appliquée (${p[0].texte})`);
+    verifier(contient(await page.evaluate(() => document.body.innerText), "mois en cours"), `${E} : le contenu ne suit pas la période choisie`);
+    await page.locator('[data-barre="marketplace"]').selectOption("Leroy Merlin"); await page.waitForTimeout(600);
+    p = await puces();
+    verifier(p[1].v === "Leroy Merlin" && p[1].texte.startsWith("Leroy Merlin"), `${E} : marketplace Leroy Merlin non appliquée (${JSON.stringify(p[1])})`);
+    verifier(contient(await page.evaluate(() => document.body.innerText), "Leroy Merlin"), `${E} : le contenu ne suit pas la marketplace choisie`);
+    verifier((await page.locator('[data-barre="effacer"]').count()) === 1, `${E} : croix de remise à zéro absente avec une marketplace choisie`);
+    verifier(await page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return r.right <= innerWidth + 0.5 && r.left >= -0.5; }, SEL_MOBILE), `${E} : la barre du haut déborde de l'écran avec une marketplace choisie`);
+    const lib = await page.evaluate((sel) => { const s = document.querySelector(`${sel} [data-barre="periode"]`).parentElement.querySelector("span.truncate"); return { vu: s.scrollWidth <= s.clientWidth + 1, texte: s.innerText }; }, SEL_MOBILE);
+    if (largeur >= 390) verifier(lib.vu, `${E} : libellé de période tronqué avec une marketplace choisie (« ${lib.texte} »)`);
+    if (shotsDir && largeur === 360) await page.screenshot({ path: path.join(shotsDir, "navigation-filtre-360.png") });
+    await page.locator('[data-barre="effacer"]').tap(); await page.waitForTimeout(500);
+    p = await puces();
+    verifier(p[1].v === "Toutes" && (await page.locator('[data-barre="effacer"]').count()) === 0, `${E} : la croix ne remet pas « Toutes » (${JSON.stringify(p[1])})`);
+    const h0 = (await rectDe(page, SEL_HAUT)).h;
+    await page.locator('[data-barre="periode"]').selectOption("personnalise"); await page.waitForTimeout(500);
+    const h1 = (await rectDe(page, SEL_HAUT)).h;
+    verifier(h1 > h0 + 30 && (await page.locator('[data-barre="date-du"]').count()) === 1 && (await page.locator('[data-barre="date-au"]').count()) === 1, `${E} : dates personnalisées — barre de ${h0} à ${h1}px, champs de date absents`);
+    verifier(await page.evaluate(() => ["date-du", "date-au"].every((k) => getComputedStyle(document.querySelector(`[data-barre="${k}"]`)).fontSize === "16px")), `${E} : champs de date en dessous de 16 px (zoom iOS)`);
+    verifier(await page.evaluate((v) => getComputedStyle(document.documentElement).getPropertyValue("--barre-haut").trim() === v, `${h1}px`), `${E} : la variable --barre-haut n'est pas à jour (${h1}px attendus)`);
+    verifier(await page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return document.querySelector(`${sel} [data-barre="date-au"]`).getBoundingClientRect().right <= innerWidth + 0.5 && r.right <= innerWidth + 0.5; }, SEL_MOBILE), `${E} : les champs de date débordent de l'écran`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (${E}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== sous-onglets (Marques, Concurrence) : une ligne qui défile, figés sous la barre du haut ; saisie ; mode démo ; Suivi Prix =====
+  {
+    const E = "mobile 390 px · sous-onglets";
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 390, hauteur: 844, tactile: true });
+    await ouvrirDashboard(page, base, { tab: "marques" });
+    const ligne = await page.evaluate(() => { const g = document.querySelector('[data-barre="sous-onglets-defil"]'), bs = [...g.querySelectorAll("button")]; return { n: bs.length, lignes: new Set(bs.map((x) => Math.round(x.getBoundingClientRect().top))).size, sw: g.scrollWidth, cw: g.clientWidth }; });
+    verifier(ligne.n === 6 && ligne.lignes === 1 && ligne.sw > ligne.cw, `${E} Marques : ${ligne.n} pastilles sur ${ligne.lignes} ligne(s), défilement ${ligne.sw}/${ligne.cw}`);
+    const colle0 = await page.evaluate(() => document.querySelector('[data-barre="sous-onglets"]').classList.contains("est-colle"));
+    verifier(!colle0, `${E} Marques : bande « collée » (fond et filet) alors que la page est en haut`);
+    await page.evaluate(() => window.scrollTo(0, 700)); await page.waitForTimeout(500);
+    let sb = await page.evaluate(() => ({ top: Math.round(document.querySelector('[data-barre="sous-onglets"]').getBoundingClientRect().top), bar: Math.round(document.querySelector('[data-barre="haut"]').getBoundingClientRect().bottom), colle: document.querySelector('[data-barre="sous-onglets"]').classList.contains("est-colle") }));
+    verifier(sb.top === sb.bar && sb.colle, `${E} Marques : bande non figée sous la barre du haut (haut ${sb.top} / bas de barre ${sb.bar}, fond ${sb.colle})`);
+    await page.locator('[data-barre="sous-onglets-defil"] button', { hasText: "Puissances" }).tap(); await page.waitForTimeout(900);
+    const act = await page.evaluate(() => { const g = document.querySelector('[data-barre="sous-onglets-defil"]'), a = g.querySelector('[aria-pressed="true"]'), r = a.getBoundingClientRect(), gr = g.getBoundingClientRect(); return { texte: a.innerText, visible: r.left >= gr.left - 1 && r.right <= gr.right + 1 }; });
+    verifier(act.texte === "Puissances" && act.visible, `${E} Marques : pastille active « ${act.texte} » non entièrement visible dans la bande`);
+    verifier(contient(await page.evaluate(() => document.body.innerText), "Puissances"), `${E} Marques : la sous-vue Puissances ne s'affiche pas`);
+    // Concurrence : la bande est plus bas dans la page, elle se fige à son tour
+    await ouvrirDashboard(page, base, { tab: "concurrence" });
+    const yBande = await page.evaluate(() => document.querySelector('[data-barre="sous-onglets"]').getBoundingClientRect().top + window.scrollY);
+    await page.evaluate((y) => window.scrollTo(0, y + 400), yBande); await page.waitForTimeout(500);
+    sb = await page.evaluate(() => ({ top: Math.round(document.querySelector('[data-barre="sous-onglets"]').getBoundingClientRect().top), bar: Math.round(document.querySelector('[data-barre="haut"]').getBoundingClientRect().bottom), colle: document.querySelector('[data-barre="sous-onglets"]').classList.contains("est-colle") }));
+    verifier(sb.top === sb.bar && sb.colle, `${E} Concurrence : bande non figée sous la barre du haut (haut ${sb.top} / bas de barre ${sb.bar}, fond ${sb.colle})`);
+    // Suivi Prix : aucun champ ne prend le focus à l'ouverture (la page ne défile pas, le clavier ne s'ouvre pas)
+    await ouvrirDashboard(page, base, { tab: "prix" });
+    const prix = await page.evaluate(() => ({ actif: document.activeElement ? document.activeElement.tagName : "", sy: window.scrollY }));
+    verifier(prix.actif !== "INPUT" && prix.sy <= 5, `${E} Suivi Prix : un champ prend le focus à l'ouverture (${prix.actif}, défilement ${prix.sy}px)`);
+    // saisie : la barre du bas se retire pendant la saisie dans un champ de texte, revient ensuite
+    await ouvrirDashboard(page, base, { tab: "data" });
+    await page.locator("main input").first().focus(); await page.waitForTimeout(500);
+    verifier((await rectDe(page, SEL_BAS)).transform !== "none", `${E} Data : la barre du bas reste affichée pendant la saisie`);
+    await page.evaluate(() => document.activeElement.blur()); await page.waitForTimeout(500);
+    verifier((await rectDe(page, SEL_BAS)).transform === "none", `${E} Data : la barre du bas ne revient pas après la saisie`);
+    // mode démo : la bannière est dans le bloc figé, au-dessus de la barre ; les sous-onglets se calent sous l'ensemble
+    await ouvrirDashboard(page, base, { tab: "marques" });
+    await page.evaluate(() => window.scrollTo(0, 99999)); await page.waitForTimeout(300);
+    await page.locator("footer button[aria-label]").first().click(); await page.waitForTimeout(500);
+    const demo = await page.evaluate(() => { const w = document.querySelector('[data-barre="haut"]'), r = w.getBoundingClientRect(); return { top: Math.round(r.top), h: Math.round(r.height), banniere: /démo/i.test(w.innerText), v: getComputedStyle(document.documentElement).getPropertyValue("--barre-haut").trim() }; });
+    verifier(demo.banniere && demo.top === 0 && demo.h > 70 && demo.v === `${demo.h}px`, `${E} : mode démo — bannière dans le bloc figé (${JSON.stringify(demo)})`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (${E}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== quatre langues : libellés complets (accessibilité), nom court de l'onglet actif, puce « Toutes » =====
+  for (const lang of ["fr", "en", "es", "zh"]) {
+    const E = `mobile 390 px · navigation ${lang.toUpperCase()}`;
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 390, hauteur: 844, tactile: true });
+    await ouvrirDashboard(page, base, { lang });
+    let e = await etatBarreBas(page);
+    verifier(JSON.stringify(e.labels) === JSON.stringify(NAV_LIBELLES[lang].long), `${E} : libellés des onglets ${JSON.stringify(e.labels)} ≠ ${JSON.stringify(NAV_LIBELLES[lang].long)}`);
+    verifier(e.idx === 0 && e.texte === NAV_LIBELLES[lang].court[0], `${E} : onglet actif « ${e.texte} » (attendu « ${NAV_LIBELLES[lang].court[0]} »)`);
+    for (const i of [1, 2, 5]) {
+      await page.locator(`${SEL_BAS} button`).nth(i).tap(); await page.waitForTimeout(600);
+      e = await etatBarreBas(page);
+      verifier(e.idx === i && e.texte === NAV_LIBELLES[lang].court[i], `${E} : onglet ${ONGLETS[i]} — « ${e.texte} » (attendu « ${NAV_LIBELLES[lang].court[i]} »)`);
+    }
+    const toutes = await page.evaluate((sel) => document.querySelector(`${sel} [data-barre="marketplace"]`).parentElement.querySelector("span.truncate").innerText.trim(), SEL_MOBILE);
+    verifier(toutes === NAV_LIBELLES[lang].toutes, `${E} : puce marketplace « ${toutes} » (attendu « ${NAV_LIBELLES[lang].toutes} »)`);
+    const nav = norm(await page.evaluate((sel) => document.querySelector(sel).innerText, SEL_MOBILE));
+    verifier(!PLACEHOLDERS.test(nav) && !/undefined|NaN/.test(nav), `${E} : variable de modèle ou « undefined » dans la barre (${nav})`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (${E}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== ordinateur et tablette (≥ 768 px) : disposition d'origine conservée, barres mobiles absentes =====
+  for (const largeur of [1280, 820]) {
+    const E = `ordinateur ${largeur} px · navigation`;
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 900 });
+    await ouvrirDashboard(page, base, { tab: "marques" });
+    const d = await page.evaluate(() => {
+      const vu = (s) => { const el = document.querySelector(s); return !!el && getComputedStyle(el).display !== "none" && el.getBoundingClientRect().height > 0; };
+      return {
+        mobile: vu('[data-barre="mobile"]'), bas: vu('[data-barre="bas"]'), entete: vu("header"), boutons: document.querySelectorAll("header nav button").length,
+        haut: getComputedStyle(document.querySelector('[data-barre="haut"]')).position, sous: getComputedStyle(document.querySelector('[data-barre="sous-onglets"]')).position,
+        defil: getComputedStyle(document.querySelector('[data-barre="sous-onglets-defil"]')).flexWrap, debord: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        filtres: [...document.querySelectorAll("[data-barre='haut'] button")].filter((b) => b.offsetParent !== null && /Année en cours|Mois en cours/.test(b.innerText)).length,
+      };
+    });
+    verifier(!d.mobile && !d.bas, `${E} : barre mobile (${d.mobile}) ou barre du bas (${d.bas}) affichée`);
+    verifier(d.entete && d.boutons === 7 && d.filtres >= 2, `${E} : en-tête d'origine incomplet (${d.boutons} onglets, ${d.filtres} puces de période)`);
+    verifier(d.haut === "static" && d.sous === "static" && d.defil === "wrap", `${E} : le bloc du haut ou les sous-onglets sont figés / non repliables (${d.haut}, ${d.sous}, ${d.defil}) — dès 768 px la disposition d'origine est conservée`);
+    verifier(d.debord <= 1, `${E} : débordement horizontal de ${d.debord}px`);
+    await ouvrirDashboard(page, base, { tab: "apercu" });
+    await page.evaluate(() => window.scrollTo(0, 700)); await page.waitForTimeout(300);
+    const sorti = await page.evaluate(() => ({ sy: window.scrollY, bas: document.querySelector("header").getBoundingClientRect().bottom }));
+    verifier(sorti.sy < 200 || sorti.bas <= 0, `${E} : l'en-tête reste à l'écran après défilement (bas à ${sorti.bas}px) — il défilait avec la page jusqu'ici`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (${E}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+}
 const QTE_2025 = (X) => Object.values(X.R[2025].marque).reduce((s, e) => s + e.qte, 0);
 
 async function main() {
@@ -1106,6 +1289,11 @@ async function main() {
       await verifierRepartitions(browser, base, E);
       if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
       console.log("SMOKE_REPARTITIONS_OK"); return 0;
+    }
+    if (process.argv.includes("--navigation")) { // mise au point : seule la navigation mobile (barres figées, filtres, sous-onglets)
+      await verifierNavigation(browser, base);
+      if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
+      console.log("SMOKE_NAVIGATION_OK"); return 0;
     }
     if (process.argv.includes("--plan")) { // mise au point : seuls le plan 2026 du suivi quotidien et la courbe d'objectif de la tendance
       await verifierPlan(browser, base, E);
@@ -1153,6 +1341,7 @@ async function main() {
     await verifierPlan(browser, base, E);
     await verifierTendance(browser, base, E);
     await verifierRepartitions(browser, base, E);
+    await verifierNavigation(browser, base);
 
     // 2) trois autres langues
     for (const lang of ["en", "es", "zh"]) {
@@ -1269,7 +1458,7 @@ async function main() {
     srv.close();
   }
   if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
-  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, commandes et panier moyen, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), plan 2026 (objectif du jour pondéré par le profil des jours de la semaine, % du plan, courbe d'objectif du suivi et courbe mensuelle de la tendance, 4 langues ; ${COUVERTURE_PLAN}), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, mobile, écran d'erreur`);
+  console.log(`SMOKE_OK · bloc « Données Shopify à jour » jusqu'au ${dmax} avec son suivi quotidien (période, jour touché avec choix même date / même jour de la semaine, même période l'an dernier, commandes et panier moyen, top 10 produits avec variation et écart en €, top 10 marketplaces, part du CA par pays, 4 langues, mobile avec onglets, trois volets sur ordinateur) et sa pastille de fraîcheur, sous-informations absentes, vues conservées (produits, % par pays, vs 2025), plan 2026 (objectif du jour pondéré par le profil des jours de la semaine, % du plan, courbe d'objectif du suivi et courbe mensuelle de la tendance, 4 langues ; ${COUVERTURE_PLAN}), chiffres = ${fmtNum(E.cumul)} € HT / ${fmtNum(E.qte)} unités / ${E.pct} % de l'objectif${E.yoy !== null ? ` / ${E.yoy.toFixed(1)} % vs 2025` : ""}, filtres marketplace, 7 onglets, navigation mobile (barres du haut et du bas figées, filtres compacts, sous-onglets sur une ligne, 4 langues, ordinateur inchangé), mobile, écran d'erreur`);
   return 0;
 }
 
