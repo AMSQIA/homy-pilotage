@@ -1,5 +1,44 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 21 octobre 2026 — objectif du jour pondéré par jour de la semaine, « % du plan » et courbes d'objectif
+
+**Demande** : avis sur les deux courbes d'objectif ajoutées ce jour-là par une autre session (objectif mensuel dans la courbe de tendance ; « objectif du jour » = objectif de la semaine
+÷ 7 dans le suivi quotidien), puis « Ok » aux améliorations proposées. Les deux courbes sont conservées ; ce qui suit les complète.
+
+**Ce qui change**
+
+- **Objectif du jour pondéré** : l'objectif de la semaine du plan (semaines Excel, dimanche → samedi, `OBJECTIF_2026.hebdo`) n'est plus divisé à plat par 7 — ce qui donnait la même
+  barre à viser un lundi et un samedi, alors que le lundi vend nettement plus. Il est réparti selon le **poids habituel de chaque jour de la semaine**, mesuré sur l'historique
+  journalier du périmètre affiché : pour chaque semaine entière (dimanche → samedi, un jour de vente chaque jour), part de chaque jour dans la moyenne de sa semaine, puis moyenne de ces
+  parts sur toutes les semaines. Il faut **au moins 8 semaines entières** ; les poids ont pour moyenne 1, donc **le total de chaque semaine reste celui du plan**. Ordre de grandeur
+  sur l'ensemble des canaux (français, 14 semaines) : lundi ≈ 1,28, mardi ≈ 1,12, mercredi ≈ 1,01, vendredi ≈ 0,99, jeudi ≈ 0,92, dimanche ≈ 0,88, samedi ≈ 0,82.
+- **Périmètre** : avec un filtre marketplace (ou le site web), l'objectif est ramené au prorata de son objectif annuel (comme avant) et le profil des jours est celui de ce canal s'il
+  repose sur 8 semaines entières au moins ; sinon (peu d'historique, jours sans vente) c'est le profil de l'ensemble des canaux ; à défaut de tout profil, répartition à plat (÷ 7). Les
+  marketplaces sans objectif fiable (« Autre », « But », « Bricoman ») n'ont ni courbe ni ligne du plan.
+- **« % du plan » à côté du CA en tête** : une ligne « Objectif 966k€ · 71 % · -280k€ » donne l'objectif de la période affichée (somme des objectifs de ses jours), la part atteinte par le
+  CA et l'écart en €, en vert au-dessus du plan et en rouge en dessous ; sur un jour touché : « Objectif du jour 55 603 € · … ». Les trois chiffres se lisent d'un coup d'œil, sans
+  comparer la courbe aux barres.
+- **Courbe d'objectif de l'histogramme** : en escalier, un palier par jour (aux limites des barres), légende « Objectif (plan 2026) » ; la bulle d'un jour ajoute « Objectif du jour »
+  avec l'écart du CA du jour à cet objectif.
+- **Courbe de tendance : finitions** — la courbe d'objectif mensuel est tracée **après** le masque de la fourchette anticipée (avant, elle disparaissait derrière lui dès que
+  l'anticipé dépassait le plan), avec des points pleins ; ses libellés (courbe, légende, bulle, « Objectif du jour », « Objectif ») sont **traduits** en français, anglais, espagnol et
+  chinois.
+
+**Source du profil** : tout l'historique journalier de `shopify_extension.json` (schéma 2 : jour × marketplace × produit), site web compris.
+
+**À savoir**
+
+- Le profil repose sur tout l'historique Shopify disponible : il s'affine chaque matin avec les nouvelles ventes.
+- C'est une répartition de l'objectif, pas une prévision : le poids des jours est celui du passé (jours fériés et opérations commerciales ne sont pas pris en compte).
+- Le plan hebdomadaire ne couvre que les semaines 1 à 52 de 2026 : une fenêtre qui touche la semaine du 27 décembre ou 2027 n'affiche pas d'objectif.
+- **Reste à faire** : la carte « Objectif du mois » (sous la courbe de tendance) calcule encore son « attendu à ce jour » par un prorata linéaire du mois (≈ 1 403 226 € au 20 octobre)
+  alors que le plan hebdomadaire donne ≈ 1 374 995 € à la même date (2 % d'écart) ; à harmoniser une prochaine fois.
+
+**Tests** : `smoke.mjs` recalcule dans le test, sans passer par le code de l'application, les semaines Excel, le profil des jours (avec son repli sur l'ensemble des canaux), l'objectif de
+chaque jour, le total de chaque semaine entière, la ligne du plan (libellé, montant, part, écart, couleur) sur la période et sur un jour touché, la bulle et la légende dans les quatre
+langues, les filtres marketplace (profil propre, repli, site web, marketplace sans objectif), et sur la courbe de tendance l'ordre de tracé, les points pleins, les libellés et les montants
+des bulles de juillet et de novembre. Le contrôle de débordement mobile du suivi couvre la nouvelle ligne.
+
 ## Mise à jour du 19 octobre 2026 — top 10 marketplaces dans le suivi quotidien
 
 **Demande** : « Très bien cette mise en forme, peux-tu y ajouter le top 10 marketplace ? » (premier bloc « Données à jour »).

@@ -85,6 +85,16 @@ par CA HT sur la période ou le jour touché, avec part du CA, unités, variatio
 pour un canal comparable (le site web depuis sa première vente Shopify, une marketplace quand l'historique remonte assez loin). Contrairement aux produits, les canaux gardent
 leur variation sur un jour touché (comme le chiffre en tête).
 
+**Plan 2026 : objectif du jour et « % du plan »** : la courbe verte en escalier de l'histogramme et la ligne « Objectif · % · écart » sous le chiffre en tête comparent le CA au plan hebdomadaire
+(`OBJECTIF_2026.hebdo`, semaines Excel dimanche → samedi, `excelWeekOf`). L'objectif d'un jour = objectif de sa semaine ÷ 7 × **poids de son jour de la semaine** (`suiviPoidsJours`) :
+`suiviProfilJours` parcourt les tranches de jours du périmètre (`S.tranchesJours(mpF)` : tout l'historique journalier de `shopify_extension.json` (schéma 2 : jour × marketplace × produit), site web compris), retient les semaines entières (dimanche → samedi) dont les 7 jours ont une
+vente, mesure la part de chaque jour dans la moyenne de sa semaine et fait la moyenne de ces parts ; il faut au moins `SUIVI_PROFIL_MIN` = 8 semaines, sinon le périmètre prend le profil de l'ensemble
+des canaux (puis, à défaut, une répartition à plat ÷ 7). Les poids ont pour moyenne 1 : le total de chaque semaine entière reste celui du plan. Avec un filtre marketplace, l'objectif est le prorata de son objectif annuel
+(`DATA.mp_vs_objectif`, `partObj`) ; sans objectif fiable (« Autre », « But », « Bricoman ») : ni ligne du plan ni courbe. L'objectif d'une période est la somme des objectifs de ses jours, celui d'un jour touché
+est le sien ; le plan ne couvre que les semaines 1 à 52 de 2026 (une fenêtre qui en sort n'affiche pas d'objectif). Les repères de test sont `data-suivi="plan"` (`data-objectif`, `data-pct`),
+`data-suivi="objectif"` (légende) et `data-suivi="objectif-jour"` (un point invisible par jour sur la courbe, `data-d` / `data-obj`). La courbe d'objectif mensuel de la tendance est tracée après le masque
+de la fourchette anticipée, avec des points pleins ; tous ces libellés sont traduits (`suivi_obj_*`, `obj_2026_*`).
+
 **« Donnée comparable »** : l'an dernier = les mêmes dates calendaires un an plus tôt (29 févr. → 28 févr.). Jamais de variation calculée sur une base incomplète : le site web n'existe dans Shopify que depuis sa première vente (fin mai 2025) ; pour une période dont l'an dernier commence avant cette date, la comparaison se fait sur les **marketplaces seules** (légende « 2025 · marketplaces », mention « Δ marketplaces » au-dessus du top 10, pas de variation pour le site web) ; si l'historique ne remonte pas assez loin, aucune comparaison. Les variations par pays sont des écarts de part du CA, en points.
 
 Ces affichages ne reposent sur aucun fichier de plus : tout est recalculé au chargement à partir des lignes ci-dessus. `smoke.mjs` en contrôle les chiffres
