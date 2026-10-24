@@ -2,7 +2,7 @@
 /**
  * Test d'affichage du tableau de bord prolongé avec les ventes Shopify, sur le build de production (dossier dist/).
  *
- *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier]
+ *   npx vite build && node scripts/extension/smoke.mjs [--shots dossier] [--plan | --repartitions]
  *
  * Lance un petit serveur statique, ouvre l'application dans Chromium (Playwright) et vérifie :
  *   - le bloc « Données à jour » (titre, date de dernière donnée, pastille de fraîcheur, graphique du CA par jour ouvert par défaut
@@ -190,14 +190,17 @@ const lireSuivi = (page) => page.evaluate(() => {
   };
 });
 // clic au milieu de la i-ème colonne de l'histogramme (l'abscisse suffit : le graphique retrouve le jour le plus proche)
-async function cliquerJour(page, i) {
-  const pos = await page.evaluate((k) => {
+// i : rang du jour dans la fenêtre ; n : nombre de jours de la fenêtre. Avec n, on clique au centre de la bande du jour : un jour sans vente n'a pas de barre dans le DOM,
+// le rang des barres ne coïncide alors plus avec celui des jours (le graphique réagit au clic n'importe où dans la bande : surGraphique, activeLabel).
+async function cliquerJour(page, i, n = null) {
+  const pos = await page.evaluate(([k, nb]) => {
     const r = document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle')[k];
     const grille = document.querySelector('[data-suivi="graphique"] .recharts-cartesian-grid');
-    if (!r || !grille) return null;
-    const a = r.getBoundingClientRect(), g = grille.getBoundingClientRect();
-    return { x: a.left + a.width / 2, y: g.top + g.height / 2 };
-  }, i);
+    if (!grille || (!r && !nb)) return null;
+    const g = grille.getBoundingClientRect();
+    const x = nb ? g.left + ((k + 0.5) * g.width) / nb : (() => { const a = r.getBoundingClientRect(); return a.left + a.width / 2; })();
+    return { x, y: g.top + g.height / 2 };
+  }, [i, n]);
   if (!pos) return false;
   await page.mouse.click(pos.x, pos.y); await page.waitForTimeout(500);
   return true;
@@ -389,13 +392,14 @@ function comparerPlan(o, A, P, etiquette, { jours, jourSel = null, lang = "fr" }
   ok(o.couleurs.every((c) => c === couleur), `couleur du % et de l'écart ${o.couleurs.join(" / ")} (${couleur} attendu : ${ec > 0 ? "au-dessus" : "en dessous"} du plan)`);
 }
 // bulle du graphique du suivi : on place la souris sur la i-ème barre sans cliquer
-async function survolerJour(page, i) {
-  const pos = await page.evaluate((k) => {
+async function survolerJour(page, i, n = null) { // n : nombre de jours de la fenêtre (voir cliquerJour) ; sans lui, rang de la barre
+  const pos = await page.evaluate(([k, nb]) => {
     const r = document.querySelectorAll('[data-suivi="graphique"] .recharts-bar-rectangle')[k], g = document.querySelector('[data-suivi="graphique"] .recharts-cartesian-grid');
-    if (!r || !g) return null;
-    const a = r.getBoundingClientRect(), b = g.getBoundingClientRect();
-    return { x: a.left + a.width / 2, y: b.top + b.height / 2 };
-  }, i);
+    if (!g || (!r && !nb)) return null;
+    const b = g.getBoundingClientRect();
+    const x = nb ? b.left + ((k + 0.5) * b.width) / nb : (() => { const a = r.getBoundingClientRect(); return a.left + a.width / 2; })();
+    return { x, y: b.top + b.height / 2 };
+  }, [i, n]);
   if (!pos) return null;
   await page.mouse.move(pos.x, pos.y); await page.waitForTimeout(450);
   const texte = await page.evaluate(() => { const el = document.querySelector('[data-suivi="graphique"] .recharts-tooltip-wrapper'); return el ? el.innerText : ""; });
@@ -405,7 +409,7 @@ async function survolerJour(page, i) {
 // la bulle du i-ème jour de la fenêtre : libellé traduit de l'objectif du jour, montant, écart du CA du jour à cet objectif (les montants de la bulle sont arrondis jour par jour)
 async function comparerBulle(page, E, n, i, mpF, P, etiquette, lang = "fr") {
   const d = fenetre(E, n)[i], tr = TR_PLAN[lang], ok = (c, m) => verifier(c, `${etiquette} : ${m}`);
-  const tip = await survolerJour(page, i);
+  const tip = await survolerJour(page, i, n);
   if (!ok(tip !== null, "barre introuvable pour la bulle")) return;
   const pt = (await lirePlan(page)).jours.find((l) => l.d === d);
   if (!P || P.jour(d) === null) { ok(!contient(tip, tr.jour), `bulle du ${d} : « ${tr.jour} » affiché alors qu'il n'y a pas d'objectif (${tip})`); return; }
@@ -437,7 +441,7 @@ async function verifierPlan(browser, base, E) {
       await page.locator(`[data-suivi="puces"] button[data-n="${n}"]`).click(); await page.waitForTimeout(400);
     }
     const jt = fenetre(E, n)[Math.min(3, n - 1)];
-    if (verifier(await cliquerJour(page, Math.min(3, n - 1)), "plan : barre introuvable")) {
+    if (verifier(await cliquerJour(page, Math.min(3, n - 1), n), "plan : barre introuvable")) {
       comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt), P0, `plan jour ${jt}`, { jours: fenetre(E, n), jourSel: jt });
       await page.locator('[data-suivi="reset"]').click(); await page.waitForTimeout(400);
       comparerPlan(await lirePlan(page), suiviAttendu(E, n), P0, `plan ${n} j (après retour)`, { jours: fenetre(E, n) });
@@ -455,7 +459,7 @@ async function verifierPlan(browser, base, E) {
     comparerPlan(await lirePlan(page), suiviAttendu(E, n, null, mp), P, `plan filtre ${mp}`, { jours: fenetre(E, n) });
     if (P) await comparerBulle(page, E, n, Math.min(3, n - 1), mp, P, `plan filtre ${mp}`);
     const jt = fenetre(E, n)[Math.min(3, n - 1)];
-    if (P && (await cliquerJour(page, Math.min(3, n - 1)))) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt, mp), P, `plan filtre ${mp}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt });
+    if (P && (await cliquerJour(page, Math.min(3, n - 1), n))) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt, mp), P, `plan filtre ${mp}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt });
     verifier(erreurs.length === 0, `erreurs JavaScript (plan, filtre ${mp}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
@@ -467,7 +471,7 @@ async function verifierPlan(browser, base, E) {
     const s = await lireSuivi(page), n = (s.puces.find((p) => p.actif) || { n: 7 }).n, jt = fenetre(E, n)[Math.min(3, n - 1)];
     comparerPlan(await lirePlan(page), suiviAttendu(E, n), P0, `plan ${lang.toUpperCase()}`, { jours: fenetre(E, n), lang });
     await comparerBulle(page, E, n, Math.min(3, n - 1), null, P0, `plan ${lang.toUpperCase()}`, lang);
-    if (await cliquerJour(page, Math.min(3, n - 1))) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt), P0, `plan ${lang.toUpperCase()}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt, lang });
+    if (await cliquerJour(page, Math.min(3, n - 1), n)) comparerPlan(await lirePlan(page), suiviAttendu(E, n, jt), P0, `plan ${lang.toUpperCase()}, jour ${jt}`, { jours: fenetre(E, n), jourSel: jt, lang });
     verifier(erreurs.length === 0, `erreurs JavaScript (plan ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
@@ -1041,6 +1045,12 @@ async function main() {
   const base = `http://127.0.0.1:${srv.address().port}/`;
   const dmax = E.rap.dmax, odp = E.app.dmaxOdp, du = E.rap.du;
   try {
+    if (process.argv.includes("--plan")) { // mise au point : seuls le plan 2026 du suivi quotidien et la courbe d'objectif de la tendance
+      await verifierPlan(browser, base, E);
+      await verifierTendance(browser, base, E);
+      if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
+      console.log("SMOKE_PLAN_OK"); return 0;
+    }
     if (process.argv.includes("--repartitions")) { // mise au point : seul l'onglet Marques › Répartitions
       await verifierRepartitions(browser, base, E);
       if (echecs.length) { for (const e of echecs) console.log(`ÉCHEC · ${e}`); return 2; }
