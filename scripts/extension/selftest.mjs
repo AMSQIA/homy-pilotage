@@ -111,9 +111,16 @@ ok(k.panier_moyen_2026 === r2(k.ca_total_2026 / k.nb_lignes_2026), "panier moyen
 ok(D.monthly_total[AN].slice(cur).every((x) => x === 0), "vente dans un mois futur de la courbe 2026");
 ok(D.monthly_total[AN][cur - 1] > 0, "aucune vente dans le mois en cours");
 for (const m of D.mp_vs_objectif) ok(proche(m.ca, S(D.gf.monthly_total_by_mp[m.marketplace]?.[AN])), `${m.marketplace} : CA (${m.ca}) ≠ somme de sa courbe mensuelle`);
-const classes = D.mp_vs_objectif.filter((m) => m.marketplace !== "Bricoman");
+const classes = D.mp_vs_objectif.filter((m) => m.marketplace !== "Technomat");
 ok(classes.every((m, i) => i === 0 || classes[i - 1].ca >= m.ca), "marketplaces non triées par CA décroissant");
-ok(D.mp_vs_objectif[D.mp_vs_objectif.length - 1].marketplace === "Bricoman", "Bricoman n'est plus en dernier");
+ok(D.mp_vs_objectif[D.mp_vs_objectif.length - 1].marketplace === "Technomat", "Technomat n'est plus en dernier");
+{ // Technomat (commandes Leroy Merlin 014…, ex-« Bricoman » de l'ODP) : présente dans l'extraction, jamais confondue avec Leroy Merlin
+  const iT = ext.mp.indexOf("Technomat");
+  const caT = ext.lignes.filter((l) => l[1] === iT).reduce((a, l) => a + l[5], 0);
+  ok(iT >= 0 && caT > 0, "Technomat absente de l'extraction Shopify (les commandes 014 sont restées dans Leroy Merlin ?)");
+  ok(D.mp_vs_objectif.some((m) => m.marketplace === "Technomat") && !D.mp_vs_objectif.some((m) => m.marketplace === "Bricoman"), "Technomat absente de mp_vs_objectif, ou « Bricoman » encore présent");
+  ok(C.SKU_MPS.includes("Technomat") && !C.SKU_MPS.includes("Bricoman"), "SKU_MPS : Technomat attendue à la place de Bricoman");
+}
 ok(D.total_yoy_comparable[AN - 2] === undefined && D.total_yoy_comparable[AN - 1] > 0, "N-1 : total comparable absent ou N-2 resté");
 ok(D.cut_n1.jusqu_au === dmax.slice(5), `coupe N-1 jusqu'au ${D.cut_n1.jusqu_au} au lieu de ${dmax.slice(5)}`);
 ok(proche(D.cut_n1.total[AN - 1], S(Object.values(D.cut_n1.mp).map((x) => x[AN - 1])), 0.1), "coupe N-1 : total ≠ somme des marketplaces");

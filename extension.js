@@ -369,9 +369,9 @@ function recalculer(W, A, ctx) {
     m.pct_objectif = m.objectif ? r1((m.ca / m.objectif) * 100) : 0;
     totalPar[m.marketplace] = m.ca;
   }
-  // classement par CA décroissant, Bricoman (objectif non fiable) restant en dernier comme dans le socle
-  const dernier = DATA.mp_vs_objectif.filter((m) => m.marketplace === "Bricoman");
-  const reste = DATA.mp_vs_objectif.filter((m) => m.marketplace !== "Bricoman").sort((a, b) => b.ca - a.ca);
+  // classement par CA décroissant, Technomat (objectif non fiable) restant en dernier comme dans le socle
+  const dernier = DATA.mp_vs_objectif.filter((m) => m.marketplace === "Technomat");
+  const reste = DATA.mp_vs_objectif.filter((m) => m.marketplace !== "Technomat").sort((a, b) => b.ca - a.ca);
   DATA.mp_vs_objectif = [...reste, ...dernier];
 
   /* ---- paniers et quantités par marketplace */

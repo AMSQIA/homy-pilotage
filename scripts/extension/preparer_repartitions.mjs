@@ -21,7 +21,7 @@ import { lireApp, lireJson, RACINE } from "./lib_app.mjs";
 const cle = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const MP_ALIAS = {
   amazon: "Amazon FR", amazonfr: "Amazon FR", autre: "Autre", bol: "Bol.com", bolcom: "Bol.com", boulanger: "Boulanger",
-  bricobravo: "Brico Bravo", bricomarche: "Bricomarché", bricoman: "Bricoman", but: "But", castorama: "Castorama",
+  bricobravo: "Brico Bravo", bricomarche: "Bricomarché", bricoman: "Technomat", but: "But", castorama: "Castorama",
   cdiscount: "Cdiscount", darty: "Darty", leroymerlin: "Leroy Merlin", manomano: "ManoMano", maxeda: "Maxeda",
   siteweb: "Site Web", worten: "Worten",
 };

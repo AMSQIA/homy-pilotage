@@ -14,14 +14,18 @@
  *   node scripts/extension/refresh_extension.mjs check
  *   node scripts/extension/refresh_extension.mjs plan  [--today AAAA-MM-JJ] [--du AAAA-MM-JJ] [--reprendre N]
  *   node scripts/extension/refresh_extension.mjs apply [--today ..] [--du ..] [--reprendre N] [--boutique marketplaces|site]
- *                      [--transcript f.jsonl] [--results-site f.json] [--out fichier.json] [--dry-run] [--force]
+ *                      [--transcript f.jsonl] [--results-site f.json] [--ordres-lm f.json] [--out fichier.json] [--dry-run] [--force]
  *   node scripts/extension/refresh_extension.mjs status
  *
  * Marketplaces : les requêtes du « plan » sont lancées avec le connecteur Shopify de Claude (outil run-analytics-query,
  * texte exact) ; apply relit les résultats tels quels dans la transcription de la session (aucune recopie à la main).
+ * Technomat : ses commandes sont payées par la passerelle Leroy Merlin ; seul le numéro d'origine de la commande (attribut
+ * « leroymerlin Number », préfixe 014) les distingue. Le plan contient donc aussi une requête GraphQL « classification »
+ * (nom + numéro d'origine des commandes Leroy Merlin de la fenêtre, lecture seule) dont apply relit les pages dans la
+ * transcription (ou --ordres-lm) : une commande Leroy Merlin dont le numéro n'a pas été lu fait échouer l'extraction.
  * Site web : apply interroge lui-même le relais en lecture seule (api/mcp-site.mjs, variable MCP_SITE_KEY), ou lit un
  * fichier --results-site écrit par scripts/extension/site_query.mjs.
- * Aucune donnée client : uniquement des agrégats (jour, commande, référence, pays, passerelle).
+ * Aucune donnée client : uniquement des agrégats (jour, commande, référence, pays, passerelle) et le numéro d'origine.
  *
  * Codes de sortie : 0 ok · 2 contrôle de cohérence échoué (rien n'est écrit) · 3 résultats manquants · 1 erreur d'utilisation.
  */
@@ -54,7 +58,8 @@ export const BOUTIQUES = {
 };
 
 // Passerelle de paiement Shopify (« xxx via Shopping Feed ») → marketplace de l'ODP. Clés en minuscules, sans le suffixe.
-// « leroymerlin » couvre Leroy Merlin ET Bricoman : la boutique Shopify ne les distingue pas (voir README).
+// « leroymerlin » couvre Leroy Merlin ET Technomat : Shopify ne les distingue que par le numéro d'origine de la commande
+// (voir TECHNOMAT ci-dessous et le README).
 export const PASSERELLES = {
   leroymerlin: "Leroy Merlin", amazon: "Amazon FR", "amazon fba": "Amazon FR",
   epmm: "ManoMano", monechelle: "ManoMano", manomano: "ManoMano", manomanopro: "ManoMano",
@@ -63,6 +68,20 @@ export const PASSERELLES = {
   but: "But", worten: "Worten", bol: "Bol.com",
 };
 const MP_SITE = "Site Web", MP_AUTRE = "Autre";
+
+// Technomat : commandes de la passerelle Leroy Merlin dont le numéro d'origine (attribut de commande « leroymerlin Number »,
+// ex. « 014-120208-A ») commence par 014. C'est exactement la ligne « BRICOMAN » de l'ODP (janvier → 3 octobre 2026 : 961 lignes,
+// 89,6 k€ HT des deux côtés), désormais nommée Technomat. Les autres préfixes (001 France, 002 Espagne, 003 Portugal, 005,
+// 006) restent dans Leroy Merlin.
+export const TECHNOMAT = { mp: "Technomat", depuis: "Leroy Merlin", prefixe: "014" };
+export const PREFIXES_LM = new Set(["001", "002", "003", "005", "006", TECHNOMAT.prefixe]);
+export function estTechnomat(numero) {
+  if (typeof numero !== "string") return false;
+  const n = numero.trim();
+  return n.startsWith(TECHNOMAT.prefixe) && !/^\d/.test(n.slice(TECHNOMAT.prefixe.length));
+}
+/** Préfixe à trois chiffres d'un numéro d'origine (« 014-120208-A » → « 014 »), ou null si le format est inattendu. */
+export const prefixeNumero = (numero) => (/^\s*(\d{3})(?!\d)/.exec(String(numero ?? "")) ?? [])[1] ?? null;
 
 // Noms de pays Shopify (anglais) → noms de l'application (français)
 const PAYS_EN_FR = {
@@ -101,7 +120,7 @@ export class Echec extends Error {
 }
 
 function args(argv) {
-  const o = { _: [], transcript: [], resultsSite: [], reprendre: 0 };
+  const o = { _: [], transcript: [], resultsSite: [], ordresLm: [], reprendre: 0 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--today") o.today = argv[++i];
@@ -111,6 +130,7 @@ function args(argv) {
     else if (a === "--boutique") o.boutique = argv[++i];
     else if (a === "--transcript") o.transcript.push(argv[++i]);
     else if (a === "--results-site") o.resultsSite.push(argv[++i]);
+    else if (a === "--ordres-lm") o.ordresLm.push(argv[++i]);
     else if (a === "--out") o.out = argv[++i];
     else if (a === "--dry-run") o.dry = true;
     else if (a === "--force") o.force = true;
@@ -163,6 +183,23 @@ export const REQ = {
   controleSite: (du, au) => `FROM sales SHOW orders, quantity_ordered, gross_sales TIMESERIES day SINCE ${du} UNTIL ${au}`,
 };
 
+/** Minuit (heure de Paris) du jour AAAA-MM-JJ avec son décalage : « 2026-10-26T00:00:00+01:00 » (+02:00 en heure d'été). */
+export function minuitParis(d) {
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  for (const off of ["+01:00", "+02:00"]) {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(`${d}T00:00:00${off}`)).map((x) => [x.type, x.value]));
+    if (`${p.year}-${p.month}-${p.day}` === d && p.hour === "00" && p.minute === "00") return `${d}T00:00:00${off}`;
+  }
+  throw new Echec(`Date illisible pour le fuseau de Paris : ${d}`, 1);
+}
+
+// Requête GraphQL de classification (lecture seule, aucune donnée client) : nom et attributs de commande des commandes de la
+// passerelle Leroy Merlin créées entre deux minuits (heure de Paris). Pages de PAGE_GQL commandes, à suivre avec `after`.
+export const PAGE_GQL = 50;
+export const GQL = {
+  commandesLm: (du, au) => `query($first:Int,$after:String){ orders(first:$first, after:$after, sortKey:CREATED_AT, query:"gateway:'leroymerlin via Shopping Feed' created_at:>=${minuitParis(du)} created_at:<${minuitParis(addDays(au, 1))}"){ edges{ node{ name customAttributes{ key value } } } pageInfo{ hasNextPage endCursor } } }`,
+};
+
 // Fenêtre à extraire : du lendemain de la dernière donnée connue jusqu'à hier (heure de Paris).
 // --du force le début ; --reprendre N reprend les N derniers jours déjà extraits (corrections tardives).
 export function fenetre(app, today, o = {}, boutique) {
@@ -186,6 +223,11 @@ export function planifier(app, today, o = {}, boutique = "marketplaces") {
   if (boutique === "marketplaces") {
     for (const d of jours(f.du, f.au)) { q(`ventes ${d}`, REQ.ventes(d)); q(`paiements ${d}`, REQ.paiements(d)); }
     q("controle", REQ.controle(f.du, f.au));
+    // classification Technomat : outil graphql_query (lecture seule), query = texte exact, first = 50, puis after = endCursor
+    p.classification = {
+      du: f.du, au: f.au, outil: "graphql_query", first: PAGE_GQL, graphql: GQL.commandesLm(f.du, f.au),
+      pages: "Lancer la requête avec first = 50, puis de nouveau avec after = pageInfo.endCursor tant que pageInfo.hasNextPage vaut true (toutes les pages).",
+    };
   } else {
     for (const d of jours(f.du, f.au)) q(`ventes ${d}`, REQ.ventesSite(d));
     q("controle", REQ.controleSite(f.du, f.au));
@@ -240,6 +282,60 @@ function lireJson(fichier, res) {
   let j;
   try { j = JSON.parse(fs.readFileSync(fichier, "utf8")); } catch { throw new Echec(`Fichier de résultats illisible : ${fichier}`, 1); }
   for (const r of Array.isArray(j) ? j : [j]) if (typeof r?.query === "string" && Array.isArray(r.rows)) ranger(res, r);
+}
+
+/* ------------------------------------------------------------------ classification Technomat (GraphQL) */
+// Numéro d'origine d'une commande marketplace : attribut dont la clé se termine par « Number » (« leroymerlin Number »).
+// Chaîne vide = commande lue mais sans numéro.
+export function numeroOrigine(attributs) {
+  for (const a of Array.isArray(attributs) ? attributs : []) if (/number$/i.test(String(a?.key ?? "").trim())) return String(a?.value ?? "").trim();
+  return "";
+}
+
+// Range les commandes d'une page de résultat GraphQL (data.orders.edges[].node ou data.orders.nodes[]) : nom → numéro d'origine
+function rangerOrdres(res, j) {
+  const o = j?.data?.orders;
+  const noeuds = Array.isArray(o?.edges) ? o.edges.map((e) => e?.node) : Array.isArray(o?.nodes) ? o.nodes : [];
+  for (const n of noeuds) if (typeof n?.name === "string" && Array.isArray(n.customAttributes)) res.set(n.name, numeroOrigine(n.customAttributes));
+}
+
+function lireJsonlOrdres(fichier, res) {
+  let lignes;
+  try { lignes = fs.readFileSync(fichier, "utf8").split("\n"); } catch { return; }
+  for (const l of lignes) {
+    if (!l.includes('"tool_result"') || !l.includes("customAttributes")) continue;
+    let o; try { o = JSON.parse(l); } catch { continue; }
+    const c = o?.message?.content;
+    if (!Array.isArray(c)) continue;
+    for (const b of c) {
+      if (b?.type !== "tool_result") continue;
+      const texte = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x?.text ?? "").join("") : "";
+      if (!texte.startsWith('{"data"')) continue;
+      let j; try { j = JSON.parse(texte); } catch { continue; }
+      rangerOrdres(res, j);
+    }
+  }
+}
+
+// --ordres-lm : fichier JSON { "SHOP1": "014-1-A", … } ou page(s) de résultat GraphQL
+function lireOrdresJson(fichier, res) {
+  let j;
+  try { j = JSON.parse(fs.readFileSync(fichier, "utf8")); } catch { throw new Echec(`Fichier --ordres-lm illisible : ${fichier}`, 1); }
+  if (j && typeof j === "object" && !Array.isArray(j) && !j.data) { for (const [nom, num] of Object.entries(j)) if (typeof num === "string") res.set(nom, num.trim()); return; }
+  for (const p of Array.isArray(j) ? j : [j]) rangerOrdres(res, p);
+}
+
+/** Map nom de commande → numéro d'origine, relue dans les transcriptions (ou dans --ordres-lm). Peut être vide : c'est
+ *  construireBoutique qui exige la couverture de toutes les commandes Leroy Merlin de chaque jour. */
+export function collecterNumeros(o) {
+  const res = new Map();
+  if (o.ordresLm?.length) { for (const f of o.ordresLm) lireOrdresJson(f, res); return res; }
+  for (const f of fichiersTranscription(o.transcript ?? [])) {
+    const r = new Map();
+    lireJsonlOrdres(f, r);
+    for (const [k, v] of r) if (!res.has(k)) res.set(k, v); // le fichier le plus récent prime
+  }
+  return res;
 }
 
 // Renvoie Map(query → résultat) pour LA boutique, ou lève Echec(3) avec la liste des requêtes manquantes
@@ -323,7 +419,7 @@ class Cumul {
   lignes() { return [...this.m.values()]; }
 }
 
-function lignesMarketplaces(d, ventes, paiements, app, cum, st) {
+function lignesMarketplaces(d, ventes, paiements, app, cum, st, numeros) {
   const iO = colonne(ventes, "order_name"), iS = colonne(ventes, "product_variant_sku"), iC = colonne(ventes, "shipping_country");
   const iV = colonne(ventes, "product_vendor"), iQ = colonne(ventes, "quantity_ordered"), iN = colonne(ventes, "net_sales"), iT = colonne(ventes, "taxes");
   if (ventes.rows.length >= CFG.limiteLignes) throw new Echec(`${d} : limite de ${CFG.limiteLignes} lignes atteinte (liste tronquée)`);
@@ -366,8 +462,22 @@ function lignesMarketplaces(d, ventes, paiements, app, cum, st) {
     } else if (!mp) {
       st.passerellesInconnues.set(g, (st.passerellesInconnues.get(g) ?? 0) + c.ca);
       mp = MP_AUTRE;
+    } else if (mp === TECHNOMAT.depuis) {
+      // Leroy Merlin ou Technomat : seul le numéro d'origine de la commande les distingue (préfixe 014 = Technomat)
+      const num = numeros?.get(o);
+      if (num === undefined) st.sansNumero.push(o); // numéro non lu : on n'écrit rien (voir ci-dessous)
+      else {
+        if (estTechnomat(num)) { mp = TECHNOMAT.mp; st.technomat.commandes++; st.technomat.ca += c.ca; }
+        const pre = prefixeNumero(num);
+        if (pre === null || !PREFIXES_LM.has(pre)) st.numerosInattendus.set(num || "(vide)", (st.numerosInattendus.get(num || "(vide)") ?? 0) + 1);
+      }
     }
     for (const l of c.lignes) rattacher(d, mp, l, app, cum, st);
+  }
+  if (st.sansNumero.length) {
+    throw new Echec(
+      `${d} : ${st.sansNumero.length} commande(s) Leroy Merlin dont le numéro d'origine n'a pas été lu (${st.sansNumero.slice(0, 6).join(", ")}${st.sansNumero.length > 6 ? " …" : ""}) : ` +
+      "classification Technomat incomplète. Lancer la requête GraphQL « classification » du plan (toutes les pages), puis relancer apply. Aucune écriture.", 3);
   }
 }
 
@@ -406,10 +516,11 @@ const statsVides = () => ({
   qte: 0, net: 0, ca: 0, commandes: 0, sansPaiement: 0, sansPaiementCa: 0, sansPaiementListe: [], multiPasserelle: [],
   passerellesInconnues: new Map(), skuInconnus: new Map(), marqueDivergente: new Map(), produitsNouveaux: new Map(),
   paysInconnus: new Set(), sansReference: 0, lignesVides: 0,
+  sansNumero: [], technomat: { commandes: 0, ca: 0 }, numerosInattendus: new Map(),
 });
 
 /* ------------------------------------------------------------------ une boutique : fenêtre → lignes */
-export function construireBoutique(app, plan, resultats, boutique, avert) {
+export function construireBoutique(app, plan, resultats, boutique, avert, numeros = null) {
   const rs = (q) => resultats.get(q);
   const cum = new Cumul();
   const ctrlQ = plan.queries.find((q) => q.id === "controle").query;
@@ -421,7 +532,7 @@ export function construireBoutique(app, plan, resultats, boutique, avert) {
   const globaux = statsVides();
   for (const d of jours(plan.du, plan.au)) {
     const st = statsVides();
-    if (boutique === "marketplaces") lignesMarketplaces(d, rs(REQ.ventes(d)), rs(REQ.paiements(d)), app, cum, st);
+    if (boutique === "marketplaces") lignesMarketplaces(d, rs(REQ.ventes(d)), rs(REQ.paiements(d)), app, cum, st, numeros);
     else lignesSite(d, rs(REQ.ventesSite(d)), app, cum, st);
     const a = attendu.get(d) ?? { qte: 0, v: 0 };
     if (Math.abs(st.qte - a.qte) > CFG.tolerance || Math.abs(st.net - a.v) > Math.max(CFG.tolerance, 0.00001 * a.v)) {
@@ -436,6 +547,8 @@ export function construireBoutique(app, plan, resultats, boutique, avert) {
     globaux.sansPaiementListe.push(...st.sansPaiementListe); globaux.multiPasserelle.push(...st.multiPasserelle);
     for (const [k, v] of st.passerellesInconnues) globaux.passerellesInconnues.set(k, (globaux.passerellesInconnues.get(k) ?? 0) + v);
     for (const [k, v] of st.skuInconnus) { const a = globaux.skuInconnus.get(k) ?? { ca: 0, qte: 0, vendeur: v.vendeur }; a.ca += v.ca; a.qte += v.qte; globaux.skuInconnus.set(k, a); }
+    globaux.technomat.commandes += st.technomat.commandes; globaux.technomat.ca += st.technomat.ca;
+    for (const [k, v] of st.numerosInattendus) globaux.numerosInattendus.set(k, (globaux.numerosInattendus.get(k) ?? 0) + v);
     for (const [k, v] of st.marqueDivergente) globaux.marqueDivergente.set(k, v);
     for (const [k, v] of st.produitsNouveaux) globaux.produitsNouveaux.set(k, v);
     for (const p of st.paysInconnus) globaux.paysInconnus.add(p);
@@ -455,8 +568,12 @@ export function construireBoutique(app, plan, resultats, boutique, avert) {
   if (globaux.marqueDivergente.size) avert.push(`Marque de la table ≠ marque Shopify pour : ${[...globaux.marqueDivergente].slice(0, 6).map(([p, t]) => `${p} ${t}`).join(" ; ")}`);
   if (globaux.paysInconnus.size) avert.push(`Pays sans traduction (conservés tels quels) : ${[...globaux.paysInconnus].join(", ")}`);
   if (globaux.multiPasserelle.length) avert.push(`${globaux.multiPasserelle.length} commande(s) payée(s) via plusieurs marketplaces (passerelle dominante retenue)`);
+  if (globaux.numerosInattendus.size) {
+    const n = [...globaux.numerosInattendus.values()].reduce((a, b) => a + b, 0);
+    avert.push(`${n} commande(s) Leroy Merlin dont le numéro d'origine n'a pas un préfixe connu (${[...PREFIXES_LM].sort().join(", ")}) : laissées dans Leroy Merlin · ${[...globaux.numerosInattendus].slice(0, 5).map(([x, c]) => `${x} ×${c}`).join(", ")}`);
+  }
   if (globaux.sansReference > 0.5) avert.push(`Lignes sans référence (${eur(globaux.sansReference)}) ignorées`);
-  return { lignes, parJour, globaux, produitsNouveaux: globaux.produitsNouveaux };
+  return { lignes, parJour, globaux, produitsNouveaux: globaux.produitsNouveaux, technomat: globaux.technomat };
 }
 
 /* ------------------------------------------------------------------ fusion et écriture */
@@ -619,11 +736,13 @@ async function main() {
           ? collecter(plan, o, id, o.resultsSite.length ? o.resultsSite : [await relaisSite(plan, o)])
           : collecter(plan, o, id);
         const a = [];
-        const b = construireBoutique(app, plan, res, id, a);
+        const numeros = id === "marketplaces" ? collecterNumeros(o) : null; // numéros d'origine des commandes Leroy Merlin
+        const b = construireBoutique(app, plan, res, id, a, numeros);
         blocs[id] = { plan, ...b };
         for (const x of a) avert.push(`[${id}] ${x}`);
         const t = b.lignes.reduce((s, l) => ({ ca: s.ca + l.ca, q: s.q + l.qte }), { ca: 0, q: 0 });
-        console.log(`Boutique ${id} : ${plan.du} → ${plan.au} · ${b.lignes.length} enregistrements · ${eur(t.ca)} · ${t.q} unités`);
+        console.log(`Boutique ${id} : ${plan.du} → ${plan.au} · ${b.lignes.length} enregistrements · ${eur(t.ca)} · ${t.q} unités`
+          + (id === "marketplaces" ? ` · dont ${TECHNOMAT.mp} ${eur(b.technomat.ca)} (${b.technomat.commandes} commande(s) ${TECHNOMAT.prefixe}…)` : ""));
       } catch (e) {
         if (!(e instanceof Echec)) throw e;
         erreurs.push(`[${id}] ${e.message}`);

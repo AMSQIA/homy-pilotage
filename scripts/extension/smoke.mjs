@@ -136,7 +136,7 @@ async function ouvrirDashboard(page, base, { lang = "fr", tab = "apercu", market
 // Texte du bloc « Données à jour » : repéré par son attribut data-bandeau (le titre dépend de la langue)
 const texteBandeau = (page) => page.evaluate(() => { const el = document.querySelector("[data-bandeau]"); return el ? el.innerText : ""; }).then(norm);
 // Sous-informations retirées du tableau de bord : elles ne doivent pas réapparaître (interrupteur SOUS_INFOS de App.jsx)
-const RETIRE = ["Actualisé chaque matin", "Tous les chiffres du tableau de bord", "Fichier ODP jusqu'au", "Bricoman ne se distingue", "Restent calculés sur le fichier ODP", "Panier moyen et meilleure vente ne suivent pas",
+const RETIRE = ["Actualisé chaque matin", "Tous les chiffres du tableau de bord", "Fichier ODP jusqu'au", "Technomat = commandes Leroy Merlin", "Restent calculés sur le fichier ODP", "Panier moyen et meilleure vente ne suivent pas",
   "Zone en pointillés =", "% = part de l'objectif annuel du pays", "Pour actualiser : demande-le directement"];
 
 // ---- Suivi quotidien (premier bloc) : chiffres attendus recalculés ICI, directement depuis les fichiers du dépôt, sans passer par le code de l'application ----
