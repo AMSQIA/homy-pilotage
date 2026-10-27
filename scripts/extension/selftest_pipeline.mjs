@@ -9,7 +9,7 @@ import path from "node:path";
 import { validerExtension } from "../../extension.js";
 import {
   BOUTIQUES, REQ, GQL, TECHNOMAT, Echec, lireApp, planifier, fenetre, collecter, construireBoutique, fusionner, serialiser, normaliserSku, marketplaceDe,
-  minuitParis, estTechnomat, prefixeNumero, numeroOrigine, collecterNumeros,
+  minuitParis, minuitParisUtc, estTechnomat, prefixeNumero, numeroOrigine, collecterNumeros, messageSansNumero,
 } from "./refresh_extension.mjs";
 
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -69,9 +69,17 @@ export async function testerPipeline(ok) {
     && minuitParis("2026-03-29") === "2026-03-29T00:00:00+01:00" && minuitParis("2026-03-30") === "2026-03-30T00:00:00+02:00", "Technomat : minuit de Paris avec le bon décalage (changements d'heure du 29 mars et du 25 octobre)");
   const planC = planifier(app, "2026-10-27", { du: "2026-10-25", au: "2026-10-26" }, "marketplaces");
   ok(planC.classification?.graphql === GQL.commandesLm("2026-10-25", "2026-10-26") && planC.classification.first === 50 && planC.classification.outil === "graphql_query"
-    && planC.classification.graphql.includes("gateway:'leroymerlin via Shopping Feed'") && planC.classification.graphql.includes("created_at:>=2026-10-25T00:00:00+02:00")
-    && planC.classification.graphql.includes("created_at:<2026-10-27T00:00:00+01:00") && planC.classification.graphql.includes("customAttributes{ key value }")
-    && !/email|phone|address|customer/i.test(planC.classification.graphql), "Technomat : le plan contient la requête GraphQL de classification (fenêtre de minuit à minuit, sans donnée client)");
+    && planC.classification.graphql.includes("gateway:'leroymerlin via Shopping Feed'") && planC.classification.graphql.includes("created_at:>='2026-10-24T22:00:00Z'")
+    && planC.classification.graphql.includes("created_at:<'2026-10-26T23:00:00Z'") && planC.classification.graphql.includes("customAttributes{ key value }")
+    && !/email|phone|address|customer/i.test(planC.classification.graphql), "Technomat : le plan contient la requête GraphQL de classification (fenêtre de minuit à minuit, bornes en UTC entre apostrophes, sans donnée client)");
+  ok(minuitParisUtc("2026-10-26") === "2026-10-25T23:00:00Z" && minuitParisUtc("2026-10-25") === "2026-10-24T22:00:00Z" && minuitParisUtc("2026-03-29") === "2026-03-28T23:00:00Z"
+    && minuitParisUtc("2026-03-30") === "2026-03-29T22:00:00Z" && minuitParisUtc("2026-07-14") === "2026-07-13T22:00:00Z", "Technomat : minuit de Paris en UTC (changements d'heure du 29 mars et du 25 octobre)");
+  // Shopify interprète de travers les dates SANS apostrophes (« created_at:<…+01:00 » ignoré, « created_at:>=…Z » ramené au jour entier) :
+  // chaque borne doit être une date-heure UTC exacte ENTRE APOSTROPHES, et il ne doit y en avoir que deux.
+  const gq = planC.classification.graphql;
+  const sansBornes = gq.replace(/created_at:(?:>=|<)'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ'/g, "");
+  ok((gq.match(/created_at:/g) ?? []).length === 2 && !sansBornes.includes("created_at:"),
+    "Technomat : les deux bornes de la requête sont en UTC (…Z) entre apostrophes (jamais sans apostrophes, ni avec un décalage « +01:00 », ni une date seule)");
   ok(planifier(app, "2026-10-05", {}, "site").classification === undefined, "Technomat : pas de classification pour la boutique du site");
 
   /* ---- boutique des marketplaces */
@@ -119,6 +127,14 @@ export async function testerPipeline(ok) {
     const eN = lance(() => construireBoutique(app, planM1, carte(ventesM, paiementsM, ctrlM), "marketplaces", [], arg));
     ok(eN instanceof Echec && eN.code === 3 && /#1001/.test(eN.message) && /classification/.test(eN.message), `Technomat : classification ${nom} → refus (code 3) et commande citée`);
   }
+  // le message d'échec porte, prêtes à lancer, les requêtes de lecture par nom (commande créée avant la fenêtre, puis modifiée ou remboursée)
+  const mN = messageSansNumero(["SHOP100", "SHOP101", "bad name\"; drop"]);
+  ok(mN.includes(GQL.commandesParNom(["SHOP100", "SHOP101"])) && !/drop/.test(mN.split("query = ")[1] ?? "") && mN.includes("3 commande(s)") && /Aucune écriture/.test(mN),
+    "Technomat : le message d'échec contient la requête GraphQL par nom (noms sûrs seulement) et le nombre de commandes");
+  ok(GQL.commandesParNom(["SHOP100", "SHOP101"]) === 'query{ orders(first:50, query:"name:SHOP100 OR name:SHOP101"){ edges{ node{ name customAttributes{ key value } } } } }'
+    && !/email|phone|address|customer/i.test(GQL.commandesParNom(["SHOP100"])), "Technomat : requête par nom en lecture seule, sans donnée client");
+  const nombreux = Array.from({ length: 120 }, (_, i) => "SHOP" + (200 + i));
+  ok((messageSansNumero(nombreux).match(/query\{ orders\(first:50/g) || []).length === 3 && messageSansNumero(nombreux).includes("120 commande(s)"), "Technomat : au plus trois requêtes par nom dans le message, par lots de 50");
   // les autres marketplaces n'ont pas besoin de numéro : une journée sans commande Leroy Merlin passe sans classification
   const paieSansLm = { ...paiementsM, rows: [["#1001", "amazon", 120], ["#1002", "amazon", 60], ["#1003", "carrefourx", 72]] };
   ok(construireBoutique(app, planM1, carte(ventesM, paieSansLm, ctrlM), "marketplaces", [], new Map()).lignes.length > 0, "Technomat : sans commande Leroy Merlin, aucune classification n'est exigée");

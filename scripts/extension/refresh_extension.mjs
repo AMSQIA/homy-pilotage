@@ -193,12 +193,32 @@ export function minuitParis(d) {
   throw new Echec(`Date illisible pour le fuseau de Paris : ${d}`, 1);
 }
 
+/** Minuit (heure de Paris) du jour AAAA-MM-JJ exprimé en UTC : « 2026-10-25T23:00:00Z » (22:00:00Z en heure d'été).
+ *  Les bornes de la requête GraphQL sont écrites ainsi ET ENTRE APOSTROPHES : la recherche de Shopify interprète de travers les
+ *  dates sans apostrophes (constaté le 27 octobre 2026 : « created_at:<2026-10-27T00:00:00+01:00 » est ignoré, donc la requête
+ *  ramenait aussi les commandes du lendemain, et « created_at:>=2026-10-25T23:00:00Z » est ramené au jour entier, donc elle
+ *  ramenait aussi la veille). Entre apostrophes, les deux bornes sont exactes à la seconde. */
+export function minuitParisUtc(d) { return new Date(minuitParis(d)).toISOString().replace(/\.\d{3}Z$/, "Z"); }
+
 // Requête GraphQL de classification (lecture seule, aucune donnée client) : nom et attributs de commande des commandes de la
-// passerelle Leroy Merlin créées entre deux minuits (heure de Paris). Pages de PAGE_GQL commandes, à suivre avec `after`.
+// passerelle Leroy Merlin créées entre deux minuits (heure de Paris, bornes en UTC entre apostrophes). Pages de PAGE_GQL commandes, à suivre avec `after`.
 export const PAGE_GQL = 50;
 export const GQL = {
-  commandesLm: (du, au) => `query($first:Int,$after:String){ orders(first:$first, after:$after, sortKey:CREATED_AT, query:"gateway:'leroymerlin via Shopping Feed' created_at:>=${minuitParis(du)} created_at:<${minuitParis(addDays(au, 1))}"){ edges{ node{ name customAttributes{ key value } } } pageInfo{ hasNextPage endCursor } } }`,
+  commandesLm: (du, au) => `query($first:Int,$after:String){ orders(first:$first, after:$after, sortKey:CREATED_AT, query:"gateway:'leroymerlin via Shopping Feed' created_at:>='${minuitParisUtc(du)}' created_at:<'${minuitParisUtc(addDays(au, 1))}'"){ edges{ node{ name customAttributes{ key value } } } pageInfo{ hasNextPage endCursor } } }`,
+  // Lecture ciblée par nom (au plus PAGE_GQL commandes) : commandes créées avant la fenêtre dont une ligne tombe pourtant dans la fenêtre
+  // (modification ou remboursement tardif) et que la requête ci-dessus ne ramène donc pas.
+  commandesParNom: (noms) => `query{ orders(first:${PAGE_GQL}, query:"${noms.map((n) => `name:${n}`).join(" OR ")}"){ edges{ node{ name customAttributes{ key value } } } } }`,
 };
+
+/** Message d'échec de la classification : liste des commandes Leroy Merlin sans numéro et, prêtes à lancer, les requêtes par nom. */
+export function messageSansNumero(noms) {
+  const surs = noms.filter((n) => /^[A-Za-z0-9#._-]{1,40}$/.test(n)); // le nom est inséré dans une requête : caractères sûrs seulement
+  const lots = [];
+  for (let i = 0; i < surs.length && lots.length < 3; i += PAGE_GQL) lots.push(surs.slice(i, i + PAGE_GQL));
+  return `${noms.length} commande(s) Leroy Merlin dont le numéro d'origine n'a pas été lu (${noms.slice(0, 6).join(", ")}${noms.length > 6 ? " …" : ""}) : classification Technomat incomplète. ` +
+    "Lancer la requête GraphQL « classification » du plan (toutes les pages). Si ces commandes n'y figurent pas (créées avant la fenêtre, puis modifiées ou remboursées), " +
+    `les lire par nom avec graphql_query${lots.length ? ` (query = ${lots.map((l) => GQL.commandesParNom(l)).join(" puis ")})` : ""}. Puis relancer apply. Aucune écriture.`;
+}
 
 // Fenêtre à extraire : du lendemain de la dernière donnée connue jusqu'à hier (heure de Paris).
 // --du force le début ; --reprendre N reprend les N derniers jours déjà extraits (corrections tardives).
@@ -474,11 +494,8 @@ function lignesMarketplaces(d, ventes, paiements, app, cum, st, numeros) {
     }
     for (const l of c.lignes) rattacher(d, mp, l, app, cum, st);
   }
-  if (st.sansNumero.length) {
-    throw new Echec(
-      `${d} : ${st.sansNumero.length} commande(s) Leroy Merlin dont le numéro d'origine n'a pas été lu (${st.sansNumero.slice(0, 6).join(", ")}${st.sansNumero.length > 6 ? " …" : ""}) : ` +
-      "classification Technomat incomplète. Lancer la requête GraphQL « classification » du plan (toutes les pages), puis relancer apply. Aucune écriture.", 3);
-  }
+  // st.sansNumero n'arrête rien ici : construireBoutique refuse d'écrire s'il reste une commande sans numéro, après avoir
+  // réuni celles de TOUS les jours (une seule relance suffit, au lieu d'un échec par jour).
 }
 
 function lignesSite(d, ventes, app, cum, st) {
@@ -548,11 +565,13 @@ export function construireBoutique(app, plan, resultats, boutique, avert, numero
     for (const [k, v] of st.passerellesInconnues) globaux.passerellesInconnues.set(k, (globaux.passerellesInconnues.get(k) ?? 0) + v);
     for (const [k, v] of st.skuInconnus) { const a = globaux.skuInconnus.get(k) ?? { ca: 0, qte: 0, vendeur: v.vendeur }; a.ca += v.ca; a.qte += v.qte; globaux.skuInconnus.set(k, a); }
     globaux.technomat.commandes += st.technomat.commandes; globaux.technomat.ca += st.technomat.ca;
+    globaux.sansNumero.push(...st.sansNumero);
     for (const [k, v] of st.numerosInattendus) globaux.numerosInattendus.set(k, (globaux.numerosInattendus.get(k) ?? 0) + v);
     for (const [k, v] of st.marqueDivergente) globaux.marqueDivergente.set(k, v);
     for (const [k, v] of st.produitsNouveaux) globaux.produitsNouveaux.set(k, v);
     for (const p of st.paysInconnus) globaux.paysInconnus.add(p);
   }
+  if (globaux.sansNumero.length) throw new Echec(messageSansNumero([...new Set(globaux.sansNumero)]), 3);
   const lignes = cum.lignes();
   if (!lignes.some((l) => l.qte > 0)) throw new Echec(`${boutique} : aucune vente sur ${plan.du} → ${plan.au} : extraction suspecte. Aucune écriture.`);
   // avertissements

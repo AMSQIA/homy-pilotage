@@ -173,7 +173,9 @@ ok(Object.values(D.category_by_mp.categories.Toutes || []).every((c) => c.ca >= 
   }
   for (const c of D.category_by_mp.categories.Toutes) {
     const e = repVue(R, { dim: "categorie", an: AN, mesure: "ca" }).ents.find((x) => x.nom === c.nom);
-    ok(e && proche(e.total, c.ca, 0.5), `catégorie ${c.nom} : ${r2(e ? e.total : 0)} ≠ category_by_mp ${c.ca}`);
+    // tolérance 1 € : category_by_mp ajoute les ventes Shopify à un CA du socle DÉJÀ arrondi à l'euro (écart ≤ 0,5), puis arrondit la somme (≤ 0,5)
+    // — avec 0,5 le contrôle échouait selon la partie décimale des ventes du jour (27 octobre 2026 : 0,55 et 0,61 €)
+    ok(e && proche(e.total, c.ca, 1.01), `catégorie ${c.nom} : ${r2(e ? e.total : 0)} ≠ category_by_mp ${c.ca}`);
   }
   ok(repVue(R, { dim: "marque", an: AN, mesure: "ca" }).ents.map((e) => e.nom).sort().join("|") === ["Bestherm", "HOM'Y", "Thomson"].sort().join("|"), "marques 2026 : Bestherm, Thomson et HOM'Y attendues, sans « Autres produits »");
   // le détail par pays et le détail par produit décrivent les mêmes ventes : CA et quantités égaux par marketplace et par mois

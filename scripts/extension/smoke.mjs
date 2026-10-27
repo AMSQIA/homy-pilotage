@@ -954,7 +954,9 @@ async function verifierRepartitions(browser, base, E) {
     await repCliquer(page, '[data-rep="lentille"] button[data-k="type"]');
     S = await lireRep(page); A = repAgg(X, AN, "categorie", "ca");
     verifier(S.lentille === "type" && repClassementOk(S.classement, A.ents), `Répartitions type de produit : ${S.classement.map((c) => c.nom).join(",")}`);
-    verifier(D.category_by_mp.categories.Toutes.every((c) => proche((S.classement.find((x) => x.nom === c.nom) || { v: NaN }).v, c.ca, 0.5)), "Répartitions type de produit : catégories ≠ category_by_mp");
+    // category_by_mp.ca est un entier : valeur entière du socle + ventes Shopify, arrondie à nouveau (extension.js, majListe) →
+    // jusqu'à 0,5 € d'arrondi sur le socle puis 0,5 € sur la somme, soit au plus 1 € d'écart avec la répartition exacte
+    verifier(D.category_by_mp.categories.Toutes.every((c) => proche((S.classement.find((x) => x.nom === c.nom) || { v: NaN }).v, c.ca, 1.01)), "Répartitions type de produit : catégories ≠ category_by_mp");
     repVerifierGrille("Répartitions catégorie 2026 CA", S, X, AN, "categorie", "ca");
     await repCliquer(page, '[data-rep="niveau"] button[data-k="sous"]');
     S = await lireRep(page); A = repAgg(X, AN, "sous", "ca");
