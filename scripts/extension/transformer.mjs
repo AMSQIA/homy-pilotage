@@ -36,6 +36,24 @@ export const PRODUIT_LIVRAISON = "Livraison", PRODUIT_AJUSTEMENT = "Ajustements 
 const PAYS_INCONNU = "Non renseigné";
 const MARQUES_VENDEUR = { bestherm: "Bestherm", thomson: "Thomson", "hom'y": "HOM'Y", homy: "HOM'Y" };
 
+// Technomat : commandes de la passerelle Leroy Merlin dont le numéro d'origine (attribut de commande « leroymerlin Number »,
+// ex. « 014-120208-A ») commence par 014. Shopify ne les distingue de Leroy Merlin que par ce numéro ; les autres préfixes
+// (001 France, 002 Espagne, 003 Portugal, 005, 006) restent dans Leroy Merlin. C'est l'ancienne ligne « Bricoman » de l'ODP.
+export const TECHNOMAT = { mp: "Technomat", depuis: "Leroy Merlin", prefixe: "014" };
+export const PREFIXES_LM = new Set(["001", "002", "003", "005", "006", TECHNOMAT.prefixe]);
+export function estTechnomat(numero) {
+  if (typeof numero !== "string") return false;
+  const n = numero.trim();
+  return n.startsWith(TECHNOMAT.prefixe) && !/^\d/.test(n.slice(TECHNOMAT.prefixe.length));
+}
+/** Préfixe à trois chiffres d'un numéro d'origine (« 014-120208-A » → « 014 »), ou null si le format est inattendu. */
+export const prefixeNumero = (numero) => (/^\s*(\d{3})(?!\d)/.exec(String(numero ?? "")) ?? [])[1] ?? null;
+/** Numéro d'origine d'une commande marketplace : attribut dont la clé se termine par « Number » (« leroymerlin Number »). Chaîne vide = pas de numéro. */
+export function numeroOrigine(attributs) {
+  for (const a of Array.isArray(attributs) ? attributs : []) if (/number$/i.test(String(a?.key ?? "").trim())) return String(a?.value ?? "").trim();
+  return "";
+}
+
 // Noms de pays Shopify (anglais) → noms de l'application (français)
 export const PAYS_EN_FR = {
   "France": "France", "Belgium": "Belgique", "Spain": "Espagne", "Italy": "Italie",
@@ -117,6 +135,40 @@ export const REQ = {
   controle: (du, au) => `FROM sales SHOW quantity_ordered, net_sales, taxes WHERE ${TYPES} TIMESERIES day SINCE ${du} UNTIL ${au}`,
 };
 
+/** Minuit (heure de Paris) du jour AAAA-MM-JJ avec son décalage : « 2026-10-26T00:00:00+01:00 » (+02:00 en heure d'été). */
+export function minuitParis(d) {
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  for (const off of ["+01:00", "+02:00"]) {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(`${d}T00:00:00${off}`)).map((x) => [x.type, x.value]));
+    if (`${p.year}-${p.month}-${p.day}` === d && p.hour === "00" && p.minute === "00") return `${d}T00:00:00${off}`;
+  }
+  throw new Echec(`Date illisible pour le fuseau de Paris : ${d}`, 1);
+}
+
+/** Minuit (heure de Paris) du jour exprimé en UTC : « 2026-10-25T23:00:00Z » (22:00:00Z en heure d'été). Les bornes de la requête
+ *  GraphQL sont écrites ainsi ET ENTRE APOSTROPHES : la recherche de Shopify interprète de travers les dates sans apostrophes
+ *  (constaté le 27 octobre 2026 : « created_at:<…+01:00 » est ignoré, « created_at:>=…Z » est ramené au jour entier). */
+export function minuitParisUtc(d) { return new Date(minuitParis(d)).toISOString().replace(/\.\d{3}Z$/, "Z"); }
+
+// Requêtes GraphQL de classification (lecture seule, aucune donnée client) : nom et attributs de commande des commandes de la
+// passerelle Leroy Merlin créées entre deux minuits (heure de Paris), par pages de PAGE_GQL (à suivre avec `after`).
+export const PAGE_GQL = 50;
+export const GQL = {
+  commandesLm: (du, au) => `query($first:Int,$after:String){ orders(first:$first, after:$after, sortKey:CREATED_AT, query:"gateway:'leroymerlin via Shopping Feed' created_at:>='${minuitParisUtc(du)}' created_at:<'${minuitParisUtc(addDays(au, 1))}'"){ edges{ node{ name customAttributes{ key value } } } pageInfo{ hasNextPage endCursor } } }`,
+  // Lecture ciblée par nom (au plus PAGE_GQL commandes) : commandes créées avant la fenêtre dont une ligne (modification, remboursement) tombe dans la fenêtre
+  commandesParNom: (noms) => `query{ orders(first:${PAGE_GQL}, query:"${noms.map((n) => `name:${n}`).join(" OR ")}"){ edges{ node{ name customAttributes{ key value } } } } }`,
+};
+
+/** Message d'échec de la classification : commandes Leroy Merlin sans numéro et, prêtes à lancer, les requêtes de lecture par nom. */
+export function messageSansNumero(noms) {
+  const surs = noms.filter((n) => /^[A-Za-z0-9#._-]{1,40}$/.test(n)); // le nom est inséré dans une requête : caractères sûrs seulement
+  const lots = [];
+  for (let i = 0; i < surs.length && lots.length < 3; i += PAGE_GQL) lots.push(surs.slice(i, i + PAGE_GQL));
+  return `${noms.length} commande(s) Leroy Merlin dont le numéro d'origine n'a pas été lu (${noms.slice(0, 6).join(", ")}${noms.length > 6 ? " …" : ""}) : classification Technomat incomplète. ` +
+    "Lancer la requête GraphQL « classification » du plan (toutes les pages). Si ces commandes n'y figurent pas (créées avant la fenêtre, puis modifiées ou remboursées), " +
+    `les lire par nom avec graphql_query${lots.length ? ` (query = ${lots.map((l) => GQL.commandesParNom(l)).join(" puis ")})` : ""}. Puis relancer apply. Aucune écriture.`;
+}
+
 // Fenêtres de CFG.fenetreJours jours (la dernière est plus courte)
 export function fenetres(du, au, pas = CFG.fenetreJours) {
   const l = [];
@@ -146,16 +198,18 @@ class Accu {
  * @param {"marketplaces"|"site"} id
  * @param {{ventes: object[], paiements?: object[], controle: object[]}} jeux résultats ShopifyQL {columns, rows}
  * @param {object} ref table de référence (data/referentiel.json)
- * @param {{du: string, au: string, depuisPaires?: string}} fen jours attendus (tous présents, même sans vente)
+ * @param {{du: string, au: string, depuisPaires?: string, numeros?: Map<string,string>}} fen jours attendus (tous présents, même sans vente) ;
+ *        numeros = numéro d'origine de chaque commande Leroy Merlin (nom de commande → « 014-120208-A »), pour isoler Technomat
  */
 export function traiterBoutique(id, jeux, ref, fen) {
   const estSite = id === "site";
   const { du, au } = fen;
   const depuisPaires = fen.depuisPaires ?? "9999-12-31";
+  const numeros = fen.numeros ?? null;
   const st = {
     qte: 0, net: 0, taxes: 0, ca: 0, lignes: 0, commandes: 0, sansPaiement: 0, sansPaiementCa: 0, sansPaiementListe: [],
     multiPasserelle: [], passerellesInconnues: new Map(), produitsInconnus: new Map(), paysInconnus: new Set(),
-    ajustementsOrphelins: 0,
+    ajustementsOrphelins: 0, sansNumero: [], technomat: { commandes: 0, ca: 0 }, numerosInattendus: new Map(),
   };
 
   /* passerelle de chaque commande : celle du plus gros paiement (marketplaces) */
@@ -251,6 +305,15 @@ export function traiterBoutique(id, jeux, ref, fen) {
       } else if (!mp) {
         st.passerellesInconnues.set(pg, (st.passerellesInconnues.get(pg) ?? 0) + caCommande);
         mp = MP_AUTRE;
+      } else if (mp === TECHNOMAT.depuis) {
+        // Leroy Merlin ou Technomat : seul le numéro d'origine de la commande les distingue (préfixe 014 = Technomat)
+        const num = numeros?.get(g.o);
+        if (num === undefined) st.sansNumero.push(g.o); // numéro non lu : controlerSortie refusera d'écrire (jamais de classement au hasard)
+        else {
+          if (estTechnomat(num)) { mp = TECHNOMAT.mp; st.technomat.commandes++; st.technomat.ca += caCommande; }
+          const pre = prefixeNumero(num);
+          if (pre === null || !PREFIXES_LM.has(pre)) st.numerosInattendus.set(num || "(vide)", (st.numerosInattendus.get(num || "(vide)") ?? 0) + 1);
+        }
       }
     }
     if (caCommande > 0.005) { const k = `${g.d}\u0000${mp}`; commandes.set(k, (commandes.get(k) ?? 0) + 1); st.commandes++; }
@@ -295,6 +358,7 @@ export function agreger(sorties) {
   const st = {
     qte: 0, net: 0, taxes: 0, ca: 0, lignes: 0, commandes: 0, sansPaiement: 0, sansPaiementCa: 0, sansPaiementListe: [], multiPasserelle: [],
     passerellesInconnues: new Map(), produitsInconnus: new Map(), paysInconnus: new Set(), ajustementsOrphelins: 0,
+    sansNumero: [], technomat: { commandes: 0, ca: 0 }, numerosInattendus: new Map(),
   };
   const vendeurs = new Map();
   const out = { id: sorties[0].id, du: sorties[0].du, au: sorties[0].au, lignes: [], pays: [], commandes: [], paires: [], vendeurs, stats: st };
@@ -304,6 +368,8 @@ export function agreger(sorties) {
     for (const k of ["lignes", "pays", "commandes", "paires"]) for (const x of o[k]) out[k].push(x);
     for (const k of ["qte", "net", "taxes", "ca", "lignes", "commandes", "sansPaiement", "sansPaiementCa", "ajustementsOrphelins"]) st[k] += o.stats[k];
     st.sansPaiementListe.push(...o.stats.sansPaiementListe); st.multiPasserelle.push(...o.stats.multiPasserelle);
+    st.sansNumero.push(...o.stats.sansNumero); st.technomat.commandes += o.stats.technomat.commandes; st.technomat.ca += o.stats.technomat.ca;
+    for (const [k, v] of o.stats.numerosInattendus) st.numerosInattendus.set(k, (st.numerosInattendus.get(k) ?? 0) + v);
     for (const [g, v] of o.stats.passerellesInconnues) st.passerellesInconnues.set(g, (st.passerellesInconnues.get(g) ?? 0) + v);
     for (const [n, v] of o.stats.produitsInconnus) { const a = st.produitsInconnus.get(n) ?? { ca: 0, qte: 0, code: v.code }; a.ca += v.ca; a.qte += v.qte; st.produitsInconnus.set(n, a); }
     for (const p of o.stats.paysInconnus) st.paysInconnus.add(p);
@@ -315,6 +381,7 @@ export function agreger(sorties) {
 // Contrôles sur l'ensemble de l'extraction ; lève Echec si elle est suspecte
 export function controlerSortie(o) {
   const { id, stats: st } = o;
+  if (st.sansNumero.length) throw new Echec(`${id} : ${messageSansNumero([...new Set(st.sansNumero)])}`, 3);
   if (!o.lignes.some((l) => l.qte > 0)) throw new Echec(`${id} : aucune vente sur ${o.du} → ${o.au} : extraction suspecte. Aucune écriture.`);
   if (id !== "site" && st.commandes > 0 && st.sansPaiementListe.length / st.commandes > CFG.sansPaiementMax) {
     throw new Echec(`${id} : ${st.sansPaiementListe.length} commandes avec CA sans passerelle de paiement sur ${st.commandes} (${((st.sansPaiementListe.length / st.commandes) * 100).toFixed(1)} %) : jeu « payments » incomplet. Aucune écriture.`);
@@ -331,6 +398,10 @@ export function avertissementsDe(o) {
     av.push(`Produits absents de la table de référence (${eur(tot)}, ${((tot / (st.ca || 1)) * 100).toFixed(1)} % du CA) : ${[...st.produitsInconnus].sort((a, b) => b[1].ca - a[1].ca).slice(0, 8).map(([n, v]) => `${n.slice(0, 60)}${v.code ? ` [${v.code}]` : ""} ${eur(v.ca)}`).join(" ; ")}`);
   }
   if (st.paysInconnus.size) av.push(`Pays sans traduction (conservés tels quels) : ${[...st.paysInconnus].join(", ")}`);
+  if (st.numerosInattendus.size) {
+    const n = [...st.numerosInattendus.values()].reduce((a, b) => a + b, 0);
+    av.push(`${n} commande(s) Leroy Merlin dont le numéro d'origine n'a pas un préfixe connu (${[...PREFIXES_LM].sort().join(", ")}) : laissées dans Leroy Merlin · ${[...st.numerosInattendus].slice(0, 5).map(([x, c]) => `${x} ×${c}`).join(", ")}`);
+  }
   if (st.multiPasserelle.length) av.push(`${st.multiPasserelle.length} commande(s) payée(s) via plusieurs marketplaces (passerelle dominante retenue)`);
   if (Math.abs(st.ajustementsOrphelins) > 0.5) av.push(`Ajustements de vente sans produit dans la commande (${eur(st.ajustementsOrphelins)}) : comptés sur « ${PRODUIT_AJUSTEMENT} »`);
   return av;

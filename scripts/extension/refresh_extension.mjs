@@ -13,13 +13,18 @@
  *   node scripts/extension/refresh_extension.mjs check
  *   node scripts/extension/refresh_extension.mjs plan  [--today AAAA-MM-JJ] [--du AAAA-MM-JJ] [--reprendre N]
  *   node scripts/extension/refresh_extension.mjs apply [--today ..] [--du ..] [--au ..] [--reprendre N] [--boutique marketplaces|site]
- *                      [--transcript f.jsonl] [--results f.json] [--cache dossier] [--concurrence N] [--out fichier.json] [--dry-run] [--force]
+ *                      [--transcript f.jsonl] [--results f.json] [--ordres-lm f.json] [--cache dossier] [--concurrence N] [--out fichier.json] [--dry-run] [--force]
  *   node scripts/extension/refresh_extension.mjs status
  *
  * Sources des résultats ShopifyQL (voir collecte.mjs) : le relais en lecture seule (api/mcp-site.mjs, variable MCP_SITE_KEY)
  * pour les deux boutiques ; à défaut de relais configuré pour BESTHERM, les résultats du connecteur Shopify de Claude, relus
  * tels quels dans la transcription de la session (lancer exactement les requêtes de « plan »).
- * Aucune donnée client : uniquement des agrégats (jour, commande, référence, pays, passerelle).
+ * Technomat : les commandes de la passerelle Leroy Merlin dont le numéro d'origine commence par 014 forment la marketplace Technomat.
+ * Ce numéro (attribut de commande) n'existe pas dans ShopifyQL : le plan de BESTHERM contient donc aussi une requête GraphQL
+ * « classification » (outil graphql_query du connecteur Shopify, lecture seule), relue dans la transcription comme le reste, ou un
+ * fichier --ordres-lm (historique). Une commande Leroy Merlin sans numéro lu : code 3, rien n'est écrit.
+ * Aucune donnée client : uniquement des agrégats (jour, commande, référence, pays, passerelle) et, pour la classification, le nom
+ * de la commande et son numéro d'origine.
  *
  * Par défaut, la fenêtre va du dernier jour déjà extrait (repris, corrections tardives) à hier, heure de Paris ; sans fichier
  * valide, tout l'historique de chaque boutique est extrait (BESTHERM depuis 2024-01-01, site depuis 2025-05-01).
@@ -30,8 +35,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA, AN_DEFAUT, validerExtension, auExtension, construire } from "../../socle.js";
-import { CFG, Echec, MP_SITE, addDays, r2, fenetres, requetesFenetre, controlerSortie, avertissementsDe, marqueDominante } from "./transformer.mjs";
-import { BOUTIQUES, lireResultats, jeuxDepuisIndex, jeuxRelais, etatRelais, collecterBoutique } from "./collecte.mjs";
+import { CFG, Echec, MP_SITE, TECHNOMAT, GQL, PAGE_GQL, addDays, r2, fenetres, requetesFenetre, controlerSortie, avertissementsDe, marqueDominante } from "./transformer.mjs";
+import { BOUTIQUES, lireResultats, jeuxDepuisIndex, jeuxRelais, etatRelais, collecterBoutique, lireNumeros } from "./collecte.mjs";
 
 export { CFG, BOUTIQUES, Echec };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,7 +57,7 @@ const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const estSiteMp = (mp) => mp === MP_SITE;
 
 function args(argv) {
-  const o = { _: [], transcript: [], results: [] };
+  const o = { _: [], transcript: [], results: [], ordresLm: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--today") o.today = argv[++i];
@@ -62,6 +67,7 @@ function args(argv) {
     else if (a === "--boutique") o.boutique = argv[++i];
     else if (a === "--transcript") o.transcript.push(argv[++i]);
     else if (a === "--results" || a === "--results-site") o.results.push(argv[++i]);
+    else if (a === "--ordres-lm") o.ordresLm.push(argv[++i]);
     else if (a === "--cache") o.cache = argv[++i];
     else if (a === "--concurrence") o.concurrence = Number(argv[++i]);
     else if (a === "--out") o.out = argv[++i];
@@ -129,6 +135,15 @@ export function planifier(precedent, today, o = {}, boutique = "marketplaces") {
   const p = { boutique, today, ...f, queries: [] };
   if (p.vide) return p;
   for (const w of fenetres(f.du, f.au)) p.queries.push(...requetesFenetre(boutique, w, today));
+  if (boutique === "marketplaces") {
+    // classification Technomat : outil graphql_query (lecture seule), query = texte exact, first = 50, puis after = endCursor
+    const nbJours = Math.round((new Date(f.au) - new Date(f.du)) / 864e5) + 1;
+    p.classification = {
+      du: f.du, au: f.au, outil: "graphql_query", first: PAGE_GQL, graphql: GQL.commandesLm(f.du, f.au),
+      pages: "Lancer la requête avec first = 50, puis de nouveau avec after = pageInfo.endCursor tant que pageInfo.hasNextPage vaut true (toutes les pages).",
+      ...(nbJours > 31 ? { volumineux: `Fenêtre de ${nbJours} jours (≈ ${Math.ceil(nbJours * 130 / PAGE_GQL)} pages) : pour un historique, fournir plutôt un fichier --ordres-lm (README, « Historique Technomat »).` } : {}),
+    };
+  }
   return p;
 }
 
@@ -260,6 +275,7 @@ function verifierConstruction(ext, tables) {
 /* ------------------------------------------------------------------ collecte d'une boutique */
 async function collecter(id, plan, o, tables, log) {
   const ctx = { ref: tables.ref, aujourdhui: plan.today, concurrence: o.concurrence ?? 3, depuisPaires: `${AN_DEFAUT}-01-01`, log };
+  if (id === "marketplaces") ctx.numeros = lireNumeros({ fichiers: o.ordresLm, transcripts: o.transcript }); // classification Technomat
   const eff = { du: plan.du, au: plan.au };
   const surIndex = (index) => { ctx.jeux = async (w) => jeuxDepuisIndex(index, id, w, plan.today); ctx.decoupable = false; ctx.concurrence = 1; };
   const requetes = () => plan.queries.map((q) => q.query);
@@ -330,7 +346,8 @@ async function main() {
         controlerSortie(sortie);
         blocs[id] = sortie;
         for (const x of avertissementsDe(sortie)) avert.push(`[${id}] ${x}`);
-        console.log(`Boutique ${id} (${source}) : ${plan.du} → ${plan.au} · ${sortie.lignes.length} enregistrements · ${eur(sortie.stats.ca)} · ${sortie.stats.qte} unités · ${sortie.stats.commandes} commandes`);
+        console.log(`Boutique ${id} (${source}) : ${plan.du} → ${plan.au} · ${sortie.lignes.length} enregistrements · ${eur(sortie.stats.ca)} · ${sortie.stats.qte} unités · ${sortie.stats.commandes} commandes`
+          + (id === "marketplaces" ? ` · dont ${TECHNOMAT.mp} ${eur(sortie.stats.technomat.ca)} (${sortie.stats.technomat.commandes} commande(s) ${TECHNOMAT.prefixe}…)` : ""));
       } catch (e) {
         if (!(e instanceof Echec)) throw e;
         erreurs.push(`[${id}] ${e.message}`);

@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { CFG, Echec, LimiteAtteinte, addDays, fenetres, requetesFenetre, traiterBoutique, agreger } from "./transformer.mjs";
+import { CFG, Echec, LimiteAtteinte, addDays, fenetres, requetesFenetre, traiterBoutique, agreger, numeroOrigine } from "./transformer.mjs";
 import { infoBoutique, lancerRequetes, ErreurRelais, DOMAINES } from "./site_query.mjs";
 
 export const BOUTIQUES = {
@@ -108,6 +108,60 @@ export function jeuxDepuisIndex(index, boutique, w, aujourdhui) {
   return jeux;
 }
 
+/* ------------------------------------------------------------------ numéros d'origine des commandes Leroy Merlin (classification Technomat) */
+// Le numéro d'origine (attribut de commande « leroymerlin Number ») n'existe pas dans ShopifyQL : il vient de la requête GraphQL
+// « classification » du plan (GQL.commandesLm, outil graphql_query du connecteur Shopify), relue comme le reste dans la transcription
+// de la session, ou d'un fichier --ordres-lm. Aucune donnée client : seuls le nom de la commande et ses attributs sont lus.
+
+// Range les commandes d'une page de résultat GraphQL (data.orders.edges[].node ou data.orders.nodes[]) : nom → numéro d'origine
+function rangerOrdres(res, j) {
+  const o = j?.data?.orders;
+  const noeuds = Array.isArray(o?.edges) ? o.edges.map((e) => e?.node) : Array.isArray(o?.nodes) ? o.nodes : [];
+  for (const n of noeuds) if (typeof n?.name === "string" && Array.isArray(n.customAttributes)) res.set(n.name, numeroOrigine(n.customAttributes));
+}
+
+function lireJsonlOrdres(fichier, res) {
+  let lignes;
+  try { lignes = fs.readFileSync(fichier, "utf8").split("\n"); } catch { return; }
+  for (const l of lignes) {
+    if (!l.includes('"tool_result"') || !l.includes("customAttributes")) continue;
+    let o; try { o = JSON.parse(l); } catch { continue; }
+    const c = o?.message?.content;
+    if (!Array.isArray(c)) continue;
+    for (const b of c) {
+      if (b?.type !== "tool_result") continue;
+      const texte = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x?.text ?? "").join("") : "";
+      if (!texte.startsWith('{"data"')) continue;
+      let j; try { j = JSON.parse(texte); } catch { continue; }
+      rangerOrdres(res, j);
+    }
+  }
+}
+
+// --ordres-lm : fichier JSON { "SHOP1": "014-1-A", … } ou page(s) de résultat GraphQL
+function lireOrdresJson(fichier, res) {
+  let j;
+  try { j = JSON.parse(fs.readFileSync(fichier, "utf8")); } catch { throw new Echec(`Fichier --ordres-lm illisible : ${fichier}`, 1); }
+  if (j && typeof j === "object" && !Array.isArray(j) && !j.data) { for (const [nom, num] of Object.entries(j)) if (typeof num === "string") res.set(nom, num.trim()); return; }
+  for (const p of Array.isArray(j) ? j : [j]) rangerOrdres(res, p);
+}
+
+/**
+ * Map nom de commande → numéro d'origine : fichiers --ordres-lm s'il y en a (historique, tests), sinon résultats GraphQL relus dans
+ * les transcriptions (le fichier le plus récent prime). Peut être vide ou incomplète : c'est controlerSortie qui refuse d'écrire
+ * tant qu'une commande Leroy Merlin n'a pas son numéro.
+ */
+export function lireNumeros({ fichiers = [], transcripts = [] } = {}) {
+  const res = new Map();
+  if (fichiers.length) { for (const f of fichiers) lireOrdresJson(f, res); return res; }
+  for (const f of fichiersTranscription(transcripts)) {
+    const r = new Map();
+    lireJsonlOrdres(f, r);
+    for (const [k, v] of r) if (!res.has(k)) res.set(k, v);
+  }
+  return res;
+}
+
 /* ------------------------------------------------------------------ relais */
 // { ok: true } ou { ok: false, raison, absent } ; absent = relais non configuré pour cette boutique (repli possible)
 export async function etatRelais(boutique) {
@@ -177,14 +231,15 @@ export const fenetreTropLourde = (e) => e instanceof LimiteAtteinte || (e instan
 
 /**
  * Collecte et transforme toute la période d'une boutique.
- * ctx = { ref, aujourdhui, jeux(w) → {ventes, paiements, controle}, decoupable, concurrence, depuisPaires, log }
+ * ctx = { ref, aujourdhui, jeux(w) → {ventes, paiements, controle}, decoupable, concurrence, depuisPaires, numeros, log }
+ * numeros = Map nom de commande → numéro d'origine (marketplaces) : classification Technomat, voir lireNumeros
  * Une fenêtre trop lourde (liste tronquée, délai dépassé) est coupée en deux quand `decoupable` (relais) ; sinon l'échec remonte.
  */
 export async function collecterBoutique(id, { du, au }, ctx) {
   const traiterFenetre = async (w) => {
     try {
       const jeux = await ctx.jeux(w);
-      return [traiterBoutique(id, jeux, ctx.ref, { du: w.du, au: w.au, depuisPaires: ctx.depuisPaires })];
+      return [traiterBoutique(id, jeux, ctx.ref, { du: w.du, au: w.au, depuisPaires: ctx.depuisPaires, numeros: ctx.numeros })];
     } catch (e) {
       if (!fenetreTropLourde(e) || !ctx.decoupable) throw e;
       if (w.du === w.au) throw new Echec(`${id} ${w.du} : une seule journée est trop lourde (${e.message}).`);

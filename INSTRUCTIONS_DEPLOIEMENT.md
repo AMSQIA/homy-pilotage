@@ -107,7 +107,7 @@ attendus et vérifie l'écran case par case (total, classement, légende, bulle,
   sur l'ensemble des canaux (français, 14 semaines) : lundi ≈ 1,28, mardi ≈ 1,12, mercredi ≈ 1,01, vendredi ≈ 0,99, jeudi ≈ 0,92, dimanche ≈ 0,88, samedi ≈ 0,82.
 - **Périmètre** : avec un filtre marketplace (ou le site web), l'objectif est ramené au prorata de son objectif annuel (comme avant) et le profil des jours est celui de ce canal s'il
   repose sur 8 semaines entières au moins ; sinon (peu d'historique, jours sans vente) c'est le profil de l'ensemble des canaux ; à défaut de tout profil, répartition à plat (÷ 7). Les
-  marketplaces sans objectif fiable (« Autre », « But », « Bricoman ») n'ont ni courbe ni ligne du plan.
+  marketplaces sans objectif fiable (« Autre », « But », « Technomat ») n'ont ni courbe ni ligne du plan.
 - **« % du plan » à côté du CA en tête** : une ligne « Objectif 966k€ · 71 % · -280k€ » donne l'objectif de la période affichée (somme des objectifs de ses jours), la part atteinte par le
   CA et l'écart en €, en vert au-dessus du plan et en rouge en dessous ; sur un jour touché : « Objectif du jour 55 603 € · … ». Les trois chiffres se lisent d'un coup d'œil, sans
   comparer la courbe aux barres.
@@ -213,7 +213,7 @@ masque ces éléments ; le remettre à `true` les fait tous revenir) :
 - les notes de méthode sous les graphiques et tableaux (panier moyen et meilleure vente hors filtre de date, zone en pointillés,
   couverture des marques / catégories / puissances, nombre de résultats, « donnée globale 2025+2026 »…) ;
 - dans le premier bloc « Données à jour », la phrase de source sous le titre et les cinq notes du bas (portée des chiffres, règles de
-  calcul, Bricoman, ce qui reste calculé sur l'ODP, dernière extraction) — le bloc lui-même est **conservé** : titre, dernier jour de
+  calcul, Technomat, ce qui reste calculé sur l'ODP, dernière extraction) — le bloc lui-même est **conservé** : titre, dernier jour de
   données, pastille ambre « Non actualisé depuis N j » à partir de 2 jours (extraction illisible : l'écran « Données Shopify indisponibles » remplace tout le tableau de bord) et graphique du CA HT par
   jour (marketplaces / site web) avec ses totaux, **ouvert par défaut** (un clic sur l'en-tête le replie, le choix est mémorisé) ;
 - la ligne des dates sous le bloc « Données à jour » et les dates de la base de comparaison (« vs 5 957 343 € sur la même période 2025 » remplace
@@ -265,8 +265,10 @@ publicité, concurrence, élasticité-prix et simulations, associations de produ
 **Règles de calcul** (détail : `scripts/extension/README.md`)
 
 - Marketplaces : CA HT = (ventes nettes + taxes) ÷ 1,2, comme la colonne « CA HT » de l'ODP ; la marketplace d'une commande est
-  celle de sa passerelle de paiement. **Bricoman n'est pas séparable de Leroy Merlin dans Shopify** : depuis le 4 octobre ses
-  ventes sont comptées dans Leroy Merlin. Passerelles inconnues (Carrefour, bricodepotes…) et commandes à 0 € : « Autre ».
+  celle de sa passerelle de paiement. **Technomat** (l'ancienne ligne « Bricoman » de l'ODP) = commandes de la passerelle Leroy Merlin dont le numéro
+  d'origine (attribut de commande « leroymerlin Number ») commence par 014, lu par une requête GraphQL de classification ajoutée au plan
+  (la tâche du matin la lance en plus des requêtes ShopifyQL, avec le connecteur Shopify de Claude) ; une commande dont le numéro n'est pas lu fait échouer l'extraction.
+  Passerelles inconnues (Carrefour, bricodepotes…) et commandes à 0 € : « Autre ».
 - Site web : ventes brutes hors taxes (`gross_sales`), base du canal « Site Web » de l'ODP (mesuré : 1,000 × l'ODP sur 10
   semaines).
 - Les lignes de port ne sont pas comptées (l'ODP n'en contient presque pas). L'ancien « Flash » les incluait : +115 € de TVA.
@@ -301,7 +303,7 @@ les marketplaces, relais pour le site), écrit `shopify_extension.json` (seul fi
 **Retiré** : bloc « Flash Shopify », `shopify_flash.json`, `shopify_flash_site.json`, `scripts/flash/` (le relais et son test ont été
 déplacés dans `scripts/extension/`). Pour revenir en arrière : `git revert` du commit « Toute l'application prolongée avec les ventes Shopify ».
 
-**Limites** : voir `scripts/extension/README.md` (Bricoman dans Leroy Merlin, passerelles hypothétiques EPMM/Monechelle → ManoMano
+**Limites** : voir `scripts/extension/README.md` (Technomat distinguée par le préfixe 014 du numéro d'origine, passerelles hypothétiques EPMM/Monechelle → ManoMano
 et CLogistique → Cdiscount, lignes de commande estimées, année 2026 seulement).
 
 ## Relais en lecture seule de la boutique du site (mis en place le 15 octobre 2026)

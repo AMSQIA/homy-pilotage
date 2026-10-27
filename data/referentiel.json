@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Table de référence des produits et objectifs du plan (données maîtres, pas des ventes). Les ventes viennent uniquement de Shopify (shopify_extension.json). Voir scripts/extension/README.md pour la mise à jour.",
+  "note": "Table de référence des produits et objectifs du plan (données maîtres, pas des ventes). Les ventes viennent uniquement de Shopify (shopify_extension.json). Voir scripts/extension/README.md pour la mise à jour. L'objectif « Leroy Merlin » du plan (ligne « LEROY MERLIN / BRICOMAN ») couvre aussi Technomat, qui n'a pas d'objectif propre.",
   "objectif_annuel": 15000000,
   "objectifs_mp": {
     "Amazon FR": {"objectif":3160000,"fiable":true},
@@ -17,6 +17,7 @@
     "ManoMano": {"objectif":1575000,"fiable":true},
     "Maxeda": {"objectif":415000,"fiable":true},
     "Site Web": {"objectif":1400000,"fiable":true},
+    "Technomat": {"objectif":null,"fiable":false},
     "Worten": {"objectif":65000,"fiable":true}
   },
   "passerelles": {

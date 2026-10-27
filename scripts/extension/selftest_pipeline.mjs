@@ -15,8 +15,9 @@ import { SCHEMA, validerExtension, auExtension, construire } from "../../socle.j
 import {
   CFG, Echec, LimiteAtteinte, MP_SITE, MP_AUTRE, PRODUIT_AJUSTEMENT, PRODUIT_LIVRAISON, REQ, addDays, jours, fenetres, requetesFenetre,
   normaliserSku, normaliserTitre, marketplaceDe, produitDe, marqueDuVendeur, traiterBoutique, agreger, controlerSortie, avertissementsDe, marqueDominante,
+  TECHNOMAT, GQL, estTechnomat, prefixeNumero, numeroOrigine, messageSansNumero, minuitParis, minuitParisUtc,
 } from "./transformer.mjs";
-import { BOUTIQUES, lireResultats, jeuxDepuisIndex, etatRelais, jeuxRelais, collecterBoutique, fenetreTropLourde } from "./collecte.mjs";
+import { BOUTIQUES, lireResultats, jeuxDepuisIndex, etatRelais, jeuxRelais, collecterBoutique, fenetreTropLourde, lireNumeros } from "./collecte.mjs";
 import { ErreurRelais } from "./site_query.mjs";
 import { planifier, fenetre, decoder, fusionner, serialiser, comparerAuPrecedent, validerReferentiel, resume } from "./refresh_extension.mjs";
 import { lireJson } from "./lib_app.mjs";
@@ -42,6 +43,11 @@ function totauxJour(rows) {
   for (const [d, , , , , , , q, n, t] of rows) { const a = m.get(d) ?? [d, 0, 0, 0]; a[1] += q; a[2] += n; a[3] += t; m.set(d, a); }
   return [...m.values()].sort((a, b) => cmp(a[0], b[0])).map(([d, q, n, t]) => [d, q, r2(n), r2(t)]);
 }
+
+// Les contrôles historiques ci-dessous ne portent pas sur la classification Technomat : toute commande Leroy Merlin y a un numéro
+// d'origine 001 (France). Les contrôles Technomat, plus bas, fournissent leurs propres numéros.
+const LM001 = { get: () => "001-26001L1-A" };
+const traiter = (id, jeux, ref, fen) => traiterBoutique(id, jeux, ref, { numeros: LM001, ...fen });
 
 export async function testerPipeline(ok) {
   const ref = lireJson("data/referentiel.json");
@@ -114,7 +120,7 @@ export async function testerPipeline(ok) {
     return { ventes: [rVentes(qv.query, j.ventes, DM)], paiements: [rPaiements(qp.query, j.paiements, DM)], controle: [rControle(qc.query, totauxJour(j.ventes), DM)] };
   };
   const fen1 = { du: D1, au: D1, depuisPaires: D1 };
-  const sM = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, fen1);
+  const sM = traiter("marketplaces", jeuxM(D1, 1000), ref, fen1);
   const attendu = [["Leroy Merlin", nomA, 2, 100], ["Leroy Merlin", nomB, 1, 50], ["Amazon FR", nomB, 1, 50], ["Amazon FR", nomA, -1, -66], [MP_AUTRE, nomA, 2, 60]];
   ok(memes(sM.lignes.map((l) => [l.mp, l.produit, l.qte, l.ca]), attendu) && sM.lignes.every((l) => l.d === D1), "pipeline : lignes jour × marketplace × produit (CA HT = (net + taxes) ÷ 1,2 ; remboursement et ajustement sur le produit remboursé)");
   ok(r2(sM.stats.ca) === 194 && sM.stats.qte === 5 && sM.stats.commandes === 3 && r2(sM.stats.net) === 194 && r2(sM.stats.taxes) === 38.8, "pipeline : totaux du jour = ventes nettes de Shopify (194 €), 5 unités, 3 commandes");
@@ -127,7 +133,7 @@ export async function testerPipeline(ok) {
   ok(sM.vendeurs.get(nomA)?.get("Bestherm") >= 1, "pipeline : marque du fournisseur retenue par produit");
   const av = avertissementsDe(sM);
   ok(av.some((a) => /Passerelles de paiement inconnues/.test(a) && /carrefourx/.test(a)) && !av.some((a) => /absents de la table/.test(a)), "pipeline : avertissement sur la passerelle inconnue seulement");
-  const sSansPaires = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { du: D1, au: D1, depuisPaires: D2 });
+  const sSansPaires = traiter("marketplaces", jeuxM(D1, 1000), ref, { du: D1, au: D1, depuisPaires: D2 });
   ok(sSansPaires.paires.length === 0, "pipeline : paires conservées seulement depuis la date demandée");
 
   // Ajustement sans produit dans la commande ; commande payée par plusieurs marketplaces ; paiement lu dans deux fenêtres
@@ -140,7 +146,7 @@ export async function testerPipeline(ok) {
     ];
     const pai = [["#A1", "amazon", -14.4], ["#A2", "amazon", 200], ["#A2", "cdiscount", 40]];
     const jeux = { ventes: [rVentes(qv.query, ventes, DM)], paiements: [rPaiements(qp.query, pai, DM), rPaiements(qp.query, pai, DM)], controle: [rControle(qc.query, totauxJour(ventes), DM)] };
-    const s = traiterBoutique("marketplaces", jeux, ref, fen1);
+    const s = traiter("marketplaces", jeux, ref, fen1);
     const aj = s.lignes.find((l) => l.produit === PRODUIT_AJUSTEMENT);
     ok(aj && aj.qte === 0 && aj.ca === -12 && aj.mp === "Amazon FR", "pipeline : ajustement sans produit → ligne « Ajustements Shopify »");
     ok(s.stats.multiPasserelle.includes("#A2") && s.lignes.filter((l) => l.mp === "Amazon FR" && l.produit !== PRODUIT_AJUSTEMENT).length === 2, "pipeline : commande payée via deux passerelles → passerelle dominante (Amazon), signalée");
@@ -158,7 +164,7 @@ export async function testerPipeline(ok) {
       [D1, "#R1", "sale_adjustment", "", "", "France", "", 0, -15, -3],
     ];
     const jeux = { ventes: [rVentes(qv.query, ventes, DM)], paiements: [rPaiements(qp.query, [["#R1", "leroymerlin", -150]], DM)], controle: [rControle(qc.query, totauxJour(ventes), DM)] };
-    const s = traiterBoutique("marketplaces", jeux, ref, fen1);
+    const s = traiter("marketplaces", jeux, ref, fen1);
     const a = s.lignes.find((l) => l.produit === nomA), b = s.lignes.find((l) => l.produit === nomB);
     // ajustement −15 € HT réparti au prorata des lignes remboursées (−100 et −50) : −10 et −5
     ok(a && r2(a.ca) === -110 && b && r2(b.ca) === -50 + 30 - 5 && r2(s.stats.ca) === -135, "pipeline : ajustement réparti au prorata des lignes remboursées");
@@ -167,27 +173,85 @@ export async function testerPipeline(ok) {
   /* ---- refus : rien n'est écrit si les lignes lues ne retrouvent pas les totaux de Shopify */
   const echec = (fn) => { const e = lance(fn); return e instanceof Echec && !(e instanceof LimiteAtteinte) ? e : null; };
   const avecControle = (rows) => { const j = jeuxM(D1, 1000); j.controle = [rControle(j.controle[0].query, rows, DM)]; return j; };
-  ok(echec(() => traiterBoutique("marketplaces", avecControle([[D1, 6, 194, 38.8]]), ref, fen1))?.code === 2, "pipeline : écart de quantité avec le total Shopify refusé (code 2)");
-  ok(echec(() => traiterBoutique("marketplaces", avecControle([[D1, 5, 250, 38.8]]), ref, fen1)), "pipeline : écart de ventes nettes refusé");
-  ok(echec(() => traiterBoutique("marketplaces", avecControle([[D1, 5, 194, 50]]), ref, fen1)), "pipeline : écart de taxes refusé");
-  ok(echec(() => traiterBoutique("marketplaces", avecControle([]), ref, fen1)), "pipeline : total de contrôle absent refusé");
-  ok(echec(() => traiterBoutique("marketplaces", avecControle([[D1, 5, 194, 38.8], ["2026-10-09", 3, 10, 2]]), ref, fen1)) === null, "pipeline : total d'un jour hors fenêtre ignoré");
+  ok(echec(() => traiter("marketplaces", avecControle([[D1, 6, 194, 38.8]]), ref, fen1))?.code === 2, "pipeline : écart de quantité avec le total Shopify refusé (code 2)");
+  ok(echec(() => traiter("marketplaces", avecControle([[D1, 5, 250, 38.8]]), ref, fen1)), "pipeline : écart de ventes nettes refusé");
+  ok(echec(() => traiter("marketplaces", avecControle([[D1, 5, 194, 50]]), ref, fen1)), "pipeline : écart de taxes refusé");
+  ok(echec(() => traiter("marketplaces", avecControle([]), ref, fen1)), "pipeline : total de contrôle absent refusé");
+  ok(echec(() => traiter("marketplaces", avecControle([[D1, 5, 194, 38.8], ["2026-10-09", 3, 10, 2]]), ref, fen1)) === null, "pipeline : total d'un jour hors fenêtre ignoré");
   { // un jour de la fenêtre sans aucune ligne mais avec des ventes chez Shopify : refusé
     const j = jeuxM(D1, 1000);
     j.controle = [rControle(j.controle[0].query, [...totauxJour(jourM(D1, 1000).ventes), [D2, 1, 10, 2]], DM)];
-    ok(echec(() => traiterBoutique("marketplaces", j, ref, { du: D1, au: D2 })), "pipeline : jour de la fenêtre absent des lignes mais présent chez Shopify refusé");
+    ok(echec(() => traiter("marketplaces", j, ref, { du: D1, au: D2 })), "pipeline : jour de la fenêtre absent des lignes mais présent chez Shopify refusé");
   }
-  ok(lance(() => traiterBoutique("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", Array.from({ length: CFG.limiteLignes }, (_, i) => [D1, "#X" + i, "product", skuA, "A", "France", "Bestherm", 0, 0, 0]), DM)] }, ref, fen1)) instanceof LimiteAtteinte, "pipeline : liste de ventes tronquée (limite de lignes) → LimiteAtteinte");
-  ok(lance(() => traiterBoutique("marketplaces", { ...jeuxM(D1, 1000), paiements: [rPaiements("q", Array.from({ length: CFG.limiteLignes }, (_, i) => ["#P" + i, "amazon", 1]), DM)] }, ref, fen1)) instanceof LimiteAtteinte, "pipeline : liste de paiements tronquée → LimiteAtteinte");
+  ok(lance(() => traiter("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", Array.from({ length: CFG.limiteLignes }, (_, i) => [D1, "#X" + i, "product", skuA, "A", "France", "Bestherm", 0, 0, 0]), DM)] }, ref, fen1)) instanceof LimiteAtteinte, "pipeline : liste de ventes tronquée (limite de lignes) → LimiteAtteinte");
+  ok(lance(() => traiter("marketplaces", { ...jeuxM(D1, 1000), paiements: [rPaiements("q", Array.from({ length: CFG.limiteLignes }, (_, i) => ["#P" + i, "amazon", 1]), DM)] }, ref, fen1)) instanceof LimiteAtteinte, "pipeline : liste de paiements tronquée → LimiteAtteinte");
   { // plus de 10 % des commandes sans passerelle : jeu « payments » incomplet
     const [qv, , qc] = requetesFenetre("marketplaces", { du: D1, au: D1 }, AUJ);
     const ventes = Array.from({ length: 40 }, (_, i) => [D1, "#N" + i, "product", skuA, "A", "France", "Bestherm", 1, 10, 2]);
     const j = { ventes: [rVentes(qv.query, ventes, DM)], paiements: [rPaiements("q", [["#N0", "amazon", 12]], DM)], controle: [rControle(qc.query, totauxJour(ventes), DM)] };
-    ok(echec(() => traiterBoutique("marketplaces", j, ref, fen1)), "pipeline : jeu « payments » presque vide (commandes sans passerelle) refusé");
+    ok(echec(() => traiter("marketplaces", j, ref, fen1)), "pipeline : jeu « payments » presque vide (commandes sans passerelle) refusé");
   }
-  ok(echec(() => traiterBoutique("marketplaces", { ...jeuxM(D1, 1000), ventes: [{ query: "q", shopDomain: DM, columns: col("day", "order_name"), rows: [[D1, "#1"]] }] }, ref, fen1)), "pipeline : colonne absente refusée");
-  ok(echec(() => traiterBoutique("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", [[D1, "#1", "product", skuA, "A", "France", "Bestherm", "beaucoup", 1, 1]], DM)] }, ref, fen1)), "pipeline : valeur non numérique refusée");
-  ok(echec(() => traiterBoutique("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", [["2026-09-30", "#1", "product", skuA, "A", "France", "Bestherm", 1, 1, 0.2]], DM)] }, ref, fen1)), "pipeline : ligne hors de la fenêtre demandée refusée");
+  ok(echec(() => traiter("marketplaces", { ...jeuxM(D1, 1000), ventes: [{ query: "q", shopDomain: DM, columns: col("day", "order_name"), rows: [[D1, "#1"]] }] }, ref, fen1)), "pipeline : colonne absente refusée");
+  ok(echec(() => traiter("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", [[D1, "#1", "product", skuA, "A", "France", "Bestherm", "beaucoup", 1, 1]], DM)] }, ref, fen1)), "pipeline : valeur non numérique refusée");
+  ok(echec(() => traiter("marketplaces", { ...jeuxM(D1, 1000), ventes: [rVentes("q", [["2026-09-30", "#1", "product", skuA, "A", "France", "Bestherm", 1, 1, 0.2]], DM)] }, ref, fen1)), "pipeline : ligne hors de la fenêtre demandée refusée");
+
+  /* ---- Technomat : les commandes Leroy Merlin dont le numéro d'origine commence par 014 forment la marketplace Technomat */
+  ok(estTechnomat("014-120208-A") && estTechnomat(" 014-1-A ") && estTechnomat("014") && !estTechnomat("001-26299L112-A") && !estTechnomat("0140-1")
+    && !estTechnomat("1014-1") && !estTechnomat("") && !estTechnomat(undefined) && !estTechnomat(null) && !estTechnomat("TEST-6"), "Technomat : seuls les numéros d'origine commençant par 014 (pas 0140…)");
+  ok(prefixeNumero("002-26299L1-A") === "002" && prefixeNumero("TEST-6") === null && prefixeNumero("0140-1") === null && prefixeNumero(undefined) === null, "Technomat : préfixe d'un numéro d'origine");
+  ok(numeroOrigine([{ key: "Latest Ship Date", value: "x" }, { key: "leroymerlin Number", value: " 014-1-A " }]) === "014-1-A" && numeroOrigine([]) === "" && numeroOrigine(null) === "", "Technomat : numéro d'origine lu dans les attributs de commande");
+  ok(minuitParis("2026-10-24") === "2026-10-24T00:00:00+02:00" && minuitParis("2026-10-25") === "2026-10-25T00:00:00+02:00" && minuitParis("2026-10-26") === "2026-10-26T00:00:00+01:00"
+    && minuitParis("2026-03-29") === "2026-03-29T00:00:00+01:00" && minuitParis("2026-03-30") === "2026-03-30T00:00:00+02:00", "Technomat : minuit de Paris avec le bon décalage (changements d'heure du 29 mars et du 25 octobre)");
+  ok(minuitParisUtc("2026-10-26") === "2026-10-25T23:00:00Z" && minuitParisUtc("2026-10-25") === "2026-10-24T22:00:00Z" && minuitParisUtc("2026-03-29") === "2026-03-28T23:00:00Z"
+    && minuitParisUtc("2026-03-30") === "2026-03-29T22:00:00Z" && minuitParisUtc("2026-07-14") === "2026-07-13T22:00:00Z", "Technomat : minuit de Paris en UTC (changements d'heure du 29 mars et du 25 octobre)");
+  const planC = planifier(null, "2026-10-27", { du: "2026-10-25", au: "2026-10-26" }, "marketplaces");
+  ok(planC.classification?.graphql === GQL.commandesLm("2026-10-25", "2026-10-26") && planC.classification.first === 50 && planC.classification.outil === "graphql_query"
+    && planC.classification.graphql.includes("gateway:'leroymerlin via Shopping Feed'") && planC.classification.graphql.includes("created_at:>='2026-10-24T22:00:00Z'")
+    && planC.classification.graphql.includes("created_at:<'2026-10-26T23:00:00Z'") && planC.classification.graphql.includes("customAttributes{ key value }")
+    && !/email|phone|address|customer/i.test(planC.classification.graphql) && planC.classification.volumineux === undefined,
+  "Technomat : le plan contient la requête GraphQL de classification (fenêtre de minuit à minuit, bornes en UTC entre apostrophes, sans donnée client)");
+  // Shopify interprète de travers les dates SANS apostrophes (« created_at:<…+01:00 » ignoré, « created_at:>=…Z » ramené au jour entier) :
+  // chaque borne doit être une date-heure UTC exacte ENTRE APOSTROPHES, et il ne doit y en avoir que deux.
+  const gq = planC.classification.graphql, sansBornes = gq.replace(/created_at:(?:>=|<)'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ'/g, "");
+  ok((gq.match(/created_at:/g) ?? []).length === 2 && !sansBornes.includes("created_at:"), "Technomat : les deux bornes de la requête sont en UTC (…Z) entre apostrophes (jamais sans apostrophes, ni avec un décalage « +01:00 », ni une date seule)");
+  ok(planifier(null, "2026-10-27", { du: "2026-10-25", au: "2026-10-26" }, "site").classification === undefined && planifier(null, AUJ, {}, "marketplaces").classification?.volumineux?.includes("--ordres-lm"),
+    "Technomat : pas de classification pour la boutique du site ; un historique entier renvoie vers un fichier --ordres-lm");
+
+  // la commande #1001 (A × 2 et B × 1, 150 € HT) est celle de Leroy Merlin dans le jeu du jour
+  const lignesDe = (s, mp) => s.lignes.filter((l) => l.mp === mp).map((l) => [l.produit, l.qte, l.ca]);
+  const sT = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: new Map([["#1001", "014-120208-A"]]) });
+  ok(memes(sT.lignes.map((l) => [l.mp, l.produit, l.qte, l.ca]), [[TECHNOMAT.mp, nomA, 2, 100], [TECHNOMAT.mp, nomB, 1, 50], ["Amazon FR", nomB, 1, 50], ["Amazon FR", nomA, -1, -66], [MP_AUTRE, nomA, 2, 60]])
+    && lignesDe(sT, "Leroy Merlin").length === 0, "Technomat : la commande 014 est classée Technomat et plus dans Leroy Merlin");
+  ok(r2(sT.stats.ca) === 194 && sT.stats.qte === 5 && sT.stats.commandes === 3 && sT.stats.technomat.commandes === 1 && r2(sT.stats.technomat.ca) === 150, "Technomat : total du jour inchangé (194 €, 5 unités), compteur des commandes 014");
+  ok(memes(sT.commandes.map((c) => [c.mp, c.n]), [[TECHNOMAT.mp, 1], ["Amazon FR", 1], [MP_AUTRE, 1]]) && memes(sT.pays.map((p) => [p.pays, p.mp, p.ca, p.qte]), [["France", TECHNOMAT.mp, 150, 3], ["France", MP_AUTRE, 0, 1], ["Belgique", "Amazon FR", 50, 1], ["Espagne", MP_AUTRE, 60, 1], ["Italie", "Amazon FR", -66, -1]]),
+    "Technomat : commandes et pays suivent la marketplace Technomat (onglet Répartitions)");
+  ok(!avertissementsDe(sT).some((a) => /préfixe connu/.test(a)) && lance(() => controlerSortie(agreger([sT]))) === null, "Technomat : pas d'avertissement pour un numéro 014, extraction acceptée");
+  // numéro d'une autre origine (Espagne 002) : reste dans Leroy Merlin ; préfixe inconnu : reste dans Leroy Merlin + avertissement ; numéro vide : signalé
+  const sEs = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: new Map([["#1001", "002-26299L2-A"]]) });
+  ok(lignesDe(sEs, "Leroy Merlin").length === 2 && lignesDe(sEs, TECHNOMAT.mp).length === 0 && sEs.stats.technomat.commandes === 0 && !avertissementsDe(sEs).some((a) => /préfixe connu/.test(a)), "Technomat : un numéro 002 reste dans Leroy Merlin");
+  const sX = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: new Map([["#1001", "099-1-A"]]) });
+  ok(lignesDe(sX, "Leroy Merlin").length === 2 && avertissementsDe(sX).some((a) => /préfixe connu/.test(a) && /099-1-A/.test(a)), "Technomat : préfixe inconnu laissé dans Leroy Merlin avec avertissement");
+  const sV = traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: new Map([["#1001", ""]]) });
+  ok(lignesDe(sV, "Leroy Merlin").length === 2 && avertissementsDe(sV).some((a) => /préfixe connu/.test(a) && /\(vide\)/.test(a)), "Technomat : commande lue sans numéro d'origine signalée");
+  // numéro non lu : on n'écrit rien (code 3), jamais de classement au hasard
+  for (const [nom, arg] of [["absent", undefined], ["vide", new Map()], ["autre commande", new Map([["#9999", "014-1-A"]])]]) {
+    const eN = lance(() => controlerSortie(agreger([traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: arg })])));
+    ok(eN instanceof Echec && eN.code === 3 && /#1001/.test(eN.message) && /classification/.test(eN.message), `Technomat : classification ${nom} → refus (code 3) et commande citée`);
+  }
+  // le message d'échec porte, prêtes à lancer, les requêtes de lecture par nom (commande créée avant la fenêtre, puis modifiée ou remboursée)
+  const mN = messageSansNumero(["SHOP100", "SHOP101", "bad name\"; drop"]);
+  ok(mN.includes(GQL.commandesParNom(["SHOP100", "SHOP101"])) && !/drop/.test(mN.split("query = ")[1] ?? "") && mN.includes("3 commande(s)") && /Aucune écriture/.test(mN),
+    "Technomat : le message d'échec contient la requête GraphQL par nom (noms sûrs seulement) et le nombre de commandes");
+  ok(GQL.commandesParNom(["SHOP100", "SHOP101"]) === 'query{ orders(first:50, query:"name:SHOP100 OR name:SHOP101"){ edges{ node{ name customAttributes{ key value } } } } }'
+    && !/email|phone|address|customer/i.test(GQL.commandesParNom(["SHOP100"])), "Technomat : requête par nom en lecture seule, sans donnée client");
+  const nombreux = Array.from({ length: 120 }, (_, i) => "SHOP" + (200 + i));
+  ok((messageSansNumero(nombreux).match(/query\{ orders\(first:50/g) || []).length === 3 && messageSansNumero(nombreux).includes("120 commande(s)"), "Technomat : au plus trois requêtes par nom dans le message, par lots de 50");
+  // une journée sans commande Leroy Merlin n'exige aucune classification
+  {
+    const jSans = jeuxM(D1, 1000);
+    jSans.paiements = [rPaiements(jSans.paiements[0].query, [["#1001", "amazon", 180], ["#1002", "amazon", 60], ["#1003", "carrefourx", 72], ["#1005", "amazon fba", -72]], DM)];
+    ok(lance(() => controlerSortie(agreger([traiterBoutique("marketplaces", jSans, ref, { ...fen1, numeros: new Map() })]))) === null, "Technomat : sans commande Leroy Merlin, aucune classification n'est exigée");
+  }
 
   /* ---- contrôles sur l'ensemble de l'extraction */
   ok(lance(() => controlerSortie(sM)) === null, "pipeline : extraction plausible acceptée");
@@ -216,27 +280,27 @@ export async function testerPipeline(ok) {
   /* ================================================================= collecte : découpage des fenêtres, résultats lus */
   {
     const jeuxJour = (D) => ({ ventes: jeuxM(D, D === D1 ? 1000 : 2000).ventes, paiements: jeuxM(D, D === D1 ? 1000 : 2000).paiements, controle: jeuxM(D, D === D1 ? 1000 : 2000).controle });
-    const seul = async (D) => collecterBoutique("marketplaces", { du: D, au: D }, { ref, aujourdhui: AUJ, jeux: async () => jeuxJour(D), decoupable: false, depuisPaires: D1 });
+    const seul = async (D) => collecterBoutique("marketplaces", { du: D, au: D }, { ref, numeros: LM001, aujourdhui: AUJ, jeux: async () => jeuxJour(D), decoupable: false, depuisPaires: D1 });
     const a1 = await seul(D1), a2 = await seul(D2);
     // fenêtre de deux jours « trop dense » : le relais coupe en deux et retrouve les mêmes agrégats
     const journal = [];
     const coupe = await collecterBoutique("marketplaces", { du: D1, au: D2 }, {
-      ref, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, log: (m) => journal.push(m),
+      ref, numeros: LM001, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, log: (m) => journal.push(m),
       jeux: async (win) => { if (win.du !== win.au) throw new LimiteAtteinte("trop dense"); return jeuxJour(win.du); },
     });
     ok(memes(coupe.lignes, [...a1.lignes, ...a2.lignes]) && coupe.du === D1 && coupe.au === D2 && journal.some((m) => /coupée en deux/.test(m)), "collecte : fenêtre trop dense coupée en deux, mêmes agrégats");
-    ok(await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, aujourdhui: AUJ, depuisPaires: D1, decoupable: false, jeux: async () => { throw new LimiteAtteinte("trop dense"); } })) instanceof LimiteAtteinte, "collecte : sans découpage possible, la limite de lignes remonte");
+    ok(await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, numeros: LM001, aujourdhui: AUJ, depuisPaires: D1, decoupable: false, jeux: async () => { throw new LimiteAtteinte("trop dense"); } })) instanceof LimiteAtteinte, "collecte : sans découpage possible, la limite de lignes remonte");
     // délai dépassé ou réponse trop volumineuse côté relais : même découpage ; une erreur sans rapport avec la taille remonte telle quelle
     ok(["Le relais signale : Shopify met trop de temps à répondre.", "Le relais signale : Shopify injoignable : The operation was aborted due to timeout", "HTTP en erreur : FUNCTION_INVOCATION_TIMEOUT", "HTTP en erreur : FUNCTION_PAYLOAD_TOO_LARGE"].every((m) => fenetreTropLourde(new ErreurRelais(m)))
       && ["Le relais refuse la clé (cle_invalide) : vérifier MCP_SITE_KEY.", "Boutique inattendue (x.myshopify.com)", "Relais injoignable après 3 essais (curl code 6)"].every((m) => !fenetreTropLourde(new ErreurRelais(m))) && fenetreTropLourde(new LimiteAtteinte("x")) && !fenetreTropLourde(new Echec("x")), "collecte : erreurs du relais qui justifient de couper la fenêtre (délai, taille) distinguées des autres");
     {
       const lourd = async (win) => { if (win.du !== win.au) throw new ErreurRelais("Le relais signale : Shopify met trop de temps à répondre."); return jeuxJour(win.du); };
-      const coupe2 = await collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: lourd });
+      const coupe2 = await collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, numeros: LM001, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: lourd });
       ok(memes(coupe2.lignes, [...a1.lignes, ...a2.lignes]), "collecte : délai dépassé sur une fenêtre de deux jours → coupée en deux, mêmes agrégats");
-      const refus = await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: async () => { throw new ErreurRelais("Le relais refuse la clé (cle_invalide) : vérifier MCP_SITE_KEY."); } }));
+      const refus = await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D2 }, { ref, numeros: LM001, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: async () => { throw new ErreurRelais("Le relais refuse la clé (cle_invalide) : vérifier MCP_SITE_KEY."); } }));
       ok(refus instanceof ErreurRelais && /cle_invalide/.test(refus.message), "collecte : une clé refusée n'est pas confondue avec une fenêtre trop lourde");
     }
-    const uneJournee = await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D1 }, { ref, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: async () => { throw new LimiteAtteinte("trop dense"); } }));
+    const uneJournee = await lanceAsync(() => collecterBoutique("marketplaces", { du: D1, au: D1 }, { ref, numeros: LM001, aujourdhui: AUJ, depuisPaires: D1, decoupable: true, jeux: async () => { throw new LimiteAtteinte("trop dense"); } }));
     ok(uneJournee instanceof Echec && /une seule journée/.test(uneJournee.message), "collecte : une seule journée trop lourde → échec explicite");
   }
 
@@ -264,6 +328,27 @@ export async function testerPipeline(ok) {
     const fT = path.join(dossier, "session.jsonl"); fs.writeFileSync(fT, jsonl);
     ok(reqM.every((q) => lireResultats({ transcripts: [fT] }, "marketplaces", reqM).trouver(q)), "collecte : résultats du connecteur relus dans la transcription de la session");
 
+    // numéros d'origine (classification Technomat) : pages GraphQL relues dans la transcription, les résultats ShopifyQL du même fichier n'interfèrent pas
+    {
+      const page = (noms) => JSON.stringify({ data: { orders: { edges: noms.map(([n, v]) => ({ node: { name: n, customAttributes: [{ key: "Latest Ship Date", value: "2026-10-29" }, { key: "leroymerlin Number", value: v }] } })), pageInfo: { hasNextPage: false, endCursor: "x" } } } });
+      const ligneJsonl = (texte) => JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text: texte }] }] } });
+      const fTr = path.join(dossier, "session_ordres.jsonl");
+      fs.writeFileSync(fTr, [
+        JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t", name: "graphql_query", input: { query: GQL.commandesLm("2026-10-26", "2026-10-26") } }] } }),
+        ligneJsonl(page([["SHOP1", "001-26299L1-A"], ["SHOP2", "014-164922-A"]])),
+        ligneJsonl(JSON.stringify({ query: REQ.controle("2026-10-26", "2026-10-26"), columns: [{ name: "day" }], rows: [["2026-10-26"]] })),
+        ligneJsonl(page([["SHOP3", "002-26299L2-A"], ["SHOP4", ""]])),
+        "ligne illisible customAttributes tool_result",
+      ].join("\n"));
+      const lus = lireNumeros({ transcripts: [fTr] });
+      ok(lus.size === 4 && lus.get("SHOP1") === "001-26299L1-A" && lus.get("SHOP2") === "014-164922-A" && lus.get("SHOP3") === "002-26299L2-A" && lus.get("SHOP4") === "", "Technomat : numéros d'origine relus dans la transcription (pages 1 et 2, commande sans numéro = chaîne vide)");
+      ok(lireNumeros({ transcripts: [path.join(dossier, "absent.jsonl")] }).size === 0, "Technomat : transcription absente → aucun numéro (la classification échouera ensuite)");
+      const fObj = ecrire("ordres_obj.json", { SHOP9: " 014-5-A " }), fPages = ecrire("ordres_pages.json", [JSON.parse(page([["SHOP8", "001-1-A"]]))]);
+      const viaFichiers = lireNumeros({ fichiers: [fObj, fPages], transcripts: [fTr] });
+      ok(viaFichiers.size === 2 && viaFichiers.get("SHOP9") === "014-5-A" && viaFichiers.get("SHOP8") === "001-1-A", "Technomat : --ordres-lm (objet nom → numéro ou pages GraphQL) prime sur la transcription");
+      ok(lance(() => lireNumeros({ fichiers: [path.join(dossier, "absent.json")] })) instanceof Echec, "Technomat : fichier --ordres-lm illisible → refus");
+    }
+
     // relais : état sans clé, et résultats déjà en cache (aucun appel réseau)
     const cleEnv = process.env.MCP_SITE_KEY;
     delete process.env.MCP_SITE_KEY;
@@ -286,12 +371,12 @@ export async function testerPipeline(ok) {
     ok(JSON.stringify(e1.mp) === JSON.stringify([...e1.mp].sort()) && e1.mp.includes(MP_SITE) && e1.produits.some(([n, m]) => n === "Produit XYZ inconnu" && m === "Thomson") && e1.produits.some(([n, m]) => n === nomA && m === "Bestherm"), "fusion : dictionnaires triés, marque du fournisseur conservée par produit");
     ok(e1.base && e1.base.marketplaces && e1.base.site && e1.extrait_le === AUJ && /^\d{4}-\d{2}-\d{2}T/.test(e1.extrait_a) && /^\d{4}-\d{2}-\d{2}T/.test(e1.boutiques.site.extrait_a), "fusion : bases de calcul et dates d'extraction renseignées");
     // le lendemain, seules les marketplaces avancent : couverture = plus ancien des deux « au »
-    const aM2 = agreger([traiterBoutique("marketplaces", jeuxM(D2, 2000), ref, { du: D2, au: D2, depuisPaires: D1 })]);
+    const aM2 = agreger([traiter("marketplaces", jeuxM(D2, 2000), ref, { du: D2, au: D2, depuisPaires: D1 })]);
     const e2 = fusionner(e1, { marketplaces: bloc("marketplaces", aM2) }, AUJ);
     ok(e2.boutiques.marketplaces.au === D2 && e2.boutiques.site.au === D1 && e2.au === D1 && auExtension(e2) === D1 && validerExtension(e2).ok, "fusion : couverture = plus ancien des « au » quand une boutique n'avance pas");
     ok(e2.lignes.length === e1.lignes.length + aM2.lignes.length, "fusion : les jours déjà extraits sont conservés");
     // jour réextrait : remplacé, jamais doublé ; l'autre boutique n'est pas touchée
-    const aM1bis = agreger([traiterBoutique("marketplaces", jeuxM(D1, 1000, 2), ref, fen1)]);
+    const aM1bis = agreger([traiter("marketplaces", jeuxM(D1, 1000, 2), ref, fen1)]);
     const e3 = fusionner(e2, { marketplaces: bloc("marketplaces", aM1bis) }, AUJ);
     const caJour = (e, j, site) => r2(e.lignes.filter((l) => l[0] === j && (e.mp[l[1]] === MP_SITE) === site).reduce((t, l) => t + l[4], 0));
     ok(caJour(e3, D1, false) === 388 && caJour(e3, D2, false) === 194 && caJour(e3, D1, true) === 510 && e3.lignes.length === e2.lignes.length, "fusion : jour réextrait remplacé (pas de doublon), les autres jours et l'autre boutique inchangés");
@@ -313,6 +398,14 @@ export async function testerPipeline(ok) {
     const texte = serialiser(e3);
     ok(JSON.stringify(JSON.parse(texte)) === JSON.stringify(e3) && texte.split("\n").length > e3.lignes.length && texte.endsWith("}\n") && texte.indexOf('"schema"') < texte.indexOf('"lignes"'), "fusion : sérialisation (une ligne par enregistrement) relue à l'identique");
     ok(/Période/.test(resume(e3)) && /Par marketplace/.test(resume(e3)) && /Boutiques/.test(resume(e3)), "fusion : compte rendu de l'extraction");
+    {
+      // Technomat : la marketplace entre dans les dictionnaires de l'extraction, qui reste valide et construit le tableau de bord
+      const bT = agreger([traiterBoutique("marketplaces", jeuxM(D1, 1000), ref, { ...fen1, numeros: new Map([["#1001", "014-120208-A"]]) })]);
+      const eT = fusionner(fusionner(null, { marketplaces: bloc("marketplaces", bT) }, AUJ), { site: bloc("site", aS1) }, AUJ);
+      ok(validerExtension(eT).ok && eT.mp.includes(TECHNOMAT.mp) && !eT.mp.includes("Leroy Merlin") && eT.lignes.length === aM1.lignes.length + aS1.lignes.length, "Technomat : l'extraction fusionnée contient la marketplace Technomat et reste valide");
+      const rT = construire(eT, ref, {});
+      ok(rT.appliquee && r2(rT.ca) === 194 + 510 && rT.dmax === D1, `Technomat : le tableau de bord se construit, CA total inchangé (${rT.ca} au lieu de ${194 + 510})`);
+    }
 
     /* ---- contrôle avec l'extraction précédente */
     {
@@ -350,6 +443,11 @@ export async function testerPipeline(ok) {
       && plans.every((p) => p.du === D1 && p.au === D2 && p.vide === false && p.today === AUJ), "cli : plan (JSON : une entrée par boutique, requêtes à lancer)");
     ok(cli("plan", ...fen, "--boutique", "site").out.includes('"boutique": "site"') && JSON.parse(cli("plan", ...fen, "--boutique", "site").out).length === 1, "cli : plan d'une seule boutique");
 
+    // classification Technomat : le plan de BESTHERM porte la requête GraphQL des numéros d'origine, pas celui du site
+    ok(plans[0].classification?.outil === "graphql_query" && plans[0].classification.graphql === GQL.commandesLm(D1, D2) && plans[1].classification === undefined, "cli : plan des marketplaces = requêtes ShopifyQL + requête GraphQL de classification Technomat");
+    // numéros d'origine des commandes Leroy Merlin des jeux de test (#1001, #2001, #3001) : France (001) ; fichier lu par --ordres-lm
+    const fNum = ecrire("ordres_lm.json", { "#1001": "001-26001L1-A", "#2001": "001-26001L2-A", "#3001": "001-26001L3-A" });
+    const fVide = path.join(dossier, "transcription_vide.jsonl"); fs.writeFileSync(fVide, "");
     // résultats : ceux que le connecteur renverrait pour les requêtes du plan (2 jours dans une fenêtre)
     const ventesM = [...jourM(D1, 1000).ventes, ...jourM(D2, 2000).ventes], paiM = [...jourM(D1, 1000).paiements, ...jourM(D2, 2000).paiements];
     const ventesS = [...jourS(D1, 0), ...jourS(D2, 10)];
@@ -362,9 +460,9 @@ export async function testerPipeline(ok) {
     })).filter(Boolean);
     const fRes = ecrire("resultats.json", reponses(plans));
 
-    const essai = cli("apply", ...fen, "--results", fRes, "--dry-run");
+    const essai = cli("apply", ...fen, "--results", fRes, "--ordres-lm", fNum, "--dry-run");
     ok(essai.code === 0 && /Essai à blanc/.test(essai.out) && !fs.existsSync(fichierExt), `cli : --dry-run n'écrit rien (code ${essai.code})`);
-    const ap = cli("apply", ...fen, "--results", fRes);
+    const ap = cli("apply", ...fen, "--results", fRes, "--ordres-lm", fNum);
     ok(ap.code === 0 && fs.existsSync(fichierExt) && /mis à jour/.test(ap.out), `cli : apply écrit shopify_extension.json (code ${ap.code}) ${ap.err.slice(0, 200)}`);
     let ext1 = null; try { ext1 = JSON.parse(fs.readFileSync(fichierExt, "utf8")); } catch { /* vérifié plus bas */ }
     const rExt = ext1 && construire(ext1, ref, {});
@@ -377,7 +475,7 @@ export async function testerPipeline(ok) {
 
     // idempotence : le même jour réextrait redonne les mêmes données (seuls les horodatages changent)
     const sansHorodatage = (e) => JSON.stringify({ ...e, extrait_a: null, boutiques: Object.fromEntries(Object.entries(e.boutiques).map(([k, b]) => [k, { ...b, extrait_a: null }])) });
-    const ap2 = cli("apply", ...fen, "--results", fRes);
+    const ap2 = cli("apply", ...fen, "--results", fRes, "--ordres-lm", fNum);
     ok(ap2.code === 0 && sansHorodatage(JSON.parse(fs.readFileSync(fichierExt, "utf8"))) === sansHorodatage(ext1), "cli : réextraction des mêmes jours = mêmes données (pas de doublon)");
 
     // chaque boutique est indépendante : sans résultats du site, les marketplaces avancent et le site garde ses chiffres de la veille
@@ -385,24 +483,38 @@ export async function testerPipeline(ok) {
     const plans3 = JSON.parse(cli("plan", "--today", AUJ3, "--du", D3, "--au", D3).out);
     const ventesM3 = jourM(D3, 3000).ventes, paiM3 = jourM(D3, 3000).paiements;
     const rep3 = plans3.filter((p) => p.boutique === "marketplaces").flatMap((p) => p.queries.map((q) => (q.id.startsWith("ventes") ? rVentes(q.query, ventesM3, DM) : q.id.startsWith("paiements") ? rPaiements(q.query, paiM3, DM) : rControle(q.query, totauxJour(ventesM3), DM))));
-    const ap3 = cli("apply", "--today", AUJ3, "--du", D3, "--au", D3, "--results", ecrire("resultats3.json", rep3));
+    const ap3 = cli("apply", "--today", AUJ3, "--du", D3, "--au", D3, "--results", ecrire("resultats3.json", rep3), "--ordres-lm", fNum);
     const ext3 = JSON.parse(fs.readFileSync(fichierExt, "utf8"));
     ok(ap3.code === 0 && ext3.boutiques.marketplaces.au === D3 && ext3.boutiques.site.au === D2 && ext3.au === D2 && /Boutique\(s\) en échec/.test(ap3.err), `cli : une boutique en échec n'empêche pas l'autre ; chiffres de la veille conservés (code ${ap3.code})`);
 
     // refus : première extraction incomplète, résultats manquants, mauvaise boutique, option inconnue
     const racine2 = path.join(dossier, "depot2"); fs.cpSync(racine, racine2, { recursive: true }); fs.rmSync(path.join(racine2, "shopify_extension.json"));
     const cli2 = (...a) => { const r = spawnSync(process.execPath, [SCRIPT, ...a], { env: { ...env, HOMY_RACINE: racine2 }, encoding: "utf8", timeout: 120000 }); return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" }; };
-    const partiel = cli2("apply", ...fen, "--results", ecrire("resultats_partiels.json", reponses(plans, { sansSite: true })));
+    const partiel = cli2("apply", ...fen, "--results", ecrire("resultats_partiels.json", reponses(plans, { sansSite: true })), "--ordres-lm", fNum);
     ok(partiel.code === 3 && !fs.existsSync(path.join(racine2, "shopify_extension.json")) && /sans extraction antérieure/.test(partiel.err), `cli : première extraction incomplète refusée, rien n'est écrit (code ${partiel.code})`);
-    const faux = cli2("apply", ...fen, "--results", ecrire("resultats_faux.json", reponses(plans).map((r) => ({ ...r, rows: r.rows.map((row) => (row.length > 8 ? row.map((v, i) => (i === 8 ? v + 5 : v)) : row)) }))));
+    const faux = cli2("apply", ...fen, "--results", ecrire("resultats_faux.json", reponses(plans).map((r) => ({ ...r, rows: r.rows.map((row) => (row.length > 8 ? row.map((v, i) => (i === 8 ? v + 5 : v)) : row)) }))), "--ordres-lm", fNum);
     ok(faux.code === 3 && !fs.existsSync(path.join(racine2, "shopify_extension.json")) && /total du jour Shopify/.test(faux.err), `cli : lignes ≠ totaux du jour de Shopify → rien n'est écrit (code ${faux.code})`);
     const inconnue = cli2("apply", "--bidon");
     ok(inconnue.code === 1 && /Option inconnue/.test(inconnue.err), "cli : option inconnue → code 1");
     ok(cli2("apply", "--today", "demain").code === 1 && cli2("plan", "--reprendre", "99").code === 1 && cli2("plan", "--boutique", "autre").code === 1 && cli2("bidon").code === 1, "cli : arguments invalides → code 1");
     ok(cli2("status").code === 0 && /vide/.test(cli2("status").out), "cli : status sans extraction");
-    const sansResultats = cli2("apply", ...fen, "--results", ecrire("vide.json", []));
+    const sansResultats = cli2("apply", ...fen, "--results", ecrire("vide.json", []), "--ordres-lm", fNum);
     ok(sansResultats.code === 3 && /manquants/.test(sansResultats.err), `cli : résultats absents → code 3 (code ${sansResultats.code})`);
     fs.writeFileSync(path.join(racine2, "shopify_extension.json"), JSON.stringify({ schema: 1, lignes: [] }));
     ok(/ancien format/.test(cli2("status").out) && /ancien format/.test(cli2("check", "--today", AUJ).out), "cli : extraction à l'ancien format signalée (historique complet à extraire)");
+
+    // Technomat de bout en bout : sans numéros d'origine → refus (code 3, rien d'écrit) ; avec des numéros 014 → marketplace Technomat, CA total inchangé
+    const racine3 = path.join(dossier, "depot3"); fs.cpSync(racine, racine3, { recursive: true }); fs.rmSync(path.join(racine3, "shopify_extension.json"));
+    const cli3 = (...a) => { const r = spawnSync(process.execPath, [SCRIPT, ...a], { env: { ...env, HOMY_RACINE: racine3 }, encoding: "utf8", timeout: 120000 }); return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" }; };
+    const sansNum = cli3("apply", ...fen, "--results", fRes, "--transcript", fVide);
+    ok(sansNum.code === 3 && !fs.existsSync(path.join(racine3, "shopify_extension.json")) && /classification Technomat incomplète/.test(sansNum.err) && /#1001/.test(sansNum.err) && /Aucune écriture/.test(sansNum.err),
+      `cli : numéros d'origine non lus → refus (code ${sansNum.code}), commandes citées, rien n'est écrit`);
+    const fNum014 = ecrire("ordres_lm_014.json", { "#1001": "014-120208-A", "#2001": "014-120209-A" });
+    const avec014 = cli3("apply", ...fen, "--results", fRes, "--ordres-lm", fNum014);
+    let ext014 = null; try { ext014 = JSON.parse(fs.readFileSync(path.join(racine3, "shopify_extension.json"), "utf8")); } catch { /* vérifié plus bas */ }
+    ok(avec014.code === 0 && /dont Technomat/.test(avec014.out) && ext014 && validerExtension(ext014).ok && ext014.mp.includes(TECHNOMAT.mp) && !ext014.mp.includes("Leroy Merlin"),
+      `cli : numéros 014 → marketplace Technomat dans le fichier produit (code ${avec014.code}) ${avec014.err.slice(0, 200)}`);
+    const caMp = (e, nom) => r2(e.lignes.filter((l) => e.mp[l[1]] === nom).reduce((s, l) => s + l[4], 0));
+    ok(ext014 && caMp(ext014, TECHNOMAT.mp) === 2 * 150 && r2(ext014.lignes.reduce((s, l) => s + l[4], 0)) === 2 * (194 + 510), "cli : Technomat = 2 commandes 014 (300 € HT), total (marketplaces + site) inchangé");
   } finally { fs.rmSync(dossier, { recursive: true, force: true }); }
 }

@@ -36,7 +36,8 @@ Tous les onglets s'arrêtent au même jour, `DMAX`, et s'accordent entre eux au 
 | CA HT site web (bestherm.fr) | **Ventes nettes** (déjà hors taxes, remises et retours déduits) : égales au chiffre « Ventes nettes » du tableau de bord Shopify, exactement |
 | Port | Les lignes de port (`shipping`) n'ont aucune vente nette (seulement de la TVA) : non comptées. La ligne « Livraison » de l'application correspond aux lignes produit de référence `SHOPIFYSHIPPINGPRODUCT` |
 | Retours et ajustements | Un remboursement est une ligne négative à la date du remboursement. Un `sale_adjustment` (correction sans produit) est rattaché aux lignes remboursées de la même commande, au prorata ; à défaut à toutes ses lignes ; à défaut au produit technique « Ajustements Shopify » : le total de chaque jour égale celui de Shopify |
-| Marketplace d'une commande | Passerelle de paiement de la commande (jeu `payments`, passerelle au plus gros montant ; `… via Shopping Feed` retiré), traduite par `passerelles` de `data/referentiel.json` : `leroymerlin` → Leroy Merlin (**Bricoman n'est pas séparable dans Shopify : ses ventes sont comptées dans Leroy Merlin**), `amazon`, `amazon fba`, `amazon prime` → Amazon FR, `epmm`, `monechelle`, `manomano`, `manomanopro` → ManoMano, `cdiscount`, `clogistique` → Cdiscount, `maxeda` → Maxeda, `castoramafr` → Castorama, `bricomarche` → Bricomarché, `dartybomp`, `darty` → Darty, `boulanger` → Boulanger, `bricobravo` → Brico Bravo, `but` → But, `worten` → Worten, `bol` → Bol.com. Toute autre passerelle (Fnac, Carrefour, Leclerc, PriceMinister, bricodepotes, vente-unique, ubaldi, `manual` : ≈ 0,5 % des paiements de BESTHERM) et les commandes à 0 € sans paiement (envois de remplacement) → « Autre » (avertissement avec la liste) |
+| Marketplace d'une commande | Passerelle de paiement de la commande (jeu `payments`, passerelle au plus gros montant ; `… via Shopping Feed` retiré), traduite par `passerelles` de `data/referentiel.json` : `leroymerlin` → Leroy Merlin, sauf les commandes dont le numéro d'origine commence par 014 → **Technomat** (ligne suivante), `amazon`, `amazon fba`, `amazon prime` → Amazon FR, `epmm`, `monechelle`, `manomano`, `manomanopro` → ManoMano, `cdiscount`, `clogistique` → Cdiscount, `maxeda` → Maxeda, `castoramafr` → Castorama, `bricomarche` → Bricomarché, `dartybomp`, `darty` → Darty, `boulanger` → Boulanger, `bricobravo` → Brico Bravo, `but` → But, `worten` → Worten, `bol` → Bol.com. Toute autre passerelle (Fnac, Carrefour, Leclerc, PriceMinister, bricodepotes, vente-unique, ubaldi, `manual` : ≈ 0,5 % des paiements de BESTHERM) et les commandes à 0 € sans paiement (envois de remplacement) → « Autre » (avertissement avec la liste) |
+| Technomat | Commandes de la passerelle `leroymerlin` dont le **numéro d'origine** (attribut de commande `leroymerlin Number`, ex. `014-120208-A`) commence par **014**. C'est l'ancienne ligne « Bricoman » de l'ODP, renommée. Shopify ne les distingue de Leroy Merlin que par cet attribut (aucun filtre côté serveur, absent de ShopifyQL) : le `plan` des marketplaces contient donc, en plus des requêtes ShopifyQL, une requête **GraphQL de classification** (`plan.classification`, outil `graphql_query` du connecteur Shopify de Claude, lecture seule : nom et attributs de commande des commandes Leroy Merlin de la fenêtre, `first` = 50 puis `after` = `pageInfo.endCursor` tant que `hasNextPage` vaut `true`). `apply` relit ces pages dans la transcription (ou `--ordres-lm fichier.json`, objet `nom → numéro`, pour un historique). **Une commande Leroy Merlin dont le numéro n'a pas été lu fait échouer l'extraction (code 3)** : jamais de classement au hasard. Préfixes connus : 001 France, 002 Espagne, 003 Portugal, 005, 006, 014 Technomat ; un autre format reste dans Leroy Merlin avec un avertissement. Pas d'objectif fiable : ni ligne du plan ni courbe |
 | Site web | Marketplace « Site Web » (boutique bestherm.fr) |
 | Produits | Référence Shopify normalisée (`_never_used` et `-FLM` retirés, `/` → `-`) → produit de la table (`skus`) ; sans référence reconnue : titre Shopify normalisé (`titres`) ; à défaut le titre lui-même (produit nouveau, à ajouter à la table : avertissement) |
 | Marque | Celle du **fournisseur Shopify** (`product_vendor` : Bestherm, Thomson, HOM'Y), la plus fréquente par produit ; à défaut la marque de la table |
@@ -91,7 +92,7 @@ leur variation sur un jour touché (comme le chiffre en tête).
 `suiviProfilJours` parcourt les tranches de jours du périmètre (`S.tranchesJours(mpF)` : tout l'historique journalier de `shopify_extension.json` (schéma 2 : jour × marketplace × produit), site web compris), retient les semaines entières (dimanche → samedi) dont les 7 jours ont une
 vente, mesure la part de chaque jour dans la moyenne de sa semaine et fait la moyenne de ces parts ; il faut au moins `SUIVI_PROFIL_MIN` = 8 semaines, sinon le périmètre prend le profil de l'ensemble
 des canaux (puis, à défaut, une répartition à plat ÷ 7). Les poids ont pour moyenne 1 : le total de chaque semaine entière reste celui du plan. Avec un filtre marketplace, l'objectif est le prorata de son objectif annuel
-(`DATA.mp_vs_objectif`, `partObj`) ; sans objectif fiable (« Autre », « But », « Bricoman ») : ni ligne du plan ni courbe. L'objectif d'une période est la somme des objectifs de ses jours, celui d'un jour touché
+(`DATA.mp_vs_objectif`, `partObj`) ; sans objectif fiable (« Autre », « But », « Technomat ») : ni ligne du plan ni courbe. L'objectif d'une période est la somme des objectifs de ses jours, celui d'un jour touché
 est le sien ; le plan ne couvre que les semaines 1 à 52 de 2026 (une fenêtre qui en sort n'affiche pas d'objectif). Les repères de test sont `data-suivi="plan"` (`data-objectif`, `data-pct`),
 `data-suivi="objectif"` (légende) et `data-suivi="objectif-jour"` (un point invisible par jour sur la courbe, `data-d` / `data-obj`). La courbe d'objectif mensuel de la tendance est tracée après le masque
 de la fourchette anticipée, avec des points pleins ; tous ces libellés sont traduits (`suivi_obj_*`, `obj_2026_*`).
@@ -129,6 +130,9 @@ quantités, année précédente et année en cours. `repartitions.js` les calcul
   rangés par boutique et par texte de requête.
 - **Chaque jour** : les lignes doivent retrouver exactement le total du jour de Shopify (unités, ventes nettes, taxes) ; liste tronquée
   (10 000 lignes) : la fenêtre est coupée en deux et relue ; moins de 2 % des commandes sans passerelle de paiement (hors commandes à 0 €).
+- **Technomat** : chaque commande Leroy Merlin de la fenêtre doit avoir son numéro d'origine lu (sinon code 3, rien n'est écrit ; les commandes manquantes de tous les jours sont citées d'un coup) ;
+  préfixe inconnu ou numéro absent : laissée dans Leroy Merlin avec un avertissement. Une commande créée avant la fenêtre peut avoir une ligne dans la fenêtre (modification ou remboursement tardif) :
+  la requête de classification ne la ramène pas, le message d'échec donne alors la requête GraphQL de lecture par nom (`orders(query:"name:SHOP1 OR name:SHOP2")`, 50 noms au plus), dont le résultat est relu comme le reste dans la transcription.
 - Pas de régression : la couverture ne peut pas reculer et les jours communs avec l'extraction précédente ne peuvent pas varier de plus de
   15 % au total (`--force` pour passer outre, en connaissance de cause).
 - Les deux boutiques sont **indépendantes** : si l'une échoue, l'autre est quand même mise à jour ; l'application garde alors les chiffres de la
@@ -163,6 +167,13 @@ Toutes les commandes se lancent depuis la racine du dépôt.
    requête avec `run-analytics-query`, **texte exact**, dans le même message ; ne rien recopier à la main : le script relit les résultats dans
    la transcription de la session (`~/.claude/projects/**.jsonl`). Ce repli ne sert que pour quelques jours : l'historique complet
    (plus de 140 requêtes) passe obligatoirement par le relais.
+   **Classification Technomat — toujours, que le relais lise BESTHERM ou non** : l'application relais n'a que le droit `read_reports`, elle ne lit pas les attributs de commande.
+   Le `plan` de BESTHERM donne aussi la requête GraphQL de **classification** (`plan.classification.graphql`, outil `graphql_query` du connecteur Shopify de Claude, texte exact, `first` = 50,
+   puis `after` = `pageInfo.endCursor` tant que `hasNextPage` vaut `true`) : elle donne le numéro d'origine des commandes Leroy Merlin de la fenêtre (une journée ≈ 130 commandes, 3 pages),
+   relu comme le reste dans la transcription. Aucune donnée client : seuls le nom de commande et ses attributs sont demandés. Les bornes de la requête sont des minuits de Paris écrits en UTC
+   **entre apostrophes** (`created_at:>='2026-10-25T23:00:00Z' created_at:<'2026-10-26T23:00:00Z'` pour le 26 octobre) : la recherche de Shopify interprète de travers les dates sans apostrophes
+   (constaté le 27 octobre 2026 : `created_at:<…+01:00` est ignoré, `created_at:>=…Z` est ramené au jour entier). Ne pas reformater ces bornes. Si `apply` répond « classification Technomat incomplète »
+   alors que toutes les pages ont été lues, ce sont des commandes créées avant la fenêtre : lancer la requête par nom que le message propose, puis relancer `apply`.
 4. **Écriture** (les deux boutiques ; le script les lit lui-même par le relais) :
    ```bash
    node scripts/extension/refresh_extension.mjs apply --today $TODAY
@@ -191,6 +202,14 @@ Toutes les commandes se lancent depuis la racine du dépôt.
 Supprimer `shopify_extension.json` (ou lancer `apply --du 2024-01-01 --boutique marketplaces`), puis `apply --cache <dossier>` : BESTHERM depuis
 2024-01-01 (≈ 47 fenêtres de 14 jours × 3 requêtes), le site depuis 2025-05-01. Le cache permet de reprendre après une interruption sans tout relire. Cette reconstruction est aussi ce qui donne les **quantités par pays** à toutes les années d'une extraction antérieure à leur ajout.
 
+### Historique Technomat (à préparer avant le basculement)
+
+Technomat n'existe dans Shopify que par le numéro d'origine des commandes Leroy Merlin : pour reconstruire l'historique (2025 et 2026), il faut ce numéro pour **chaque** commande Leroy Merlin de la période
+(plusieurs dizaines de milliers de commandes) — trop pour le suivre page par page dans une conversation (≈ 3 pages par jour). Il faut donc un fichier `--ordres-lm` (objet `{ "SHOP123": "014-120208-A", … }` ou pages de résultat GraphQL)
+produit une fois pour toutes, par exemple avec une opération groupée Shopify (`bulkOperationRunQuery` sur `orders(query:"gateway:'leroymerlin via Shopping Feed'")` avec `name` et `customAttributes`), puis :
+`apply --du 2025-01-01 --boutique marketplaces --ordres-lm ordres.json --cache <dossier>`. Sans ce fichier, `apply` refuse d'écrire (code 3, commandes citées) : aucun historique n'est classé à moitié.
+Tant que ce fichier n'existe pas, la reconstruction complète ne doit pas être lancée ; les jours récents se classent avec la requête du `plan`.
+
 ### Ajouter une référence, un titre, une passerelle, un produit
 
 Un avertissement `Produits absents de la table de référence` donne le nom et le code Shopify : ajouter la référence dans
@@ -204,8 +223,8 @@ famille, sous-familles, catégorie, indicateurs) ; pour une ligne sans référen
 
 `refresh_extension.mjs` : **0** réussi · **1** erreur d'utilisation ou de structure (option inconnue, table de référence illisible, résultat
 invalide) · **2** contrôle de cohérence échoué : rien n'est écrit (boutique inattendue, total du jour, couverture, régression, tableau de bord non
-constructible) · **3** résultats ShopifyQL manquants (relancer exactement les requêtes du `plan`, même `--today`), aucune boutique mise à jour, ou
-boutique en échec sans extraction antérieure.
+constructible) · **3** résultats ShopifyQL manquants (relancer exactement les requêtes du `plan`, même `--today`, toutes les pages de la requête de classification), y compris numéros d'origine des commandes
+Leroy Merlin non lus (classification Technomat incomplète), aucune boutique mise à jour, ou boutique en échec sans extraction antérieure.
 
 `site_query.mjs` : 0 réussi · 1 erreur d'utilisation (clé absente, option inconnue) · 2 refus ou erreur du relais ou de Shopify.
 
@@ -215,7 +234,7 @@ boutique en échec sans extraction antérieure.
 
 - **Historique du site web** : la boutique bestherm.fr n'existe dans Shopify que depuis mai 2025 ; les ventes du site antérieures n'y sont pas.
   Le site s'affiche donc sur une période plus courte que les marketplaces, et la comparaison N-1 du site n'est pas homogène avant 2026.
-- Bricoman n'est pas séparable de Leroy Merlin dans Shopify : ses ventes sont comptées dans Leroy Merlin sur toute la période.
+- Technomat n'est distinguée de Leroy Merlin que par le préfixe 014 du numéro d'origine de la commande : si la marketplace changeait ce format, ses commandes retomberaient dans Leroy Merlin (avertissement « préfixe connu »). Pas d'objectif fiable : ni ligne du plan ni courbe.
 - La marketplace est déduite de la passerelle de paiement ; `epmm` / `monechelle` sont rattachées à ManoMano et `clogistique` à Cdiscount
   (hypothèse). Une passerelle nouvelle tombe dans « Autre » tant qu'elle n'est pas ajoutée à `passerelles`.
 - Un retour est compté à la date du remboursement (comme le tableau de bord Shopify), pas à la date de la commande d'origine : un mois peut être
