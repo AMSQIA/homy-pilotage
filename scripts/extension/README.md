@@ -24,6 +24,8 @@ date identique. Tous les chiffres s'arrêtent donc au même jour, `DMAX` (en gé
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence sur les vraies données du dépôt (à lancer avant toute publication) |
 | `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions ; `--navigation` ne lance que la navigation mobile (barres du haut et du bas figées, filtres, sous-onglets, saisie, 4 langues) |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
+| `api/marketplaces.mjs` | Relais en lecture seule des API vendeur d'Octopia (Cdiscount) et de ManoMano (mise en place : `INSTRUCTIONS_DEPLOIEMENT.md`, note du 28 octobre). Sert à rapprocher les ventes que Shopify attribue à ces deux marketplaces de leurs chiffres propres ; aucune donnée de client en sortie |
+| `scripts/extension/test_marketplaces.mjs` | Test de ce relais (Octopia et ManoMano simulés, sans réseau) ; ne fait pas partie de l'actualisation du matin |
 | `scripts/extension/build_n1.mjs` | Reconstruit `data/n1_2025.json` depuis l'export « LIGNE ODP 2025 » (rarement) |
 
 `App.jsx` n'est jamais modifié par l'actualisation quotidienne : pas de conflit avec les envois manuels, un commit de

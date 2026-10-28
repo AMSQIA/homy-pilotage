@@ -373,6 +373,69 @@ désinstaller l'application dans Shopify.
   partie de l'actualisation du matin : un défaut ici ne la bloque jamais. Les tests du prolongement (`selftest.mjs`,
   `smoke.mjs`) sont décrits dans la note du 17 octobre.
 
+## Relais en lecture seule de Cdiscount (Octopia) et de ManoMano (mis en place le 28 octobre 2026)
+
+Objectif : rapprocher chaque jour les ventes que Shopify attribue à Cdiscount et à ManoMano (passerelles `clogistique`, `epmm`,
+`monechelle`… : correspondances encore hypothétiques) des chiffres propres aux marketplaces (commandes, unités, CA, commissions
+Octopia), puis décider ensemble de ce qu'il faut afficher dans l'application. Les deux marketplaces sont interrogées par leurs
+**API officielles**, au travers de `api/marketplaces.mjs`, une porte hébergée sur ce projet Vercel, avec la même clé
+`MCP_SITE_KEY` que le relais du site et les mêmes garde-fous (vingt mauvaises clés depuis une adresse : blocage de 5 minutes).
+
+**Garanties** : lecture seule (requêtes GET vers des routes de consultation ; aucune action possible sur une commande ou une
+offre) ; **aucune donnée de client** en sortie (noms, adresses, e-mails, téléphones, commentaires retirés, seul le pays de
+livraison est conservé) ; les clés ne sortent jamais, même si une API les répète dans un message d'erreur ; destinations
+figées (`octopia-io.net`, `manomano.com`). Les mots de passe de connexion aux portails ne sont **jamais** utilisés ni conservés :
+seules des clés d'API, créées pour cet usage et révocables à tout moment, sont saisies dans Vercel.
+
+**Mise en place (une seule fois)**
+
+1. **Octopia (Cdiscount)** : portail développeur Octopia → *API Credentials Management* → *Create my clientId and clientSecret*,
+   en se connectant avec le compte vendeur. Noter l'identifiant client, le secret (affiché une seule fois) et le numéro de vendeur
+   (sellerId).
+2. **ManoMano** : Toolbox → *Settings* → *API key* (compte administrateur) → créer la clé, affichée une seule fois ; le numéro de
+   contrat vendeur est sur la page d'accueil de la Toolbox.
+3. **Vercel** (projet `homy-pilotage` → Settings → Environment Variables, tous les environnements) : cinq variables, chacune avec
+   **sa** valeur, puis **Redeploy** (Vercel n'applique pas une variable à un déploiement déjà en ligne). `MCP_SITE_KEY` existe déjà.
+
+   | Variable | Contenu |
+   |---|---|
+   | `OCTOPIA_CLIENT_ID` | identifiant client créé sur le portail Octopia |
+   | `OCTOPIA_CLIENT_SECRET` | secret correspondant (ce n'est pas le numéro de vendeur) |
+   | `OCTOPIA_SELLER_ID` | numéro de vendeur Octopia |
+   | `MANOMANO_API_KEY` | clé d'API créée dans la Toolbox |
+   | `MANOMANO_CONTRACT_ID` | numéro de contrat vendeur de la Toolbox |
+
+   Facultatives (valeurs de production par défaut, toute adresse hors `octopia-io.net` / `manomano.com` est ignorée) :
+   `OCTOPIA_AUTH_URL`, `OCTOPIA_API_URL`, `MANOMANO_API_URL`. Facultatif : marquer ces variables « Sensitive ».
+4. **Vérifier** : ouvrir `https://homy-pilotage.vercel.app/api/marketplaces?key=<MCP_SITE_KEY>` dans le navigateur →
+   `"configure": true` pour `octopia` et pour `manomano`. Sinon : `manque` liste les variables absentes, `identiques` celles qui
+   portent la même valeur (erreur de collage), `espaces_ou_guillemets` celles collées avec des espaces ou des guillemets
+   (ignorés à l'usage mais à corriger). Sans la clé, la page ne révèle que `cle_definie` et `cle_valide`.
+5. **Contrôle de connexion** (en ligne de commande, la clé n'est jamais écrite dans le dépôt) :
+   `curl -s -X POST "https://homy-pilotage.vercel.app/api/marketplaces?key=$MCP_SITE_KEY" -H "content-type: application/json" -d '{"source":"octopia","action":"ping"}'`
+   (idem avec `"manomano"`). `ping` obtient un jeton, lit le vendeur (Octopia) ou essaie les routes de commandes
+   (`/orders/v1/orders`, `/orders/v2/orders`, `/orders`) et renvoie la **forme** de la réponse, sans donnée sensible.
+
+**Actions** (`POST`, corps JSON `{ "source": "octopia" | "manomano", "action": … }`)
+
+| Action | Rôle |
+|---|---|
+| `ping` | Vérifie la connexion (jeton, identifiants, vendeur / contrat) ; messages d'erreur guidés, avec le nom de la variable à corriger |
+| `get` | `{ "chemin": "/orders", "params": { … } }` : lit une route de consultation (Octopia : `/sellers`, `/orders`, `/operations`, `/payments`, `/invoices`, `/offers`, `/products`, `/carriers` ; ManoMano : `/orders…`, `/offers…`, `/stocks…`, `/products…` etc.). Les routes de documents, d'expédition, d'annulation et de remboursement sont refusées |
+| `orders` | Octopia : `{ "du": "AAAA-MM-JJ", "au": "AAAA-MM-JJ" }` (jours de Paris, 35 jours au maximum) → une ligne par article (SKU, quantité, prix, taxes, commission, pays, canal), avec reprise des pages (en-tête `Link`, ou index de page) ; `"echantillon": true` ajoute une commande expurgée et les blocs de prix bruts pour contrôler la forme réelle des données |
+
+**Limites connues** : les noms de champs des commandes Octopia viennent de la documentation publique (à confirmer avec
+`echantillon: true` au premier contact : prix HT ou TTC, commission) ; pour ManoMano, la documentation officielle n'est pas
+accessible depuis l'environnement d'actualisation, le chemin exact des commandes est donc découvert par `ping` puis lu par `get`.
+Les quotas des API (Octopia : 500 jetons par heure ; ManoMano : environ 200 requêtes par heure) sont bien au-delà de l'usage prévu.
+
+**Changer ou couper** : *changer une clé* : modifier la variable dans Vercel puis redéployer ; *couper l'accès* : supprimer
+`MCP_SITE_KEY` (le relais répond alors 503) ou révoquer l'identifiant / la clé côté marketplace.
+
+**Test** (ne touche à aucune marketplace) : `node scripts/extension/test_marketplaces.mjs` → `TEST_MARKETPLACES_OK` : accès, diagnostics de
+configuration, jeton Octopia (cache, renouvellement), clé ManoMano, routes autorisées, expurgation des données de client, pagination,
+reprises, absence de clé dans les réponses et dans le journal. Il ne fait pas partie de l'actualisation du matin.
+
 ## Mise à jour du 14 octobre 2026 (nuit) — écran de conversation retiré
 
 Après l'écran d'accès (mot de passe), l'app ouvre **directement le dashboard** (Vue d'ensemble, toutes marketplaces).
@@ -398,6 +461,7 @@ ne s'affichent plus.
 - `scripts/extension/` — actualisation (`refresh_extension.mjs`), relais du site (`site_query.mjs`), tests (`selftest.mjs`,
   `smoke.mjs`, `test_mcp_site.mjs`), construction du fichier N-1 (`build_n1.mjs`) et mode d'emploi (`README.md`).
 - `api/mcp-site.mjs` — relais MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
+- `api/marketplaces.mjs` — relais en lecture seule des API vendeur d'Octopia (Cdiscount) et de ManoMano (voir la note du 28 octobre) ; inactif tant que ses variables Vercel ne sont pas saisies.
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte ne fige plus aucune date : il suit `donnees_jusqu_au`).
 
 ## Mise en ligne
