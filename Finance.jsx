@@ -139,9 +139,25 @@ function Dashboard({ d, onLogout, embedded }) {
     o.pf = m.tot.v ? (m.tot.c + m.tot.p + m.tot.o) / m.tot.v : null;
     return o;
   });
-  const per = d.synth.filter((s) => s.per === period && !s.sub && !s.name.startsWith("TOTAL"));
-  const perTot = d.synth.find((s) => s.per === period && s.name.startsWith("TOTAL"));
-  const costBars = rowsG.map((g) => ({ name: g.name, "2025": g.f25, "2026": g.v26 ? (g.c26 + g.p26 + g.o26) / g.v26 : 0 }));
+  const [cat, setCat] = useState("Toutes");
+  const CATS = ["Toutes", ...[...new Set((d.cats || []).map((x) => x.cat))].filter((x) => x !== "Non ventilé")];
+  const nm = (n) => (n.startsWith("Leroy Merlin") ? "Leroy Merlin" : n);
+  const estSet = new Set((d.est || []).map(nm));
+  const aggCat = (p) => {
+    const by = {};
+    (d.cats || []).filter((x) => x.cat === cat && x.per === p).forEach((x) => {
+      const k = nm(x.name); const a = (by[k] = by[k] || { name: k, v: 0, c: 0, p: 0, o: 0, est: x.est });
+      a.v += x.v; a.c += x.c; a.p += x.p; a.o += x.o;
+    });
+    return Object.values(by).sort((a, b) => b.v - a.v);
+  };
+  const sumRows = (rows, label) => rows.reduce((t, r) => ({ ...t, v: t.v + r.v, c: t.c + r.c, p: t.p + r.p, o: t.o + r.o }), { name: label, v: 0, c: 0, p: 0, o: 0 });
+  const per = cat === "Toutes" ? d.synth.filter((s) => s.per === period && !s.sub && !s.name.startsWith("TOTAL")).map((s) => ({ ...s, est: false })) : aggCat(period);
+  const perTot = cat === "Toutes" ? d.synth.find((s) => s.per === period && s.name.startsWith("TOTAL")) : sumRows(per, "Total");
+  const fr = (r) => (r && r.v ? (r.c + r.p + r.o) / r.v : 0);
+  const costBars = cat === "Toutes"
+    ? rowsG.map((g) => ({ name: g.name, "2025": g.f25, "2026": g.v26 ? (g.c26 + g.p26 + g.o26) / g.v26 : 0 }))
+    : (() => { const a = aggCat(pers[1]), b = aggCat(pers[2]); return b.map((r) => ({ name: r.name, "2025": fr(a.find((x) => x.name === r.name)), "2026": fr(r) })); })();
   const mix = perTot ? [
     { name: "Commission", v: perTot.c, c: C.orange }, { name: "Publicité", v: perTot.p, c: C.blue }, { name: "Logistique marketplace", v: perTot.o, c: C.amber },
   ] : [];
@@ -204,9 +220,37 @@ function Dashboard({ d, onLogout, embedded }) {
           </div>
         </Card>
 
+        <Card className="!py-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Répartition des frais variables</h2>
+              <p className="text-xs mt-1" style={{ color: C.muted }}>Filtre par grande catégorie et période : s’applique au coût par canal, à la répartition des frais et à la synthèse.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-wrap rounded-xl p-1 text-xs gap-0.5" style={{ background: C.bg }} role="tablist" aria-label="Catégorie">
+                {CATS.map((k) => (
+                  <button key={k} onClick={() => setCat(k)} className="px-3 py-1.5 rounded-lg transition"
+                    style={{ background: cat === k ? C.orange : "transparent", color: cat === k ? "#fff" : C.muted }}>{k}</button>
+                ))}
+              </div>
+              <div className="flex flex-wrap rounded-xl p-1 text-xs gap-0.5" style={{ background: C.bg }} role="tablist" aria-label="Période">
+                {pers.map((p) => (
+                  <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 rounded-lg transition"
+                    style={{ background: period === p ? C.blue : "transparent", color: period === p ? "#fff" : C.muted }}>{p}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {cat !== "Toutes" && (
+            <p className="text-[11px] mt-3 leading-relaxed" style={{ color: C.dim }}>
+              Exact pour Leroy Merlin, Castorama, Boulanger, Bricomarché et Maxeda (lignes de commande). Estimation pour Amazon (parts annuelles par produit) et Cdiscount (seulement juil.–sept. 2026, seuls mois avec le détail produit). Le site bestherm.fr et le reste de Cdiscount n’ont pas de détail par produit et n’apparaissent pas ici.
+            </p>
+          )}
+        </Card>
+
         <div className="grid lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2">
-            <Title sub={`Commission + pub + logistique, en % des ventes nettes, à période égale (1er janv. – ${dLong}).`}>Coût par canal : 2025 vs 2026</Title>
+            <Title sub={`Commission + pub + logistique, en % des ventes nettes, à période égale (1er janv. – ${dLong}).`}>{`Coût par canal : 2025 vs 2026${cat !== "Toutes" ? " · " + cat : ""}`}</Title>
             <div style={{ height: 300 }}>
               <ResponsiveContainer>
                 <BarChart data={costBars} layout="vertical" margin={{ left: 10, right: 20 }}>
@@ -222,7 +266,7 @@ function Dashboard({ d, onLogout, embedded }) {
             </div>
           </Card>
           <Card>
-            <Title sub={`Répartition des frais – ${period}`}>Où part l’argent</Title>
+            <Title sub={`Répartition des frais – ${period}${cat !== "Toutes" ? " · " + cat : ""}`}>Où part l’argent</Title>
             <div style={{ height: 220 }}>
               <ResponsiveContainer>
                 <PieChart>
@@ -246,13 +290,7 @@ function Dashboard({ d, onLogout, embedded }) {
 
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <Title sub="Ventes nettes TTC, frais HT et poids des frais par canal.">Synthèse par canal</Title>
-            <div className="flex rounded-xl p-1 text-xs" style={{ background: C.bg }}>
-              {pers.map((p) => (
-                <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 rounded-lg transition"
-                  style={{ background: period === p ? C.orange : "transparent", color: period === p ? "#fff" : C.muted }}>{p}</button>
-              ))}
-            </div>
+            <Title sub={`Ventes nettes TTC, frais HT et poids des frais par canal – ${period}${cat !== "Toutes" ? " · " + cat : ""}.`}>Synthèse par canal</Title>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -266,7 +304,7 @@ function Dashboard({ d, onLogout, embedded }) {
                   const f = s.v ? (s.c + s.p + s.o) / s.v : 0;
                   return (
                     <tr key={s.name} className="border-t" style={{ borderColor: C.line }}>
-                      <td className="py-2.5 px-3 font-medium">{s.name}</td>
+                      <td className="py-2.5 px-3 font-medium">{s.name}{cat !== "Toutes" && s.est && <span className="ml-2 text-[10px] font-normal rounded-full px-1.5 py-0.5" style={{ color: C.amber, background: "rgba(255,176,32,.1)" }}>estimation</span>}</td>
                       <td className="py-2.5 px-3 text-right">{keur(s.v)}</td>
                       <td className="py-2.5 px-3 text-right" style={{ color: C.muted }}>{pct(perTot ? s.v / perTot.v : 0)}</td>
                       <td className="py-2.5 px-3 text-right">{keur(s.c)}</td>
@@ -289,6 +327,36 @@ function Dashboard({ d, onLogout, embedded }) {
             </table>
           </div>
         </Card>
+
+        {(d.disp || []).length > 0 && (
+          <Card>
+            <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
+                    {["Canal", "Dispositif", "Budget 2026", "Budget à date", "Réel à date", "Statut"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i > 1 && i < 5 ? "text-right" : "text-left"}`}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.disp.map((x, i) => {
+                    const col = x.statut.startsWith("Inclus") ? C.green : x.statut.includes("Non inclus") ? C.red : C.amber;
+                    return (
+                      <tr key={i} className="border-t align-top" style={{ borderColor: C.line }}>
+                        <td className="py-2.5 px-3 font-medium whitespace-nowrap">{x.canal}</td>
+                        <td className="py-2.5 px-3 min-w-[260px]"><div>{x.disp}</div><div className="text-xs mt-0.5" style={{ color: C.dim }}>{x.gest}</div></td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">{x.budget ? keur(x.budget) : "–"}</td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">{x.budget_ytd ? keur(x.budget_ytd) : "–"}</td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">{x.reel ? keur(x.reel) : "–"}</td>
+                        <td className="py-2.5 px-3"><span className="text-[11px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ color: col, background: "rgba(255,255,255,.04)" }}>{x.statut}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
         <section>
           <div className="flex items-center gap-2 mb-3"><AlertTriangle size={18} color={C.orange} /><h2 className="text-base font-semibold">Qu’est-ce qui ne va pas</h2></div>
