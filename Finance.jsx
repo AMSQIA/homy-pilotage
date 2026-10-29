@@ -305,12 +305,12 @@ function Dashboard({ d, onLogout, embedded }) {
                   return (
                     <tr key={s.name} className="border-t" style={{ borderColor: C.line }}>
                       <td className="py-2.5 px-3 font-medium">{s.name}{cat !== "Toutes" && s.est && <span className="ml-2 text-[10px] font-normal rounded-full px-1.5 py-0.5" style={{ color: C.amber, background: "rgba(255,176,32,.1)" }}>estimation</span>}</td>
-                      <td className="py-2.5 px-3 text-right">{keur(s.v)}</td>
-                      <td className="py-2.5 px-3 text-right" style={{ color: C.muted }}>{pct(perTot ? s.v / perTot.v : 0)}</td>
-                      <td className="py-2.5 px-3 text-right">{keur(s.c)}</td>
-                      <td className="py-2.5 px-3 text-right">{s.p ? keur(s.p) : "–"}</td>
-                      <td className="py-2.5 px-3 text-right">{s.o ? keur(s.o) : "–"}</td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(s.v)}</td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{pct(perTot ? s.v / perTot.v : 0)}</td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(s.c)}</td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">{s.p ? keur(s.p) : "–"}</td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">{s.o ? keur(s.o) : "–"}</td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
                         <span className="inline-block min-w-[64px] text-center rounded-full px-2 py-0.5 text-xs font-semibold" style={{ background: "rgba(255,255,255,.04)", color: heat(f) }}>{pct(f)}</span>
                       </td>
                     </tr>
@@ -318,15 +318,74 @@ function Dashboard({ d, onLogout, embedded }) {
                 })}
                 {perTot && (
                   <tr className="border-t font-semibold" style={{ borderColor: C.line, color: C.orange2 }}>
-                    <td className="py-2.5 px-3">Total</td><td className="py-2.5 px-3 text-right">{keur(perTot.v)}</td><td className="py-2.5 px-3 text-right">100 %</td>
-                    <td className="py-2.5 px-3 text-right">{keur(perTot.c)}</td><td className="py-2.5 px-3 text-right">{keur(perTot.p)}</td><td className="py-2.5 px-3 text-right">{keur(perTot.o)}</td>
-                    <td className="py-2.5 px-3 text-right">{pct((perTot.c + perTot.p + perTot.o) / perTot.v)}</td>
+                    <td className="py-2.5 px-3">Total</td><td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(perTot.v)}</td><td className="py-2.5 px-3 text-right whitespace-nowrap">100 %</td>
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(perTot.c)}</td><td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(perTot.p)}</td><td className="py-2.5 px-3 text-right whitespace-nowrap">{keur(perTot.o)}</td>
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">{pct((perTot.c + perTot.p + perTot.o) / perTot.v)}</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
         </Card>
+
+        {d.log && (() => {
+          const L = d.log; const supT = L.sup.reduce((t, x) => t + x.tot, 0);
+          const rows = (cat === "Toutes" ? L.ch : L.cat.filter((x) => x.cat === cat)).slice().sort((a, b) => b.cout - a.cout);
+          const trT = rows.reduce((t, x) => t + x.cout, 0), trQ = rows.reduce((t, x) => t + x.q, 0);
+          const mo = (m) => moisFR(m);
+          const sup = L.sup.map((x) => ({ m: mo(x.m), Livraison: x.liv, "Logistique entrepôt": x.log, Stockage: x.stock }));
+          const chV = Object.fromEntries(L.ch.map((x) => [x.name, x.v]));
+          return (
+            <Card>
+              <Title sub={`Coûts hors frais marketplace : livraison, entrepôt et stockage (${mo(L.sup[0].m)} – ${mo(L.sup[L.sup.length - 1].m)}), transport facturé par DPD, Chronopost, Géodis et ManoMano rapproché aux commandes (${mo(L.periode[0])} – ${mo(L.periode[1])}).`}>Logistique et transport{cat !== "Toutes" ? " · " + cat : ""}</Title>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                {[["Supply chain", keur(supT), pct(supT / L.v_sup) + " des ventes"], ["Transport", keur(trT), cat === "Toutes" ? "tous canaux" : cat], ["Coût moyen / pièce", eur(trQ ? trT / trQ : 0, 2), trQ.toLocaleString("fr-FR") + " pièces"], ["Incidents transport", keur(L.trp.reduce((t, x) => t + x.inc, 0)), pct(L.trp.reduce((t, x) => t + x.inc, 0) / L.trp.reduce((t, x) => t + x.cout, 0)) + " du transport"]].map(([l, v, sub]) => (
+                  <div key={l} className="rounded-xl p-3" style={{ background: C.bg }}>
+                    <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>{l}</div>
+                    <div className="text-lg font-bold mt-1">{v}</div>
+                    <div className="text-xs" style={{ color: C.dim }}>{sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid lg:grid-cols-2 gap-6">
+                <div style={{ height: 260 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={sup} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid stroke={C.line} vertical={false} />
+                      <XAxis dataKey="m" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v / 1000) + "k"} width={44} />
+                      <Tooltip contentStyle={tipStyle} formatter={(v) => eur(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Livraison" stackId="s" fill={C.orange} />
+                      <Bar dataKey="Logistique entrepôt" stackId="s" fill={C.blue} />
+                      <Bar dataKey="Stockage" stackId="s" fill={C.amber} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="overflow-x-auto max-h-[260px]">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0" style={{ background: C.card }}>
+                      <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
+                        {["Canal", "Transport", "Pièces", "€ / pièce", cat === "Toutes" ? "% ventes" : ""].map((h, i) => <th key={i} className={`py-2 px-2 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((x) => (
+                        <tr key={x.name} className="border-t" style={{ borderColor: C.line }}>
+                          <td className="py-2 px-2">{x.name}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap">{keur(x.cout)}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap" style={{ color: C.muted }}>{x.q.toLocaleString("fr-FR")}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap">{eur(x.q ? x.cout / x.q : 0, 2)}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap">{cat === "Toutes" ? (chV[x.name] ? <span style={{ color: heat(x.cout / chV[x.name] * 2) }}>{pct(x.cout / chV[x.name])}</span> : <span style={{ color: C.dim }}>hors classeur</span>) : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Card>
+          );
+        })()}
 
         {(d.disp || []).length > 0 && (
           <Card>
