@@ -6915,7 +6915,8 @@ function memoriserSession() {
 // Pour le remettre : réintroduire un état chatDone et l'étape ChatRouter entre EntryGate et
 // DashboardApp (voir le commit précédent dans l'historique git).
 export default function App() {
-  const [unlocked, setUnlocked] = useState(() => aUneSessionMemorisee());
+  // ?connexion dans l'adresse : réaffiche l'écran d'accès même avec « se souvenir de moi » (pour changer de code, ex. accès Analyse financière)
+  const [unlocked, setUnlocked] = useState(() => { try { if (new URLSearchParams(window.location.search).has("connexion")) return false; } catch { /* ignoré */ } return aUneSessionMemorisee(); });
   return (
     <ErrorBoundary>
       {!unlocked ? <EntryGate onUnlock={() => setUnlocked(true)} /> : <DashboardApp />}
