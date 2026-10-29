@@ -15,17 +15,45 @@ const C = {
 const CH_COLORS = ["#FF5A1F", "#4A9EFF", "#FFB020", "#3DD68C", "#B57BFF", "#FF8A50", "#6FB4FF", "#E8E1D5"];
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-async function decrypt(blob, code) {
-  const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey("raw", enc.encode(code.normalize("NFC")), "PBKDF2", false, ["deriveKey"]);
-  const kek = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: b64(blob.kdf.salt), iterations: blob.kdf.iter, hash: "SHA-256" },
-    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.wrap.iv) }, kek, b64(blob.wrap.ct));
+const hex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, "0")).join("");
+const unhex = (h) => Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)));
+const getBlob = () => fetch("/finance-data.json", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("absent"); return r.json(); });
+async function openData(blob, raw) {
   const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
   const gz = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.data.iv) }, key, b64(blob.data.ct));
   const txt = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
   return JSON.parse(txt);
+}
+// Code d'accès → clé de données (hex). Lève une erreur si le code est faux.
+export async function unlockFinance(code) {
+  const blob = await getBlob();
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(code.normalize("NFC")), "PBKDF2", false, ["deriveKey"]);
+  const kek = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: b64(blob.kdf.salt), iterations: blob.kdf.iter, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const raw = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.wrap.iv) }, kek, b64(blob.wrap.ct)));
+  await openData(blob, raw);
+  return hex(raw);
+}
+// Mémorisation de la clé sur l'appareil (même durée que « se souvenir de moi », sinon la session de l'onglet)
+const FK = "homy_fin_k", FK_UNTIL = "homy_fin_until";
+export function storeFinanceKey(k, days) {
+  try {
+    if (days) { localStorage.setItem(FK, k); localStorage.setItem(FK_UNTIL, String(Date.now() + days * 86400000)); }
+    else sessionStorage.setItem(FK, k);
+  } catch { /* stockage indisponible */ }
+}
+export function getFinanceKey() {
+  try {
+    const s = sessionStorage.getItem(FK); if (s) return s;
+    const l = localStorage.getItem(FK), u = Number(localStorage.getItem(FK_UNTIL));
+    if (l && u > Date.now()) return l;
+    localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL);
+  } catch { /* stockage indisponible */ }
+  return null;
+}
+export function clearFinanceKey() {
+  try { sessionStorage.removeItem(FK); localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL); } catch { /* ignoré */ }
 }
 
 const eur = (v, d = 0) => (v == null ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
@@ -65,18 +93,17 @@ function Kpi({ icon: Icon, label, value, delta, deltaGood, sub }) {
 }
 const tipStyle = { background: "#1E1B15", border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, fontSize: 12 };
 
-function Login({ onOk }) {
+function Login({ onOk, inline, note }) {
   const [code, setCode] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr("");
     try {
-      const blob = await fetch("/finance-data.json", { cache: "no-store" }).then((r) => r.json());
-      onOk(await decrypt(blob, code));
+      const k = await unlockFinance(code); storeFinanceKey(k, 0); onOk(k);
     } catch { setErr("Code incorrect."); }
     setBusy(false);
   };
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: C.bg }}>
+    <div className={`${inline ? "py-16" : "min-h-screen"} flex items-center justify-center px-4`} style={{ background: inline ? "transparent" : C.bg }}>
       <form onSubmit={submit} className="w-full max-w-sm rounded-3xl border p-8" style={{ background: C.card, borderColor: C.line }}>
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-6" style={{ background: "rgba(255,90,31,.12)" }}>
           <Lock size={22} color={C.orange} />
@@ -85,6 +112,7 @@ function Login({ onOk }) {
         <p className="text-sm mt-1 mb-6" style={{ color: C.muted }}>Espace réservé. Saisis ton code d’accès.</p>
         <input type="password" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code d’accès"
           className="w-full rounded-xl px-4 py-3 outline-none text-sm" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.text }} />
+        {note && !err && <p className="text-xs mt-2" style={{ color: C.amber }}>{note}</p>}
         {err && <p className="text-xs mt-2" style={{ color: C.red }}>{err}</p>}
         <button disabled={busy || !code} className="w-full mt-5 rounded-xl py-3 text-sm font-semibold transition disabled:opacity-50"
           style={{ background: C.orange, color: "#fff" }}>{busy ? "Déchiffrement…" : "Accéder"}</button>
@@ -94,7 +122,7 @@ function Login({ onOk }) {
   );
 }
 
-function Dashboard({ d, onLogout }) {
+function Dashboard({ d, onLogout, embedded }) {
   const pers = [...new Set(d.synth.map((s) => s.per))];
   const [period, setPeriod] = useState(pers[pers.length - 1]);
   const dm = d.cutoff.slice(0, 5);
@@ -122,9 +150,17 @@ function Dashboard({ d, onLogout }) {
   const heat = (v) => (v == null ? C.muted : v >= 0.35 ? C.red : v >= 0.2 ? C.amber : C.green);
 
   return (
-    <div className="min-h-screen" style={{ background: C.bg, color: C.text, fontFamily: "'Inter', sans-serif" }}>
+    <div className={embedded ? "" : "min-h-screen"} style={{ background: embedded ? "transparent" : C.bg, color: C.text, fontFamily: "'Inter', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap');`}</style>
-      <header className="sticky top-0 z-10 border-b backdrop-blur" style={{ background: "rgba(10,9,8,.85)", borderColor: C.line }}>
+      {embedded ? (
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em]" style={{ color: C.orange }}>Accès réservé</div>
+            <h2 className="text-xl font-bold" style={{ fontFamily: "'Archivo Black', sans-serif" }}>Analyse financière des canaux</h2>
+          </div>
+          <span className="text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
+        </div>
+      ) : <header className="sticky top-0 z-10 border-b backdrop-blur" style={{ background: "rgba(10,9,8,.85)", borderColor: C.line }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: C.orange }}>hom'y · pilotage</div>
@@ -137,9 +173,9 @@ function Dashboard({ d, onLogout }) {
             </button>
           </div>
         </div>
-      </header>
+      </header>}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className={embedded ? "space-y-6" : "max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6"}>
         {tot && (
           <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Kpi icon={Store} label="Ventes 2026 à date" value={keur(tot.v26)} delta={pct(tot.v26 / tot.v25 - 1) + " vs 2025"} deltaGood={tot.v26 >= tot.v25} sub={`1er janv. – ${dLong}, TTC net`} />
@@ -321,7 +357,24 @@ function Dashboard({ d, onLogout }) {
   );
 }
 
+// Onglet intégré à l'app : lit la clé mémorisée ; si elle manque ou ne correspond plus, redemande le code.
+export function FinanceTab() {
+  const [d, setD] = useState(null); const [err, setErr] = useState(false); const [k, setK] = useState(() => getFinanceKey());
+  React.useEffect(() => {
+    if (!k) return; let ok = true;
+    getBlob().then((b) => openData(b, unhex(k))).then((x) => ok && setD(x)).catch(() => { clearFinanceKey(); ok && setErr(true); ok && setK(null); });
+    return () => { ok = false; };
+  }, [k]);
+  if (!k) return <div className="rounded-3xl overflow-hidden"><Login onOk={(nk) => { setErr(false); setK(nk); }} inline note={err ? "Les données ont été mises à jour : saisis à nouveau ton code." : null} /></div>;
+  if (!d) return <div className="py-24 text-center text-sm" style={{ color: C.muted }}>Déchiffrement des données…</div>;
+  return <Dashboard d={d} embedded />;
+}
+
 export default function Finance() {
-  const [data, setData] = useState(null);
-  return data ? <Dashboard d={data} onLogout={() => setData(null)} /> : <Login onOk={setData} />;
+  const [k, setK] = useState(() => getFinanceKey());
+  const [d, setD] = useState(null);
+  React.useEffect(() => { if (k) getBlob().then((b) => openData(b, unhex(k))).then(setD).catch(() => { clearFinanceKey(); setK(null); }); }, [k]);
+  if (!k) return <Login onOk={setK} />;
+  if (!d) return null;
+  return <Dashboard d={d} onLogout={() => { clearFinanceKey(); setK(null); setD(null); }} />;
 }
