@@ -556,3 +556,59 @@ export function ProductMargin({ det, pl }) {
     </Box>
   );
 }
+
+// =====================================================================================================
+// 6. L'ESSENTIEL : 3 messages clés, alertes budget / plafonds de frais, fraîcheur des données
+export function Essentiel({ d, onGo }) {
+  const P = d.pl, T = P.t26, O = P.t25, det = d.det || {};
+  const ch = P.ch.map((c) => ({ c, ...P.p26[c] })).filter((x) => x.ht > 50000);
+  const worst = ch.filter((x) => x.mnpct != null).sort((a, b) => a.mnpct - b.mnpct)[0];
+  const best = ch.filter((x) => x.mnpct != null).sort((a, b) => b.mnpct - a.mnpct)[0];
+  const scR = T.sc != null ? -T.sc / T.ht : 0;
+  const losers = (det.marg_prod || []).filter((p) => p.ht >= 20000 && p.m / p.ht - scR < 0);
+  const ax = d.axes && d.axes.glob ? [...d.axes.glob].sort((a, b) => b.gain - a.gain)[0] : null;
+  const msgs = [];
+  if (T.mn != null) msgs.push({ tone: T.mnpct < 0.05 ? "bad" : "good", t: `Marge nette ${pc(T.mnpct)} des ventes HT`, s: `${keu(T.mn)} après frais de vente, transport et achats (${pc(-T.achat / T.ht)}). ${best ? `Meilleur canal : ${best.c} (${pc(best.mnpct)})` : ""}${worst && worst.mnpct < 0 ? ` · ${worst.c} perd de l’argent (${pc(worst.mnpct)}, ${keu(worst.mn)})` : ""}.`, go: "pl" });
+  msgs.push({ tone: -T.fv / T.ht > -O.fv / O.ht ? "bad" : "good", t: `Frais de vente ${pc(-T.fv / T.ht)} (${pts(-T.fv / T.ht + O.fv / O.ht)} sur un an)`, s: ax ? `Premier levier : ${ax.poste.toLowerCase()}, ${pc(ax.r26)} contre ${pc(ax.r25)} en ${P.y0} – retour à la cible = ${keu(ax.gain)} à date (${keu(ax.gain_an)} sur un an).` : "", go: "plan" });
+  if (losers.length) msgs.push({ tone: "bad", t: `${losers.length} grosses références vendues à perte après transport`, s: `Parmi celles à plus de 20 k€ de ventes : ${losers.slice(0, 3).map((p) => p.nom).join(", ")}… soit ${keu(losers.reduce((t, p) => t + p.ht, 0))} de ventes HT à revoir (prix, promos ou achat).`, go: "pl" });
+  // alertes
+  const al = [];
+  (d.disp || []).forEach((x) => { if (x.budget_ytd > 0 && x.reel > x.budget_ytd * 1.1) al.push(`${x.canal} · ${x.disp} : ${keu(x.reel)} dépensés pour ${keu(x.budget_ytd)} de budget à date (+${Math.round((x.reel / x.budget_ytd - 1) * 100)} %)`); });
+  P.ch.forEach((c) => { const a = P.p26[c], b = O && d.det && d.det.mp[c] ? d.det.mp[c].y0 : null; if (a.ht > 50000 && b && b.ht && (-a.fv / a.ht) - (b.fv / b.ht) > 0.03) al.push(`${c} : frais de vente ${pc(-a.fv / a.ht)} contre ${pc(b.fv / b.ht)} en ${P.y0}`); });
+  // fraîcheur
+  const fresh = [
+    ["Leroy Merlin + enseignes Mirakl", `API · au ${d.cutoff}`, "ok"],
+    ["Amazon", "navigateur · figé au 28/10", "warn"],
+    ["Cdiscount", "navigateur · figé au 28/10", "warn"],
+    ["Site bestherm.fr", `app de pilotage · au ${d.cutoff}`, "ok"],
+    ["Transport & supply chain", `réel jusqu’à ${P.sup_last ? moisFR(P.sup_last) : "?"}, prolongé ensuite`, "warn"],
+    ["Prix d’achat", "base produits supply chain · 27/10", "ok"],
+  ];
+  const col = { good: VZ.good, bad: VZ.bad, ok: VZ.good, warn: "#FFB020" };
+  return (
+    <Box>
+      <H sub={`Ce qu’il faut retenir au ${d.cutoff}, recalculé à chaque mise à jour.`}>L’essentiel</H>
+      <div className="grid md:grid-cols-3 gap-3">
+        {msgs.slice(0, 3).map((m, i) => (
+          <button key={i} onClick={() => onGo && onGo(m.go)} className="text-left rounded-xl p-4 transition hover:brightness-110" style={{ background: VZ.bg, borderLeft: `3px solid ${col[m.tone]}` }}>
+            <div className="text-sm font-semibold" style={{ color: col[m.tone] }}>{m.t}</div>
+            <div className="text-xs mt-1.5 leading-relaxed" style={{ color: VZ.muted }}>{m.s}</div>
+          </button>
+        ))}
+      </div>
+      {al.length > 0 && (
+        <div className="mt-4 rounded-xl p-3" style={{ background: "rgba(240,68,56,.06)", border: "1px solid rgba(240,68,56,.25)" }}>
+          <div className="text-xs font-semibold mb-1.5" style={{ color: VZ.bad }}>Alertes ({al.length})</div>
+          <ul className="text-xs space-y-1" style={{ color: VZ.text }}>{al.slice(0, 6).map((a, i) => <li key={i}>• {a}</li>)}</ul>
+        </div>
+      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {fresh.map(([k, v, s]) => (
+          <span key={k} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]" style={{ background: VZ.bg, color: VZ.muted }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: col[s] }} /><b style={{ color: VZ.text, fontWeight: 500 }}>{k}</b> {v}
+          </span>
+        ))}
+      </div>
+    </Box>
+  );
+}

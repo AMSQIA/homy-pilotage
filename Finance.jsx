@@ -13,7 +13,7 @@ const C = {
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
 import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ } from "./FinanceViz.jsx";
-import { MarketplacePL, Refunds, AdsDetail, TransportExplain, ProductMargin, Chips as DChips } from "./FinanceDetail.jsx";
+import { MarketplacePL, Refunds, AdsDetail, TransportExplain, ProductMargin, Essentiel, Chips as DChips } from "./FinanceDetail.jsx";
 const CH_COLORS = VZ.series;
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -247,6 +247,8 @@ function Dashboard({ d, onLogout, embedded }) {
             <Kpi icon={Truck} label="Logistique marketplace" value={keur(tot.o26)} sub={pct(tot.o26 / tot.v26) + " des ventes"} />
           </section>
         )}
+
+        {d.pl && d.pl.t26 && <Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 
         <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.94)" : C.bg }}>
           <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Sections">
