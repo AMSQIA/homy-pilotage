@@ -63,7 +63,11 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
   add("Total frais de vente", "fv", -a.fv, -b.fv, { strong: true, key: true, neg: true });
   add("Marge après frais de vente", "mfv", a.mfv, b.mfv, { strong: true });
   add("Transport et supply chain", "sc", a.sc == null ? null : -a.sc, null, { neg: true, color: POSTE.sc.c, note: a.sc_est ? `dont ${keu(a.sc_est)} prolongés` : null });
-  add("Contribution", "contrib", a.contrib, null, { strong: true, key: true, hl: true });
+  add("Contribution", "contrib", a.contrib, null, { strong: true, key: true, hl: a.achat == null });
+  if (a.achat != null) {
+    add("Coût d’achat des produits vendus", "achat", -a.achat, b.achat == null ? null : -b.achat, { neg: true, color: "#9085e9", est: !!a.ach_est, note: a.ach_est ? `estimé : ${a.ach_est}` : "FOB + coût logistique d’approche, par ligne de commande" });
+    add("Marge nette avant frais fixes", "mn", a.mn, null, { strong: true, key: true, hl: true });
+  }
   const pctOf = (row, side) => {
     const v = side ? row.va : row.vb, base = row.base === "gross" ? (side ? a.gross : b.gross) : (side ? a.ht : b.ht);
     return v == null ? null : v / base;
@@ -72,11 +76,12 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
   const biggest = [["Commission", a.com], ["Publicité", a.pub + a.pubnc], ["Logistique marketplace", a.logmp + a.oth], ["Transport & supply chain", a.sc || 0]].sort((x, y) => y[1] - x[1])[0];
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 ${a.mn != null ? "lg:grid-cols-5" : "lg:grid-cols-4"} gap-3`}>
         <Stat label={`Ventes nettes HT ${y1}`} value={keu(a.ht)} sub={b.ht ? `${a.ht >= b.ht ? "+" : ""}${pc(a.ht / b.ht - 1)} vs ${y0}` : "nouveau canal"} />
         <Stat label="Remboursements" value={M.ref_ok ? pc(refR, 2) : "n.d."} sub={M.ref_ok ? `${keu(a.ref)} TTC · ${y0} : ${pc(refR0, 2)}` : "non suivis pour ce canal"} color={M.ref_ok && refR > 0.04 ? VZ.bad : undefined} />
         <Stat label="Frais de vente" value={pc(a.fv / a.ht)} sub={`${y0} : ${pc(b.fv / b.ht)} · premier poste : ${biggest[0].toLowerCase()}`} />
         <Stat label="Contribution" value={pc(a.contrib / a.ht)} sub={keu(a.contrib) + " après transport"} color={a.contrib < 0 ? VZ.bad : VZ.good} />
+        {a.mn != null && <Stat label="Marge nette" value={pc(a.mn / a.ht)} sub={`${keu(a.mn)} après achats (${pc(a.achat / a.ht)})`} color={a.mn < 0 ? VZ.bad : VZ.good} />}
       </div>
       <div className="overflow-x-auto -mx-1">
         <table className="w-full text-sm">
@@ -105,9 +110,9 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
                     </span>
                     {row.note && <div className="text-[11px]" style={{ color: VZ.dim }}>{row.note}</div>}
                   </td>
-                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.hl ? VZ.good : VZ.text }}>{row.va == null ? "n.d." : eur(row.va)}</td>
-                  <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.muted }}>{isPct && p1 != null ? pc(Math.abs(p1)) : row.k === "ht" ? "100 %" : ""}</td>
-                  <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{row.vb == null ? (["sc", "contrib"].includes(row.k) ? "n.d." : "–") : eur(row.vb)}</td>
+                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.hl ? (row.va < 0 ? VZ.bad : VZ.good) : VZ.text }}>{row.va == null ? "n.d." : eur(row.va)}</td>
+                  <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.muted }}>{isPct && p1 != null ? pc(row.k === "mn" ? p1 : Math.abs(p1)) : row.k === "ht" ? "100 %" : ""}</td>
+                  <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{row.vb == null ? (["sc", "contrib", "mn"].includes(row.k) ? "n.d." : "–") : eur(row.vb)}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.dim }}>{isPct && p0 != null ? pc(Math.abs(p0)) : row.k === "ht" ? "100 %" : ""}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: p1 != null && p0 != null ? ((Math.abs(p1) - Math.abs(p0)) * (row.neg ? 1 : -1) > 0.0005 ? VZ.bad : VZ.good) : VZ.dim }}>
                     {isPct && p1 != null && p0 != null && row.k !== "g" ? pts(Math.abs(p1) - Math.abs(p0)) : ""}
@@ -459,5 +464,95 @@ export function TransportExplain({ det, log }) {
         </Box>
       </div>
     </div>
+  );
+}
+
+// =====================================================================================================
+// 5. MARGE PAR PRODUIT (coût d'achat réel par référence)
+export function ProductMargin({ det, pl }) {
+  const [q, setQ] = useState(""); const [sort, setSort] = useState("ht"); const [n, setN] = useState(15);
+  const scRate = pl && pl.t26 && pl.t26.sc != null ? -pl.t26.sc / pl.t26.ht : 0;
+  const rows = useMemo(() => {
+    const r = (det.marg_prod || []).filter((p) => !q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).map((p) => ({
+      ...p, pa: p.achat / p.ht, pf: p.frais / p.ht, pm: p.m / p.ht, pn: p.m / p.ht - scRate, pu: p.achat / Math.max(p.q, 1), pv: p.ht / Math.max(p.q, 1),
+    }));
+    const key = { ht: (p) => -p.ht, pm: (p) => p.pn, m: (p) => -p.m }[sort];
+    return r.sort((a, b) => key(a) - key(b));
+  }, [q, sort, det]);
+  const tot = rows.reduce((t, p) => ({ ht: t.ht + p.ht, a: t.a + p.achat, f: t.f + p.frais, m: t.m + p.m }), { ht: 0, a: 0, f: 0, m: 0 });
+  const losers = rows.filter((p) => p.pn < 0);
+  const heat = (v) => (v < 0 ? VZ.bad : v < 0.05 ? "#FFB020" : VZ.good);
+  const Bar3 = ({ p }) => (
+    <div className="flex h-2 w-full rounded-full overflow-hidden" style={{ background: VZ.bg }} title="achat · frais marketplace · transport moyen · marge">
+      <span style={{ width: `${Math.min(p.pa, 1) * 100}%`, background: "#9085e9" }} />
+      <span style={{ width: `${Math.min(p.pf, 1) * 100}%`, background: POSTE.com.c }} />
+      <span style={{ width: `${scRate * 100}%`, background: POSTE.sc.c }} />
+      <span style={{ width: `${Math.max(p.pn, 0) * 100}%`, background: VZ.good }} />
+    </div>
+  );
+  return (
+    <Box>
+      <H sub={`${det.y1} à date, toutes marketplaces avec détail produit (Leroy Merlin, enseignes Mirakl, Amazon). Coût d’achat = ${det.ach_src || "prix FOB + approche"}. Frais marketplace directs = commission (et FBA pour Amazon). Transport et supply chain imputés au taux moyen (${pc(scRate)} des ventes HT) ; la publicité n’est pas déduite ici.`}>Marge par produit</H>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <Stat label="Ventes HT analysées" value={keu(tot.ht)} sub={`${rows.length} références`} />
+        <Stat label="Coût d’achat" value={pc(tot.a / tot.ht)} sub={keu(tot.a)} />
+        <Stat label="Marge après achat et commission" value={pc(tot.m / tot.ht)} sub={keu(tot.m) + " avant pub et transport"} />
+        <Stat label="Références sous l’eau" value={String(losers.length)} sub={losers.length ? `après transport moyen · ${keu(losers.reduce((t, p) => t + p.ht, 0))} de ventes` : "aucune"} color={losers.length ? VZ.bad : VZ.good} />
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-3">
+        <Chips items={[["ht", "Plus gros CA"], ["pm", "Marge la plus faible"], ["m", "Plus forte marge €"]]} value={sort} onChange={setSort} label="Tri" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Chercher un produit ou un SKU" className="rounded-xl px-3 py-2 text-sm outline-none w-full sm:w-64" style={{ background: VZ.bg, border: `1px solid ${VZ.line}`, color: VZ.text }} />
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-3" style={{ color: VZ.muted }}>
+        {[["Achat", "#9085e9"], ["Frais marketplace", POSTE.com.c], ["Transport moyen", POSTE.sc.c], ["Marge restante", VZ.good]].map(([l, c]) => <span key={l} className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: c }} />{l}</span>)}
+      </div>
+      {/* mobile : cartes */}
+      <div className="sm:hidden space-y-2">
+        {rows.slice(0, n).map((p) => (
+          <div key={p.sku} className="rounded-xl p-3" style={{ background: VZ.bg }}>
+            <div className="flex justify-between gap-3"><div className="text-sm font-medium">{p.nom}</div><b style={{ color: heat(p.pn) }}>{pc(p.pn)}</b></div>
+            <div className="text-[11px] mb-2" style={{ color: VZ.dim }}>{p.sku} · {p.q.toLocaleString("fr-FR")} u. · {keu(p.ht)} HT · achat {eur(p.pu, 2)} / prix moyen {eur(p.pv, 2)}</div>
+            <Bar3 p={p} />
+          </div>
+        ))}
+      </div>
+      {/* ordinateur : tableau */}
+      <div className="hidden sm:block overflow-x-auto -mx-1">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
+              <th className="py-2 px-3 text-left font-medium">Produit</th>
+              <th className="py-2 px-2 text-right font-medium">Unités</th>
+              <th className="py-2 px-2 text-right font-medium">Ventes HT</th>
+              <th className="py-2 px-2 text-right font-medium">Prix moyen HT</th>
+              <th className="py-2 px-2 text-right font-medium">Coût achat u.</th>
+              <th className="py-2 px-2 text-right font-medium">Achat</th>
+              <th className="py-2 px-2 text-right font-medium">Frais mkp</th>
+              <th className="py-2 px-2 text-right font-medium">Marge avant pub/transp.</th>
+              <th className="py-2 px-3 text-left font-medium w-40">Décomposition</th>
+              <th className="py-2 px-2 text-right font-medium">Après transport</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, n).map((p) => (
+              <tr key={p.sku} className="border-t" style={{ borderColor: VZ.line }}>
+                <td className="py-2 px-3"><div className="line-clamp-1">{p.nom}</div><div className="text-[11px]" style={{ color: VZ.dim }}>{p.sku} · {p.canaux.join(", ")}</div></td>
+                <td className="py-2 px-2 text-right">{p.q.toLocaleString("fr-FR")}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap">{keu(p.ht)}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap">{eur(p.pv, 2)}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap">{eur(p.pu, 2)}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{pc(p.pa)}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{pc(p.pf)}</td>
+                <td className="py-2 px-2 text-right whitespace-nowrap">{keu(p.m)} <span className="text-xs" style={{ color: VZ.muted }}>({pc(p.pm)})</span></td>
+                <td className="py-2 px-3"><Bar3 p={p} /></td>
+                <td className="py-2 px-2 text-right font-semibold whitespace-nowrap" style={{ color: heat(p.pn) }}>{pc(p.pn)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > n && <button onClick={() => setN(n + 25)} className="mt-3 text-xs rounded-lg px-3 py-1.5" style={{ color: ORANGE2, background: "rgba(255,90,31,.08)" }}>Afficher plus ({rows.length - n} restantes)</button>}
+      <p className="text-[11px] mt-3 leading-relaxed" style={{ color: VZ.dim }}>Prix d’achat 2026 de la base produits de la supply chain. Les produits vendus en promotion (ex. ARIA à 59,90–69,90 € TTC) laissent peu de marge une fois le transport payé ; c’est cohérent avec le fichier de calcul tarifaire, qui prévoit une marge négative sur plusieurs versions « PROMO ».</p>
+    </Box>
   );
 }

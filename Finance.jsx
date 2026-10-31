@@ -6,14 +6,14 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
   BarChart, PieChart, Pie, Cell,
 } from "recharts";
-import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search } from "lucide-react";
+import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search, Wallet } from "lucide-react";
 
 const C = {
   bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#948C7E", dim: "#6B6459",
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
 import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ } from "./FinanceViz.jsx";
-import { MarketplacePL, Refunds, AdsDetail, TransportExplain, Chips as DChips } from "./FinanceDetail.jsx";
+import { MarketplacePL, Refunds, AdsDetail, TransportExplain, ProductMargin, Chips as DChips } from "./FinanceDetail.jsx";
 const CH_COLORS = VZ.series;
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -228,12 +228,13 @@ function Dashboard({ d, onLogout, embedded }) {
         {d.pl && (() => {
           const T = d.pl.t26, O = d.pl.t25;
           return (
-            <section className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x lg:grid lg:grid-cols-5 lg:gap-4 lg:overflow-visible [&>*]:min-w-[200px] [&>*]:shrink-0 [&>*]:snap-start lg:[&>*]:min-w-0">
+            <section className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x lg:grid lg:grid-cols-3 xl:grid-cols-6 lg:gap-4 lg:overflow-visible [&>*]:min-w-[200px] [&>*]:shrink-0 [&>*]:snap-start lg:[&>*]:min-w-0">
               <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
               <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
               <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
               <Kpi icon={Megaphone} label="Publicité totale" value={pct(-(T.pub + T.pubnc) / T.ht)} sub={`${keur(-(T.pub + T.pubnc))} dont ${keur(-T.pubnc)} hors relevé`} />
-              <Kpi icon={TrendingUp} label="Contribution" value={keur(T.contrib)} sub={`${pct(T.pct)} des ventes HT, avant achats et frais fixes`} />
+              <Kpi icon={TrendingUp} label="Contribution" value={keur(T.contrib)} sub={`${pct(T.pct)} des ventes HT, avant achats produits`} />
+              {T.mn != null && <Kpi icon={Wallet} label="Marge nette" value={keur(T.mn)} sub={`${pct(T.mnpct)} des ventes HT · achats ${pct(-T.achat / T.ht)}, avant frais fixes`} />}
             </section>
           );
         })()}
@@ -280,10 +281,10 @@ function Dashboard({ d, onLogout, embedded }) {
         )}
         {(plv === "Consolidé" || !d.det) && d.pl && (() => {
           const P = d.pl; const cols = P.ch;
-          const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" ? pct(v) : eur(v));
-          const key = new Set(["ht", "fv", "mfv", "tfv", "contrib"]);
-          const neg = (k) => !["ttc", "ht", "mfv", "contrib", "pct"].includes(k);
-          const share = (t, k) => (t[k] != null && t.ht && !["ttc", "tva", "pct"].includes(k) ? pct(t[k] / t.ht) : "");
+          const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" || k === "mnpct" ? pct(v) : eur(v));
+          const key = new Set(["ht", "fv", "mfv", "tfv", "contrib", "mn"]);
+          const neg = (k) => !["ttc", "ht", "mfv", "contrib", "pct", "mn", "mnpct"].includes(k);
+          const share = (t, k) => (t[k] != null && t.ht && !["ttc", "tva", "pct", "mnpct"].includes(k) ? pct(t[k] / t.ht) : "");
           return (
             <Card>
               <Title sub={`Du chiffre d’affaires à la contribution, 1er janv. – ${dLong} ${P.y1}. Montants HT, frais en négatif. Transport et supply chain réels jusqu’à ${moisFR(P.sup_last)}, prolongés au même ratio ensuite ; pub hors relevé estimée sur budget.`}>Compte d’exploitation des canaux</Title>
@@ -304,14 +305,14 @@ function Dashboard({ d, onLogout, embedded }) {
                       const strong = key.has(k);
                       return (
                         <tr key={k} className="border-t" style={{ borderColor: C.line, background: strong ? "rgba(255,90,31,.05)" : "transparent" }}>
-                          <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: k === "contrib" ? C.orange2 : C.text, minWidth: 220 }}>{lab}</td>
-                          <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: k === "contrib" || k === "pct" ? C.orange2 : C.text }}>{fmtv(k, P.t26[k])}</td>
+                          <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: k === "contrib" || k === "mn" ? C.orange2 : C.text, minWidth: 220 }}>{lab}</td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: ["contrib", "pct", "mn", "mnpct"].includes(k) ? C.orange2 : C.text }}>{fmtv(k, P.t26[k])}</td>
                           <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.muted }}>{share(P.t26, k)}</td>
                           <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
                           <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
                           {cols.map((c) => {
                             const v = P.p26[c][k];
-                            return <td key={c} className={`py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "pct" ? heat(0.75 - (v || 0)) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
+                            return <td key={c} className={`py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "pct" ? heat(0.75 - (v || 0)) : k === "mnpct" ? heat(0.12 - (v || 0)) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
                           })}
                         </tr>
                       );
@@ -320,11 +321,12 @@ function Dashboard({ d, onLogout, embedded }) {
                 </table>
               </div>
               <p className="text-[11px] mt-3 leading-relaxed" style={{ color: C.dim }}>
-                Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. ManoMano non inclus (non connecté). Contribution = avant prix d’achat des produits et frais fixes.
+                Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. ManoMano non inclus (non connecté). Coût d’achat : prix FOB 2026 + coût logistique d’approche par référence (Base produits ONLINE de la supply chain), exact par ligne de commande pour Leroy Merlin et les enseignes Mirakl{P.ach_est ? " ; " + Object.entries(P.ach_est).map(([k, v]) => `${k} : ${v}`).join(" ; ") : ""}. Les prix 2026 sont aussi appliqués à {P.y0}. Marge nette = avant frais fixes (salaires, loyers, SAV).
               </p>
             </Card>
           );
         })()}
+        {d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} />}
         </>)}
 
         {sec === "plan" && (<>

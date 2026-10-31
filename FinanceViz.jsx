@@ -54,6 +54,7 @@ export function Waterfall({ pl, ch: chProp }) {
   const ch = chProp || chState;
   const narrow = useNarrow();
   const p = ch === "Total" ? pl.t26 : pl.p26[ch];
+  const hasMn = p.mn != null && p.achat != null;
   const steps = [
     [narrow ? "Ventes" : "Ventes HT", p.ht, "total"],
     [narrow ? "Com." : "Commission", p.com, "com"],
@@ -62,19 +63,20 @@ export function Waterfall({ pl, ch: chProp }) {
     [narrow ? "Autres" : "Autres frais", p.oth || 0, "oth"],
     [narrow ? "Transp." : "Transport & SC", p.sc, "sc"],
     [narrow ? "Contrib." : "Contribution", p.contrib, "contrib"],
+    ...(hasMn ? [[narrow ? "Achats" : "Achats produits", p.achat, "achat"], [narrow ? "Marge" : "Marge nette", p.mn, "mn"]] : []),
   ];
   let run = 0;
   const data = steps.map(([name, v, k]) => {
-    if (k === "total") { run = v; return { name, base: 0, val: v, k, raw: v }; }
-    if (k === "contrib") return { name, base: 0, val: v, k, raw: v };
-    const top = run; run += v; return { name, base: run, val: top - run, k, raw: v };
+    if (k === "total") { run = v; return { name, rng: [0, v], k, raw: v }; }
+    if (k === "contrib" || k === "mn") { run = v; return { name, rng: [Math.min(0, v), Math.max(0, v)], k, raw: v }; }
+    const top = run; run += v; return { name, rng: [Math.min(top, run), Math.max(top, run)], k, raw: v };
   });
-  const col = (k) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.good : k === "oth" ? "#8A8378" : POSTE[k].c);
+  const col = (k, v) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.good : k === "mn" ? (v < 0 ? VZ.bad : VZ.good) : k === "oth" ? "#8A8378" : k === "achat" ? "#9085e9" : POSTE[k].c);
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <div>
-          <h3 className="text-sm font-semibold">Des ventes à la contribution</h3>
+          <h3 className="text-sm font-semibold">{hasMn ? "Des ventes à la marge nette" : "Des ventes à la contribution"}</h3>
           <p className="text-xs mt-0.5" style={{ color: VZ.muted }}>Chaque marche = ce qu’un poste retire des ventes HT ({pl.y1} à date).</p>
         </div>
         {!chProp && <Chips items={["Total", ...pl.ch]} value={ch} onChange={setCh} label="Canal" />}
@@ -86,10 +88,10 @@ export function Waterfall({ pl, ch: chProp }) {
             <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} interval={0} />
             <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => (narrow ? short(v) : keu(v))} width={narrow ? 36 : 64} />
             <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} contentStyle={tip}
-              formatter={(v, n, it) => (n === "base" ? [null, null] : [`${keu(it.payload.raw)} · ${pc(Math.abs(it.payload.raw) / p.ht)} des ventes HT`, it.payload.name])} />
-            <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
-            <Bar dataKey="val" stackId="w" radius={[4, 4, 4, 4]}>
-              {data.map((r) => <Cell key={r.name} fill={col(r.k)} />)}
+              formatter={(v, n, it) => [`${keu(it.payload.raw)} · ${pc(Math.abs(it.payload.raw) / p.ht)} des ventes HT`, it.payload.name]} />
+            <ReferenceLine y={0} stroke={VZ.muted} />
+            <Bar dataKey="rng" radius={[4, 4, 4, 4]}>
+              {data.map((r) => <Cell key={r.name} fill={col(r.k, r.raw)} />)}
               <LabelList dataKey="raw" position="top" formatter={(v) => (narrow ? (v >= 0 ? short(v) : "−" + short(-v)) : (v >= 0 ? keu(v) : "−" + keu(-v)))} style={{ fill: VZ.text, fontSize: narrow ? 10 : 11 }} />
             </Bar>
           </BarChart>
@@ -97,6 +99,7 @@ export function Waterfall({ pl, ch: chProp }) {
       </div>
       <p className="text-xs mt-2" style={{ color: VZ.muted }}>
         Contribution : <b style={{ color: VZ.good }}>{pc(p.contrib / p.ht)}</b> des ventes HT · frais de vente {pc(-p.fv / p.ht)} · transport et supply chain {pc(-p.sc / p.ht)}
+        {hasMn && <> · achats produits {pc(-p.achat / p.ht)} · marge nette <b style={{ color: p.mn < 0 ? VZ.bad : VZ.good }}>{pc(p.mn / p.ht)}</b> avant frais fixes</>}
       </p>
     </div>
   );
