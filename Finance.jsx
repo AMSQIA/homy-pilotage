@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
   BarChart, PieChart, Pie, Cell,
 } from "recharts";
-import { Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search } from "lucide-react";
+import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search } from "lucide-react";
 
 const C = {
   bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#948C7E", dim: "#6B6459",
@@ -140,7 +140,27 @@ function Dashboard({ d, onLogout, embedded }) {
     return o;
   });
   const [cat, setCat] = useState("Toutes");
-  const [sec, setSec] = useState("frais");
+  const SECTIONS = [["pl", "Compte d’exploitation"], ["plan", "Plan d’action"], ["frais", "Canaux et catégories"], ["evo", "Évolution"], ["log", "Logistique"], ["pub", "Publicité"], ["prod", "Produits"]];
+  const [sec, setSec] = useState(() => { try { const v = sessionStorage.getItem("homy_fin_sec"); if (v && SECTIONS.some((x) => x[0] === v)) return v; } catch { /* ignoré */ } return "pl"; });
+  React.useEffect(() => { try { sessionStorage.setItem("homy_fin_sec", sec); } catch { /* ignoré */ } }, [sec]);
+  const [xl, setXl] = useState("");
+  const exportXlsx = async () => {
+    setXl("…");
+    try {
+      const k = getFinanceKey(); if (!k) throw new Error("clé");
+      const buf = new Uint8Array(await fetch("/finance-workbook.enc", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("absent"); return r.arrayBuffer(); }));
+      const key = await crypto.subtle.importKey("raw", unhex(k), "AES-GCM", false, ["decrypt"]);
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(0, 12) }, key, buf.slice(12));
+      const url = URL.createObjectURL(new Blob([plain], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const a = document.createElement("a"); a.href = url; a.download = `Analyse_financiere_HOMY_${d.cutoff.split("/").reverse().join("-")}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); setXl("");
+    } catch { setXl("Export indisponible"); setTimeout(() => setXl(""), 3000); }
+  };
+  const ExportBtn = () => (
+    <button onClick={exportXlsx} disabled={xl === "…"} className="rounded-xl px-3 py-2 text-xs font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 transition disabled:opacity-60" style={{ background: C.orange, color: "#fff" }}>
+      <Download size={14} /> {xl || "Exporter Excel"}
+    </button>
+  );
   const [diagTab, setDiagTab] = useState("ok");
   const [mp, setMp] = useState("Global");
   const MPS = ["Global", ...((d.pl && d.pl.ch) || [])];
@@ -180,7 +200,10 @@ function Dashboard({ d, onLogout, embedded }) {
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: C.orange }}>Accès réservé</div>
             <h2 className="text-xl font-bold" style={{ fontFamily: "'Archivo Black', sans-serif" }}>Analyse financière des canaux</h2>
           </div>
-          <span className="text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] sm:text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
+            <ExportBtn />
+          </div>
         </div>
       ) : <header className="sticky top-0 z-10 border-b backdrop-blur" style={{ background: "rgba(10,9,8,.85)", borderColor: C.line }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
@@ -190,6 +213,7 @@ function Dashboard({ d, onLogout, embedded }) {
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
+            <ExportBtn />
             <button onClick={onLogout} className="rounded-xl px-3 py-2 text-xs flex items-center gap-2 border" style={{ borderColor: C.line, color: C.muted }}>
               <LogOut size={14} /> Quitter
             </button>
@@ -201,7 +225,7 @@ function Dashboard({ d, onLogout, embedded }) {
         {d.pl && (() => {
           const T = d.pl.t26, O = d.pl.t25;
           return (
-            <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <section className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x lg:grid lg:grid-cols-5 lg:gap-4 lg:overflow-visible [&>*]:min-w-[200px] [&>*]:shrink-0 [&>*]:snap-start lg:[&>*]:min-w-0">
               <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
               <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
               <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
@@ -220,7 +244,15 @@ function Dashboard({ d, onLogout, embedded }) {
           </section>
         )}
 
+        <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.94)" : C.bg }}>
+          <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Sections">
+            {SECTIONS.map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={sec === k} onClick={() => setSec(k)} className="px-4 py-2 rounded-lg whitespace-nowrap transition" style={{ background: sec === k ? C.orange : "transparent", color: sec === k ? "#fff" : C.muted, fontWeight: sec === k ? 600 : 400 }}>{l}</button>
+            ))}
+          </div>
+        </div>
 
+        {sec === "pl" && (<>
         {d.pl && (() => {
           const P = d.pl; const cols = P.ch;
           const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" ? pct(v) : eur(v));
@@ -268,8 +300,9 @@ function Dashboard({ d, onLogout, embedded }) {
             </Card>
           );
         })()}
+        </>)}
 
-
+        {sec === "plan" && (<>
         {d.axes && (() => {
           const A = d.axes;
           const rows = mp === "Global" ? A.glob.map((g) => ({ ...g, canal: "Tous canaux" })) : A.rows.filter((r) => r.canal === mp);
@@ -375,14 +408,7 @@ function Dashboard({ d, onLogout, embedded }) {
             ))}
           </div>
         </Card>
-
-        <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.92)" : C.bg }}>
-          <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Détail">
-            {[["frais", "Frais par canal et catégorie"], ["evo", "Évolution mensuelle"], ["log", "Logistique"], ["pub", "Publicité"], ["prod", "Produits"]].map(([k, l]) => (
-              <button key={k} onClick={() => setSec(k)} className="px-4 py-2 rounded-lg whitespace-nowrap transition" style={{ background: sec === k ? C.orange : "transparent", color: sec === k ? "#fff" : C.muted, fontWeight: sec === k ? 600 : 400 }}>{l}</button>
-            ))}
-          </div>
-        </div>
+        </>)}
 
         {sec === "frais" && (<>
         <Card className="!py-4">
@@ -655,7 +681,7 @@ function Dashboard({ d, onLogout, embedded }) {
         <p className="text-[11px] leading-relaxed pb-8" style={{ color: C.dim }}>
           Sources : API Mirakl (Leroy Merlin/ADEO, Castorama, Boulanger, Bricomarché, Maxeda), rapports retail media Leroy Merlin, Octopia (Cdiscount) et C.A.R.S.,
           Amazon Seller Central et Amazon Ads, ventes du site issues de l’app de pilotage (frais forfaitaires 3 %). Montants de frais HT, ventes TTC nettes de remboursements.
-          Détail complet dans le classeur Excel « Mirakl_ADEO_frais_variables_commissions ».
+          Détail complet : bouton « Exporter Excel » en haut de page.
         </p>
       </main>
     </div>
