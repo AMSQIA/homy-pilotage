@@ -16,7 +16,7 @@ export const VZ = {
 export const POSTE = {
   com: { lab: "Commission", c: VZ.series[0] },
   pub: { lab: "Publicité", c: VZ.series[1] },
-  logmp: { lab: "Logistique marketplace", c: VZ.series[2] },
+  logmp: { lab: "Logistique mkp & autres frais", c: VZ.series[2] },
   sc: { lab: "Transport & supply chain", c: VZ.series[3] },
 };
 const keu = (v) => (Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " M€" : Math.round(v / 1000).toLocaleString("fr-FR") + " k€");
@@ -49,8 +49,9 @@ function Legendes({ items }) {
 }
 
 // ---------- 1. Cascade : des ventes HT à la contribution
-export function Waterfall({ pl }) {
-  const [ch, setCh] = useState("Total");
+export function Waterfall({ pl, ch: chProp }) {
+  const [chState, setCh] = useState("Total");
+  const ch = chProp || chState;
   const narrow = useNarrow();
   const p = ch === "Total" ? pl.t26 : pl.p26[ch];
   const steps = [
@@ -58,6 +59,7 @@ export function Waterfall({ pl }) {
     [narrow ? "Com." : "Commission", p.com, "com"],
     [narrow ? "Pub" : "Publicité", (p.pub || 0) + (p.pubnc || 0), "pub"],
     [narrow ? "Log." : "Logistique mkp", p.logmp, "logmp"],
+    [narrow ? "Autres" : "Autres frais", p.oth || 0, "oth"],
     [narrow ? "Transp." : "Transport & SC", p.sc, "sc"],
     [narrow ? "Contrib." : "Contribution", p.contrib, "contrib"],
   ];
@@ -67,7 +69,7 @@ export function Waterfall({ pl }) {
     if (k === "contrib") return { name, base: 0, val: v, k, raw: v };
     const top = run; run += v; return { name, base: run, val: top - run, k, raw: v };
   });
-  const col = (k) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.good : POSTE[k].c);
+  const col = (k) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.good : k === "oth" ? "#8A8378" : POSTE[k].c);
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
@@ -75,7 +77,7 @@ export function Waterfall({ pl }) {
           <h3 className="text-sm font-semibold">Des ventes à la contribution</h3>
           <p className="text-xs mt-0.5" style={{ color: VZ.muted }}>Chaque marche = ce qu’un poste retire des ventes HT ({pl.y1} à date).</p>
         </div>
-        <Chips items={["Total", ...pl.ch]} value={ch} onChange={setCh} label="Canal" />
+        {!chProp && <Chips items={["Total", ...pl.ch]} value={ch} onChange={setCh} label="Canal" />}
       </div>
       <div style={{ height: 290 }}>
         <ResponsiveContainer>
@@ -105,7 +107,7 @@ export function CostStructure({ pl }) {
   const narrow = useNarrow();
   const row = (name, p) => {
     const ht = p.ht || 1;
-    const com = -p.com / ht, pub = -((p.pub || 0) + (p.pubnc || 0)) / ht, logmp = -p.logmp / ht, sc = -(p.sc || 0) / ht;
+    const com = -p.com / ht, pub = -((p.pub || 0) + (p.pubnc || 0)) / ht, logmp = -((p.logmp || 0) + (p.oth || 0)) / ht, sc = -(p.sc || 0) / ht;
     return { name, com, pub, logmp, sc, contrib: Math.max(1 - com - pub - logmp - sc, 0), neg: 1 - com - pub - logmp - sc < 0 ? 1 - com - pub - logmp - sc : 0, ht: p.ht };
   };
   const data = [row("Total", pl.t26), ...pl.ch.map((c) => row(c, pl.p26[c])).sort((a, b) => b.contrib - a.contrib)];

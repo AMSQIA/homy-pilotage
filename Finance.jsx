@@ -13,6 +13,7 @@ const C = {
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
 import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ } from "./FinanceViz.jsx";
+import { MarketplacePL, Refunds, AdsDetail, TransportExplain, Chips as DChips } from "./FinanceDetail.jsx";
 const CH_COLORS = VZ.series;
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -141,7 +142,8 @@ function Dashboard({ d, onLogout, embedded }) {
     return o;
   });
   const [cat, setCat] = useState("Toutes");
-  const SECTIONS = [["pl", "Compte d’exploitation"], ["plan", "Plan d’action"], ["frais", "Canaux et catégories"], ["evo", "Évolution"], ["log", "Logistique"], ["pub", "Publicité"], ["prod", "Produits"]];
+  const SECTIONS = [["pl", "Compte d’exploitation"], ["plan", "Plan d’action"], ["frais", "Canaux et catégories"], ["ref", "Remboursements"], ["pub", "Publicité et produits"], ["log", "Transport et logistique"], ["evo", "Évolution"]];
+  const [plv, setPlv] = useState("Consolidé");
   const [sec, setSec] = useState(() => { try { const v = sessionStorage.getItem("homy_fin_sec"); if (v && SECTIONS.some((x) => x[0] === v)) return v; } catch { /* ignoré */ } return "pl"; });
   React.useEffect(() => { try { sessionStorage.setItem("homy_fin_sec", sec); } catch { /* ignoré */ } }, [sec]);
   const [xl, setXl] = useState("");
@@ -254,7 +256,20 @@ function Dashboard({ d, onLogout, embedded }) {
         </div>
 
         {sec === "pl" && (<>
-        {d.pl && (
+        {d.pl && d.det && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Vue</span>
+            <DChips items={["Consolidé", ...d.pl.ch]} value={plv} onChange={setPlv} label="Marketplace" />
+          </div>
+        )}
+        {d.pl && d.det && plv !== "Consolidé" && (
+          <Card>
+            <div className="mb-5"><Waterfall pl={d.pl} ch={plv} /></div>
+            <h3 className="text-sm font-semibold mb-3">Compte d’exploitation · {plv}</h3>
+            <MarketplacePL det={d.det} ch={plv} y1={d.det.y1} y0={d.det.y0} />
+          </Card>
+        )}
+        {d.pl && (plv === "Consolidé" || !d.det) && (
           <>
             <Card><Waterfall pl={d.pl} /></Card>
             <div className="grid xl:grid-cols-2 gap-6">
@@ -263,7 +278,7 @@ function Dashboard({ d, onLogout, embedded }) {
             </div>
           </>
         )}
-        {d.pl && (() => {
+        {(plv === "Consolidé" || !d.det) && d.pl && (() => {
           const P = d.pl; const cols = P.ch;
           const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" ? pct(v) : eur(v));
           const key = new Set(["ht", "fv", "mfv", "tfv", "contrib"]);
@@ -536,6 +551,7 @@ function Dashboard({ d, onLogout, embedded }) {
         </>)}
 
         {sec === "log" && (<>
+        {d.det && <TransportExplain det={d.det} log={d.log} />}
         {d.log && (() => {
           const L = d.log; const supT = L.sup.reduce((t, x) => t + x.tot, 0);
           const rows = (cat === "Toutes" ? L.ch : L.cat.filter((x) => x.cat === cat)).slice().sort((a, b) => b.cout - a.cout);
@@ -596,7 +612,12 @@ function Dashboard({ d, onLogout, embedded }) {
         })()}
         </>)}
 
+        {sec === "ref" && d.det && (<>
+        <Refunds det={d.det} />
+        </>)}
+
         {sec === "pub" && (<>
+        {d.det && <AdsDetail d={d} />}
         {(d.disp || []).length > 0 && (
           <Card>
             <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
@@ -628,48 +649,7 @@ function Dashboard({ d, onLogout, embedded }) {
         )}
         </>)}
 
-        {sec === "prod" && (<>
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <Title sub={prodTab === "lm" ? "Leroy Merlin : pub Sponsored Products imputée au produit et commission, depuis sept. 2025." : "Amazon : commission, FBA et pub réelle par produit, 1er août – 28 oct. 2026."}>Rentabilité par produit</Title>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 rounded-xl px-3 py-1.5" style={{ background: C.bg }}>
-                <Search size={14} color={C.muted} />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher" className="bg-transparent outline-none text-xs w-28" style={{ color: C.text }} />
-              </div>
-              <div className="flex rounded-xl p-1 text-xs" style={{ background: C.bg }}>
-                {[["lm", "Leroy Merlin"], ["amz", "Amazon"]].map(([k, l]) => (
-                  <button key={k} onClick={() => setProdTab(k)} className="px-3 py-1.5 rounded-lg" style={{ background: prodTab === k ? C.orange : "transparent", color: prodTab === k ? "#fff" : C.muted }}>{l}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="overflow-x-auto max-h-[460px]">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0" style={{ background: C.card }}>
-                <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
-                  {(prodTab === "lm" ? ["Produit", "Pays", "Ventes", "Pub", "ROAS", "Commission", "% total frais"] : ["Produit", "Unités", "Ventes", "Pub", "ROAS", "Commission + FBA", "% total frais"]).map((h, i) =>
-                    <th key={h} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {prods.map((p, i) => (
-                  <tr key={i} className="border-t" style={{ borderColor: C.line }}>
-                    <td className="py-2 px-3"><div className="font-medium truncate max-w-[340px]">{p.nom}</div><div className="text-xs" style={{ color: C.dim }}>{p.sku}</div></td>
-                    <td className="py-2 px-3 text-right" style={{ color: C.muted }}>{prodTab === "lm" ? p.pays : p.q}</td>
-                    <td className="py-2 px-3 text-right">{eur(p.v)}</td>
-                    <td className="py-2 px-3 text-right">{eur(p.pub)}</td>
-                    <td className="py-2 px-3 text-right" style={{ color: p.roas != null && p.roas < 4 ? C.red : C.text }}>{p.roas == null ? "–" : p.roas.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</td>
-                    <td className="py-2 px-3 text-right">{eur(prodTab === "lm" ? p.com : (p.com || 0) + (p.fba || 0))}</td>
-                    <td className="py-2 px-3 text-right"><span className="font-semibold" style={{ color: heat(p.pt) }}>{pct(p.pt)}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
 
-        </>)}
 
         <p className="text-[11px] leading-relaxed pb-8" style={{ color: C.dim }}>
           Sources : API Mirakl (Leroy Merlin/ADEO, Castorama, Boulanger, Bricomarché, Maxeda), rapports retail media Leroy Merlin, Octopia (Cdiscount) et C.A.R.S.,
