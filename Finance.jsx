@@ -93,7 +93,8 @@ function Kpi({ icon: Icon, label, value, delta, deltaGood, sub }) {
     </Card>
   );
 }
-const tipStyle = { background: "#1E1B15", border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, fontSize: 12 };
+const tipStyle = { background: "#1E1B15", border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, fontSize: 12, padding: "8px 10px", whiteSpace: "normal", boxShadow: "0 8px 24px rgba(0,0,0,.45)" };
+const TT = { contentStyle: tipStyle, itemStyle: { color: C.text, padding: 0, fontSize: 12 }, labelStyle: { color: C.muted, fontSize: 11, marginBottom: 2 }, wrapperStyle: { zIndex: 20, maxWidth: 260, outline: "none" } };
 
 function Login({ onOk, inline, note }) {
   const [code, setCode] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
@@ -274,7 +275,7 @@ function Dashboard({ d, onLogout, embedded }) {
         )}
         {d.pl && (plv === "Consolidé" || !d.det) && (
           <>
-            <Card><Waterfall pl={d.pl} /></Card>
+            <Card><Waterfall pl={d.pl} ch="Total" /></Card>
             <div className="grid xl:grid-cols-2 gap-6">
               <Card><CostStructure pl={d.pl} /></Card>
               <Card><ChannelMap pl={d.pl} axes={d.axes} /></Card>
@@ -477,7 +478,7 @@ function Dashboard({ d, onLogout, embedded }) {
                   <CartesianGrid stroke={C.line} horizontal={false} />
                   <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={(v) => Math.round(v * 100) + "%"} axisLine={false} tickLine={false} />
                   <YAxis type="category" dataKey="name" tick={{ fill: C.text, fontSize: 12 }} width={110} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={tipStyle} formatter={(v) => pct(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
+                  <Tooltip {...TT} formatter={(v) => pct(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="2025" fill={C.dim} radius={[0, 4, 4, 0]} barSize={10} />
                   <Bar dataKey="2026" fill={C.orange} radius={[0, 4, 4, 0]} barSize={10} />
@@ -493,7 +494,7 @@ function Dashboard({ d, onLogout, embedded }) {
                   <Pie data={mix} dataKey="v" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={2} stroke="none">
                     {mix.map((m) => <Cell key={m.name} fill={m.c} />)}
                   </Pie>
-                  <Tooltip contentStyle={tipStyle} formatter={(v) => eur(v)} />
+                  <Tooltip {...TT} formatter={(v) => eur(v)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -582,7 +583,7 @@ function Dashboard({ d, onLogout, embedded }) {
                       <CartesianGrid stroke={C.line} vertical={false} />
                       <XAxis dataKey="m" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v / 1000) + "k"} width={44} />
-                      <Tooltip contentStyle={tipStyle} formatter={(v) => eur(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
+                      <Tooltip {...TT} formatter={(v) => eur(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Bar dataKey="Livraison" stackId="s" fill={C.orange} />
                       <Bar dataKey="Logistique entrepôt" stackId="s" fill={C.blue} />

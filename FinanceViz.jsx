@@ -27,7 +27,8 @@ function useNarrow(bp = 640) {
   return n;
 }
 const short = (v) => (Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + "M" : Math.round(v / 1000) + "k");
-const tip = { background: "#1E1B15", border: `1px solid ${VZ.line}`, borderRadius: 12, color: VZ.text, fontSize: 12, padding: "8px 10px" };
+const tip = { background: "#1E1B15", border: `1px solid ${VZ.line}`, borderRadius: 12, color: VZ.text, fontSize: 12, padding: "8px 10px", whiteSpace: "normal", boxShadow: "0 8px 24px rgba(0,0,0,.45)" };
+const TT = { contentStyle: tip, itemStyle: { color: VZ.text, padding: 0, fontSize: 12 }, labelStyle: { color: VZ.muted, fontSize: 11, marginBottom: 2 }, wrapperStyle: { zIndex: 20, maxWidth: 260, outline: "none" } };
 const axisTick = { fill: VZ.muted, fontSize: 11 };
 
 function Chips({ items, value, onChange, label }) {
@@ -56,14 +57,14 @@ export function Waterfall({ pl, ch: chProp }) {
   const p = ch === "Total" ? pl.t26 : pl.p26[ch];
   const hasMn = p.mn != null && p.achat != null;
   const steps = [
-    [narrow ? "Ventes" : "Ventes HT", p.ht, "total"],
-    [narrow ? "Com." : "Commission", p.com, "com"],
-    [narrow ? "Pub" : "Publicité", (p.pub || 0) + (p.pubnc || 0), "pub"],
-    [narrow ? "Log." : "Logistique mkp", p.logmp, "logmp"],
-    [narrow ? "Autres" : "Autres frais", p.oth || 0, "oth"],
-    [narrow ? "Transp." : "Transport & SC", p.sc, "sc"],
-    [narrow ? "Contrib." : "Contribution", p.contrib, "contrib"],
-    ...(hasMn ? [[narrow ? "Achats" : "Achats produits", p.achat, "achat"], [narrow ? "Marge" : "Marge nette", p.mn, "mn"]] : []),
+    ["Ventes HT", p.ht, "total"],
+    ["Commission", p.com, "com"],
+    ["Publicité", (p.pub || 0) + (p.pubnc || 0), "pub"],
+    ["Logistique mkp", p.logmp, "logmp"],
+    ["Autres frais", p.oth || 0, "oth"],
+    ["Transport & SC", p.sc, "sc"],
+    ["Contribution", p.contrib, "contrib"],
+    ...(hasMn ? [["Achats produits", p.achat, "achat"], ["Marge nette", p.mn, "mn"]] : []),
   ];
   let run = 0;
   const data = steps.map(([name, v, k]) => {
@@ -81,22 +82,49 @@ export function Waterfall({ pl, ch: chProp }) {
         </div>
         {!chProp && <Chips items={["Total", ...pl.ch]} value={ch} onChange={setCh} label="Canal" />}
       </div>
+      {narrow ? (() => {
+        const lo = Math.min(0, ...data.map((r) => r.rng[0])), hi = Math.max(...data.map((r) => r.rng[1]));
+        const x = (v) => ((v - lo) / (hi - lo)) * 100;
+        return (
+          <div className="space-y-1.5">
+            {data.map((r) => {
+              const sub = r.k === "total" || r.k === "contrib" || r.k === "mn";
+              return (
+                <div key={r.name} className={`rounded-lg px-2.5 py-2 ${sub ? "" : ""}`} style={{ background: sub ? "rgba(255,255,255,.04)" : "transparent" }}>
+                  <div className="flex items-baseline justify-between gap-2 text-[13px]">
+                    <span className={sub ? "font-semibold" : ""} style={{ color: VZ.text }}>{r.name}</span>
+                    <span className="whitespace-nowrap">
+                      <b style={{ color: r.k === "mn" ? (r.raw < 0 ? VZ.bad : VZ.good) : VZ.text }}>{r.raw >= 0 ? keu(r.raw) : "−" + keu(-r.raw)}</b>
+                      <span className="text-[11px] ml-1.5" style={{ color: VZ.muted }}>{pc(Math.abs(r.raw) / p.ht)}</span>
+                    </span>
+                  </div>
+                  <div className="relative h-2 mt-1.5 rounded-full" style={{ background: VZ.bg }}>
+                    {lo < 0 && <span className="absolute top-[-2px] bottom-[-2px] w-px" style={{ left: `${x(0)}%`, background: VZ.muted }} />}
+                    <span className="absolute top-0 bottom-0 rounded-full" style={{ left: `${x(r.rng[0])}%`, width: `${Math.max(x(r.rng[1]) - x(r.rng[0]), 0.8)}%`, background: col(r.k, r.raw) }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })() : (
       <div style={{ height: 290 }}>
-        <ResponsiveContainer>
-          <BarChart data={data} margin={{ top: 22, right: 8, left: 0, bottom: 0 }} barCategoryGap="22%">
-            <CartesianGrid stroke={VZ.line} vertical={false} />
-            <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} interval={0} />
-            <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => (narrow ? short(v) : keu(v))} width={narrow ? 36 : 64} />
-            <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} contentStyle={tip}
-              formatter={(v, n, it) => [`${keu(it.payload.raw)} · ${pc(Math.abs(it.payload.raw) / p.ht)} des ventes HT`, it.payload.name]} />
-            <ReferenceLine y={0} stroke={VZ.muted} />
-            <Bar dataKey="rng" radius={[4, 4, 4, 4]}>
-              {data.map((r) => <Cell key={r.name} fill={col(r.k, r.raw)} />)}
-              <LabelList dataKey="raw" position="top" formatter={(v) => (narrow ? (v >= 0 ? short(v) : "−" + short(-v)) : (v >= 0 ? keu(v) : "−" + keu(-v)))} style={{ fill: VZ.text, fontSize: narrow ? 10 : 11 }} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+          <ResponsiveContainer>
+            <BarChart data={data} margin={{ top: 22, right: 8, left: 0, bottom: 0 }} barCategoryGap="22%">
+              <CartesianGrid stroke={VZ.line} vertical={false} />
+              <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} interval={0} />
+              <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => (narrow ? short(v) : keu(v))} width={narrow ? 36 : 64} />
+              <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} {...TT}
+                formatter={(v, n, it) => [`${keu(it.payload.raw)} · ${pc(Math.abs(it.payload.raw) / p.ht)} des ventes HT`, it.payload.name]} />
+              <ReferenceLine y={0} stroke={VZ.muted} />
+              <Bar dataKey="rng" radius={[4, 4, 4, 4]}>
+                {data.map((r) => <Cell key={r.name} fill={col(r.k, r.raw)} />)}
+                <LabelList dataKey="raw" position="top" formatter={(v) => (narrow ? (v >= 0 ? short(v) : "−" + short(-v)) : (v >= 0 ? keu(v) : "−" + keu(-v)))} style={{ fill: VZ.text, fontSize: narrow ? 10 : 11 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
       <p className="text-xs mt-2" style={{ color: VZ.muted }}>
         Contribution : <b style={{ color: VZ.good }}>{pc(p.contrib / p.ht)}</b> des ventes HT · frais de vente {pc(-p.fv / p.ht)} · transport et supply chain {pc(-p.sc / p.ht)}
         {hasMn && <> · achats produits {pc(-p.achat / p.ht)} · marge nette <b style={{ color: p.mn < 0 ? VZ.bad : VZ.good }}>{pc(p.mn / p.ht)}</b> avant frais fixes</>}
@@ -115,7 +143,7 @@ export function CostStructure({ pl }) {
   };
   const data = [row("Total", pl.t26), ...pl.ch.map((c) => row(c, pl.p26[c])).sort((a, b) => b.contrib - a.contrib)];
   const keys = [["com", POSTE.com], ["pub", POSTE.pub], ["logmp", POSTE.logmp], ["sc", POSTE.sc], ["contrib", { lab: "Contribution", c: VZ.neutral }]];
-  const lab = () => (v) => (v >= (narrow ? 0.12 : 0.06) ? pc(v, 0) : "");
+  const lab = () => (v) => (v >= (narrow ? 0.15 : 0.06) ? pc(v, 0) : "");
   return (
     <div>
       <div className="mb-3">
@@ -130,7 +158,7 @@ export function CostStructure({ pl }) {
             <YAxis type="category" dataKey="name" width={112} tick={({ x, y, payload }) => (
               <text x={x - 6} y={y} dy={4} textAnchor="end" fontSize={12} fill={payload.value === "Total" ? "#FF8A50" : VZ.text} fontWeight={payload.value === "Total" ? 600 : 400}>{payload.value}</text>
             )} axisLine={false} tickLine={false} />
-            <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} contentStyle={tip} formatter={(v, n) => [pc(v), keys.find((x) => x[0] === n)?.[1].lab]} labelFormatter={(l, pl_) => `${l} · ${keu(pl_?.[0]?.payload.ht || 0)} HT`} />
+            <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} {...TT} formatter={(v, n) => [pc(v), keys.find((x) => x[0] === n)?.[1].lab]} labelFormatter={(l, pl_) => `${l} · ${keu(pl_?.[0]?.payload.ht || 0)} HT`} />
             {keys.map(([k, v], i) => (
               <Bar key={k} dataKey={k} stackId="s" fill={v.c} stroke={VZ.card} strokeWidth={2} radius={i === 0 ? [4, 0, 0, 4] : i === keys.length - 1 ? [0, 4, 4, 0] : 0}>
                 <LabelList dataKey={k} position="center" formatter={lab(k)} style={{ fill: k === "logmp" || k === "sc" ? "#0A0908" : "#fff", fontSize: 10.5, fontWeight: 600 }} />
@@ -165,7 +193,7 @@ export function ChannelMap({ pl, axes }) {
             <YAxis type="number" dataKey="y" tick={axisTick} tickFormatter={(v) => pc(v, 0)} axisLine={false} tickLine={false} width={48} domain={[-0.5, 1]} ticks={[-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]} name="Contribution" />
             <ZAxis type="number" dataKey="z" range={[60, 900]} />
             <ReferenceLine y={avg} stroke={VZ.muted} strokeDasharray="4 4" label={{ value: `moyenne ${pc(avg, 0)}`, fill: VZ.muted, fontSize: 10, position: "insideBottomLeft" }} />
-            <Tooltip cursor={{ strokeDasharray: "3 3", stroke: VZ.dim }} contentStyle={tip}
+            <Tooltip cursor={{ strokeDasharray: "3 3", stroke: VZ.dim }} {...TT}
               content={({ active, payload }) => active && payload?.length ? (
                 <div style={tip}><b>{payload[0].payload.name}</b><br />Ventes HT {keu(payload[0].payload.x)}<br />Contribution {pc(payload[0].payload.y)}<br />Gain potentiel {keu(payload[0].payload.g)}</div>) : null} />
             <Scatter data={data} fill="#FF5A1F" fillOpacity={0.75} stroke="#FF8A50" strokeWidth={1.5}>
@@ -211,7 +239,7 @@ export function MonthlyViz({ d }) {
               <CartesianGrid stroke={VZ.line} vertical={false} />
               <XAxis dataKey="m" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => keu(v)} width={60} />
-              <Tooltip cursor={{ fill: "rgba(255,255,255,.04)" }} contentStyle={tip} formatter={(v, n) => [keu(v), n]}
+              <Tooltip cursor={{ fill: "rgba(255,255,255,.04)" }} {...TT} formatter={(v, n) => [keu(v), n]}
                 itemSorter={(it) => -it.value} />
               {chans.map((c, i) => <Bar key={c} dataKey={c} stackId="a" fill={VZ.series[i % VZ.series.length]} stroke={VZ.card} strokeWidth={1} radius={i === chans.length - 1 ? [4, 4, 0, 0] : 0} />)}
             </BarChart>
@@ -232,7 +260,7 @@ export function MonthlyViz({ d }) {
               <CartesianGrid stroke={VZ.line} vertical={false} />
               <XAxis dataKey="m" tick={axisTick} axisLine={false} tickLine={false} />
               <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => pc(v, 0)} width={48} domain={[0, "auto"]} />
-              <Tooltip contentStyle={tip} formatter={(v, n) => [pc(v), n]} />
+              <Tooltip {...TT} formatter={(v, n) => [pc(v), n]} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {years.map((y) => <Line key={y} dataKey={y} stroke={yc[y] || VZ.muted} strokeWidth={2} dot={{ r: 3, strokeWidth: 0, fill: yc[y] }} activeDot={{ r: 5 }} connectNulls />)}
             </LineChart>

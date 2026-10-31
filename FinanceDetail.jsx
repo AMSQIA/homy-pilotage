@@ -11,7 +11,8 @@ const pc = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (v * 100).toLocale
 const pts = (v) => (v == null || !isFinite(v) ? "–" : (v >= 0 ? "+" : "−") + Math.abs(v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " pt");
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const moisFR = (m) => MOIS[+m.slice(5, 7) - 1] + " " + m.slice(2, 4);
-const tip = { background: "#1E1B15", border: `1px solid ${VZ.line}`, borderRadius: 12, color: VZ.text, fontSize: 12 };
+const tip = { background: "#1E1B15", border: `1px solid ${VZ.line}`, borderRadius: 12, color: VZ.text, fontSize: 12, padding: "8px 10px", whiteSpace: "normal", boxShadow: "0 8px 24px rgba(0,0,0,.45)" };
+const TT = { contentStyle: tip, itemStyle: { color: VZ.text, padding: 0, fontSize: 12 }, labelStyle: { color: VZ.muted, fontSize: 11, marginBottom: 2 }, wrapperStyle: { zIndex: 20, maxWidth: 260, outline: "none" } };
 const axisTick = { fill: VZ.muted, fontSize: 11 };
 
 export function Chips({ items, value, onChange, label, color = ORANGE }) {
@@ -207,7 +208,7 @@ export function Refunds({ det }) {
                 <CartesianGrid stroke={VZ.line} vertical={false} />
                 <XAxis dataKey="m" tick={axisTick} axisLine={false} tickLine={false} />
                 <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => pc(v, 0)} width={44} domain={[0, "auto"]} />
-                <Tooltip contentStyle={tip} formatter={(v, n) => [pc(v, 2), n]} />
+                <Tooltip {...TT} formatter={(v, n) => [pc(v, 2), n]} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line dataKey={y0} stroke={VZ.dim} strokeWidth={2} dot={{ r: 3, fill: VZ.dim, strokeWidth: 0 }} connectNulls />
                 <Line dataKey={y1} stroke={ORANGE} strokeWidth={2} dot={{ r: 3, fill: ORANGE, strokeWidth: 0 }} connectNulls />
@@ -327,7 +328,7 @@ export function AdsDetail({ d }) {
                   <CartesianGrid stroke={VZ.line} vertical={false} />
                   <XAxis dataKey="m" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={keu} width={56} />
-                  <Tooltip cursor={{ fill: "rgba(255,255,255,.04)" }} contentStyle={tip} formatter={(v, n, it) => [`${eur(v)}${it.payload.roas ? ` · ROAS ${it.payload.roas.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}` : ""}`, "Pub"]} />
+                  <Tooltip cursor={{ fill: "rgba(255,255,255,.04)" }} {...TT} formatter={(v, n, it) => [`${eur(v)}${it.payload.roas ? ` · ROAS ${it.payload.roas.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}` : ""}`, "Pub"]} />
                   <Bar dataKey="v" fill={POSTE.pub.c} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -438,7 +439,7 @@ export function TransportExplain({ det, log }) {
               <BarChart data={Object.entries(T.ppp).map(([k, v]) => ({ t: k, v }))} layout="vertical" margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
                 <XAxis type="number" hide domain={[0, "auto"]} />
                 <YAxis type="category" dataKey="t" width={90} tick={{ fill: VZ.text, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} contentStyle={tip} formatter={(v) => [eur(v, 2), "par pièce"]} />
+                <Tooltip cursor={{ fill: "rgba(255,255,255,.03)" }} {...TT} formatter={(v) => [eur(v, 2), "par pièce"]} />
                 <Bar dataKey="v" radius={[0, 4, 4, 0]} barSize={18}>
                   {Object.keys(T.ppp).map((k) => <Cell key={k} fill={k === "Geodis" ? VZ.good : POSTE.sc.c} />)}
                   <LabelList dataKey="v" position="right" formatter={(v) => eur(v, 2)} style={{ fill: VZ.text, fontSize: 11 }} />
