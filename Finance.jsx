@@ -140,6 +140,8 @@ function Dashboard({ d, onLogout, embedded }) {
     return o;
   });
   const [cat, setCat] = useState("Toutes");
+  const [sec, setSec] = useState("frais");
+  const [diagTab, setDiagTab] = useState("ok");
   const CATS = ["Toutes", ...[...new Set((d.cats || []).map((x) => x.cat))].filter((x) => x !== "Non ventilé")];
   const nm = (n) => (n.startsWith("Leroy Merlin") ? "Leroy Merlin" : n);
   const estSet = new Set((d.est || []).map(nm));
@@ -192,7 +194,19 @@ function Dashboard({ d, onLogout, embedded }) {
       </header>}
 
       <main className={embedded ? "space-y-6" : "max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6"}>
-        {tot && (
+        {d.pl && (() => {
+          const T = d.pl.t26, O = d.pl.t25;
+          return (
+            <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
+              <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
+              <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
+              <Kpi icon={Megaphone} label="Publicité totale" value={pct(-(T.pub + T.pubnc) / T.ht)} sub={`${keur(-(T.pub + T.pubnc))} dont ${keur(-T.pubnc)} hors relevé`} />
+              <Kpi icon={TrendingUp} label="Contribution" value={keur(T.contrib)} sub={`${pct(T.pct)} des ventes HT, avant achats et frais fixes`} />
+            </section>
+          );
+        })()}
+        {!d.pl && tot && (
           <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Kpi icon={Store} label="Ventes 2026 à date" value={keur(tot.v26)} delta={pct(tot.v26 / tot.v25 - 1) + " vs 2025"} deltaGood={tot.v26 >= tot.v25} sub={`1er janv. – ${dLong}, TTC net`} />
             <Kpi icon={Percent} label="Coût des canaux" value={pct(f26)} delta={pts(f26 - tot.f25) + " vs 2025"} deltaGood={f26 <= tot.f25} sub="commission + pub + logistique" />
@@ -202,24 +216,98 @@ function Dashboard({ d, onLogout, embedded }) {
           </section>
         )}
 
+
+        {d.pl && (() => {
+          const P = d.pl; const cols = P.ch;
+          const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" ? pct(v) : eur(v));
+          const key = new Set(["ht", "fv", "mfv", "tfv", "contrib"]);
+          const neg = (k) => !["ttc", "ht", "mfv", "contrib", "pct"].includes(k);
+          const share = (t, k) => (t[k] != null && t.ht && !["ttc", "tva", "pct"].includes(k) ? pct(t[k] / t.ht) : "");
+          return (
+            <Card>
+              <Title sub={`Du chiffre d’affaires à la contribution, 1er janv. – ${dLong} ${P.y1}. Montants HT, frais en négatif. Transport et supply chain réels jusqu’à ${moisFR(P.sup_last)}, prolongés au même ratio ensuite ; pub hors relevé estimée sur budget.`}>Compte d’exploitation des canaux</Title>
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                      <th className="py-2 px-3 text-left font-medium sticky left-0 z-[1]" style={{ background: C.card }}>Poste</th>
+                      <th className="py-2 px-3 text-right font-medium whitespace-nowrap" style={{ color: C.orange2 }}>Total {P.y1}</th>
+                      <th className="py-2 px-2 text-right font-medium">% HT</th>
+                      <th className="py-2 px-3 text-right font-medium whitespace-nowrap">Total {P.y0}</th>
+                      <th className="py-2 px-2 text-right font-medium">% HT</th>
+                      {cols.map((c) => <th key={c} className="py-2 px-3 text-right font-medium whitespace-nowrap">{c}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {P.lines.map(([lab, k]) => {
+                      const strong = key.has(k);
+                      return (
+                        <tr key={k} className="border-t" style={{ borderColor: C.line, background: strong ? "rgba(255,90,31,.05)" : "transparent" }}>
+                          <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: k === "contrib" ? C.orange2 : C.text, minWidth: 220 }}>{lab}</td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: k === "contrib" || k === "pct" ? C.orange2 : C.text }}>{fmtv(k, P.t26[k])}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.muted }}>{share(P.t26, k)}</td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
+                          <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
+                          {cols.map((c) => {
+                            const v = P.p26[c][k];
+                            return <td key={c} className={`py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "pct" ? heat(0.75 - (v || 0)) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] mt-3 leading-relaxed" style={{ color: C.dim }}>
+                Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. ManoMano non inclus (non connecté). Contribution = avant prix d’achat des produits et frais fixes.
+              </p>
+            </Card>
+          );
+        })()}
+
         <Card>
-          <Title sub="Ventes nettes TTC par canal (barres) et coût total des canaux en % des ventes (courbe). Octobre 2026 partiel.">Ventes mensuelles et poids des frais</Title>
-          <div style={{ height: 340 }}>
-            <ResponsiveContainer>
-              <ComposedChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke={C.line} vertical={false} />
-                <XAxis dataKey="m" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis yAxisId="v" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v / 1000) + "k"} width={48} />
-                <YAxis yAxisId="p" orientation="right" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v * 100) + "%"} width={40} domain={[0, 0.35]} />
-                <Tooltip contentStyle={tipStyle} formatter={(v, n) => (n === "% frais" ? pct(v) : eur(v))} />
-                <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
-                {chans.map((c, i) => <Bar key={c} yAxisId="v" dataKey={c} stackId="a" fill={CH_COLORS[i % CH_COLORS.length]} radius={i === chans.length - 1 ? [4, 4, 0, 0] : 0} />)}
-                <Line yAxisId="p" dataKey="pf" name="% frais" stroke="#F5F1EA" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <Title sub="Constats chiffrés tirés des données, avec l’action proposée.">Diagnostic</Title>
+            <div className="flex rounded-xl p-1 text-xs" style={{ background: C.bg }} role="tablist">
+              {[["ok", `Ce qui fonctionne (${(d.good || []).length})`, C.green], ["ko", `Ce qui ne va pas (${d.diag.length})`, C.red]].map(([k, l, col]) => (
+                <button key={k} onClick={() => setDiagTab(k)} className="px-3 py-1.5 rounded-lg transition" style={{ background: diagTab === k ? col : "transparent", color: diagTab === k ? "#0A0908" : C.muted, fontWeight: diagTab === k ? 600 : 400 }}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {diagTab === "ok" ? (d.good || []).map((x, i) => (
+              <div key={i} className="rounded-2xl border p-5" style={{ borderColor: "rgba(61,214,140,.25)", background: "rgba(61,214,140,.04)" }}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>{x.canal}</span>
+                  <TrendingUp size={14} color={C.green} />
+                </div>
+                <h3 className="font-semibold mb-2" style={{ color: C.green }}>{x.titre}</h3>
+                <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{x.constat}</p>
+                <p className="text-sm mt-3 pl-3 border-l-2 leading-relaxed" style={{ borderColor: C.green, color: C.text }}>{x.action}</p>
+              </div>
+            )) : d.diag.map((x, i) => (
+              <div key={i} className="rounded-2xl border p-5" style={{ borderColor: "rgba(255,77,79,.2)", background: "rgba(255,77,79,.03)" }}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>{x.canal}</span>
+                  <span className="text-[11px] font-semibold rounded-full px-2 py-0.5" style={{ color: prioColor[x.prio] || C.muted, background: "rgba(255,255,255,.04)" }}>{x.prio}</span>
+                </div>
+                <h3 className="font-semibold mb-2">{x.titre}</h3>
+                <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{x.constat}</p>
+                <p className="text-sm mt-3 pl-3 border-l-2 leading-relaxed" style={{ borderColor: C.orange, color: C.text }}>{x.action}</p>
+              </div>
+            ))}
           </div>
         </Card>
 
+        <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.92)" : C.bg }}>
+          <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Détail">
+            {[["frais", "Frais par canal et catégorie"], ["evo", "Évolution mensuelle"], ["log", "Logistique"], ["pub", "Publicité"], ["prod", "Produits"]].map(([k, l]) => (
+              <button key={k} onClick={() => setSec(k)} className="px-4 py-2 rounded-lg whitespace-nowrap transition" style={{ background: sec === k ? C.orange : "transparent", color: sec === k ? "#fff" : C.muted, fontWeight: sec === k ? 600 : 400 }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {sec === "frais" && (<>
         <Card className="!py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
@@ -328,6 +416,30 @@ function Dashboard({ d, onLogout, embedded }) {
           </div>
         </Card>
 
+        </>)}
+
+        {sec === "evo" && (<>
+        <Card>
+          <Title sub="Ventes nettes TTC par canal (barres) et coût total des canaux en % des ventes (courbe). Octobre 2026 partiel.">Ventes mensuelles et poids des frais</Title>
+          <div style={{ height: 340 }}>
+            <ResponsiveContainer>
+              <ComposedChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={C.line} vertical={false} />
+                <XAxis dataKey="m" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis yAxisId="v" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v / 1000) + "k"} width={48} />
+                <YAxis yAxisId="p" orientation="right" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v * 100) + "%"} width={40} domain={[0, 0.35]} />
+                <Tooltip contentStyle={tipStyle} formatter={(v, n) => (n === "% frais" ? pct(v) : eur(v))} />
+                <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
+                {chans.map((c, i) => <Bar key={c} yAxisId="v" dataKey={c} stackId="a" fill={CH_COLORS[i % CH_COLORS.length]} radius={i === chans.length - 1 ? [4, 4, 0, 0] : 0} />)}
+                <Line yAxisId="p" dataKey="pf" name="% frais" stroke="#F5F1EA" strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        </>)}
+
+        {sec === "log" && (<>
         {d.log && (() => {
           const L = d.log; const supT = L.sup.reduce((t, x) => t + x.tot, 0);
           const rows = (cat === "Toutes" ? L.ch : L.cat.filter((x) => x.cat === cat)).slice().sort((a, b) => b.cout - a.cout);
@@ -386,7 +498,9 @@ function Dashboard({ d, onLogout, embedded }) {
             </Card>
           );
         })()}
+        </>)}
 
+        {sec === "pub" && (<>
         {(d.disp || []).length > 0 && (
           <Card>
             <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
@@ -416,24 +530,9 @@ function Dashboard({ d, onLogout, embedded }) {
             </div>
           </Card>
         )}
+        </>)}
 
-        <section>
-          <div className="flex items-center gap-2 mb-3"><AlertTriangle size={18} color={C.orange} /><h2 className="text-base font-semibold">Qu’est-ce qui ne va pas</h2></div>
-          <div className="grid md:grid-cols-2 gap-4">
-            {d.diag.map((x, i) => (
-              <Card key={i}>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>{x.canal}</span>
-                  <span className="text-[11px] font-semibold rounded-full px-2 py-0.5" style={{ color: prioColor[x.prio] || C.muted, background: "rgba(255,255,255,.04)" }}>{x.prio}</span>
-                </div>
-                <h3 className="font-semibold mb-2">{x.titre}</h3>
-                <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{x.constat}</p>
-                <p className="text-sm mt-3 pl-3 border-l-2 leading-relaxed" style={{ borderColor: C.orange, color: C.text }}>{x.action}</p>
-              </Card>
-            ))}
-          </div>
-        </section>
-
+        {sec === "prod" && (<>
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <Title sub={prodTab === "lm" ? "Leroy Merlin : pub Sponsored Products imputée au produit et commission, depuis sept. 2025." : "Amazon : commission, FBA et pub réelle par produit, 1er août – 28 oct. 2026."}>Rentabilité par produit</Title>
@@ -473,6 +572,8 @@ function Dashboard({ d, onLogout, embedded }) {
             </table>
           </div>
         </Card>
+
+        </>)}
 
         <p className="text-[11px] leading-relaxed pb-8" style={{ color: C.dim }}>
           Sources : API Mirakl (Leroy Merlin/ADEO, Castorama, Boulanger, Bricomarché, Maxeda), rapports retail media Leroy Merlin, Octopia (Cdiscount) et C.A.R.S.,
