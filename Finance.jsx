@@ -142,6 +142,10 @@ function Dashboard({ d, onLogout, embedded }) {
   const [cat, setCat] = useState("Toutes");
   const [sec, setSec] = useState("frais");
   const [diagTab, setDiagTab] = useState("ok");
+  const [mp, setMp] = useState("Global");
+  const MPS = ["Global", ...((d.pl && d.pl.ch) || [])];
+  const GLOBAL_TAGS = ["Global", "Données", "Publicité", "Logistique", "Canaux", "Catégories"];
+  const matchMp = (canal) => mp === "Global" || (canal || "").includes(mp) || GLOBAL_TAGS.includes(canal);
   const CATS = ["Toutes", ...[...new Set((d.cats || []).map((x) => x.cat))].filter((x) => x !== "Non ventilé")];
   const nm = (n) => (n.startsWith("Leroy Merlin") ? "Leroy Merlin" : n);
   const estSet = new Set((d.est || []).map(nm));
@@ -265,17 +269,90 @@ function Dashboard({ d, onLogout, embedded }) {
           );
         })()}
 
+
+        {d.axes && (() => {
+          const A = d.axes;
+          const rows = mp === "Global" ? A.glob.map((g) => ({ ...g, canal: "Tous canaux" })) : A.rows.filter((r) => r.canal === mp);
+          const tops = mp === "Global" ? A.rows.filter((r) => r.gain > 500).slice(0, 6) : rows.filter((r) => r.gain > 0);
+          const g = rows.reduce((t, r) => t + r.gain, 0), gan = rows.reduce((t, r) => t + r.gain_an, 0);
+          const mx = Math.max(0.05, ...rows.map((r) => Math.max(r.r26 || 0, r.r25 || 0)));
+          const colK = { com: C.orange, pub: C.blue, logmp: C.amber, sc: "#B57BFF" };
+          return (
+            <Card>
+              <div className="flex flex-col gap-3 mb-5">
+                <Title sub="Chaque poste de frais en % des ventes HT, comparé à sa cible (taux de l’an dernier quand il était plus bas, sinon cible opérationnelle). Le gain est l’écart appliqué aux ventes.">Axes d’amélioration</Title>
+                <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-xs" style={{ background: C.bg }} role="tablist" aria-label="Marketplace">
+                  {MPS.map((k) => (
+                    <button key={k} onClick={() => setMp(k)} className="px-3 py-1.5 rounded-lg whitespace-nowrap transition"
+                      style={{ background: mp === k ? C.orange : "transparent", color: mp === k ? "#fff" : C.muted, fontWeight: mp === k ? 600 : 400 }}>{k}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="rounded-xl p-4" style={{ background: "rgba(61,214,140,.06)", border: "1px solid rgba(61,214,140,.2)" }}>
+                  <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>Gain potentiel à date</div>
+                  <div className="text-2xl font-bold mt-1" style={{ color: C.green, fontFamily: "'Archivo Black', sans-serif" }}>{keur(g)}</div>
+                  <div className="text-xs" style={{ color: C.dim }}>{d.pl ? pct(g / (mp === "Global" ? d.pl.t26.ht : d.pl.p26[mp].ht)) + " des ventes HT" : ""}</div>
+                </div>
+                <div className="rounded-xl p-4" style={{ background: C.bg }}>
+                  <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>En année pleine</div>
+                  <div className="text-2xl font-bold mt-1" style={{ fontFamily: "'Archivo Black', sans-serif" }}>{keur(gan)}</div>
+                  <div className="text-xs" style={{ color: C.dim }}>saisonnalité de l’an dernier (×{String(A.f_an).replace(".", ",")})</div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {rows.map((r) => (
+                  <div key={r.k}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+                      <span className="font-medium">{r.poste}</span>
+                      <span className="whitespace-nowrap"><span style={{ color: C.muted }}>{r.r25 != null ? pct(r.r25) + " → " : ""}</span><b>{pct(r.r26)}</b> <span style={{ color: C.dim }}>· cible {pct(r.tgt)}</span> <span className="ml-2 font-semibold" style={{ color: r.gain > 0 ? C.green : C.dim }}>{r.gain > 0 ? "+" + keur(r.gain) : "à niveau"}</span></span>
+                    </div>
+                    <div className="relative h-2.5 rounded-full mt-2" style={{ background: C.bg }}>
+                      <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(r.r26 / mx) * 100}%`, background: colK[r.k], opacity: 0.9 }} />
+                      <div className="absolute -top-1 -bottom-1 w-0.5 rounded" style={{ left: `${(r.tgt / mx) * 100}%`, background: C.green }} title="cible" />
+                      {r.r25 != null && <div className="absolute -top-1 -bottom-1 w-0.5 rounded" style={{ left: `${(r.r25 / mx) * 100}%`, background: C.text, opacity: 0.5 }} title="an dernier" />}
+                    </div>
+                    {mp === "Global" ? (r.top && <p className="text-xs mt-1.5" style={{ color: C.dim }}>Principaux gisements : {r.top}</p>)
+                      : <p className="text-xs mt-1.5" style={{ color: C.dim }}>{r.base}</p>}
+                  </div>
+                ))}
+                <div className="flex flex-wrap gap-4 text-[11px]" style={{ color: C.dim }}>
+                  <span className="flex items-center gap-1.5"><span className="w-0.5 h-3" style={{ background: C.green }} />cible</span>
+                  <span className="flex items-center gap-1.5"><span className="w-0.5 h-3" style={{ background: C.text, opacity: 0.5 }} />an dernier</span>
+                </div>
+              </div>
+              {tops.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold mb-3">{mp === "Global" ? "Les 6 leviers les plus importants" : "Actions pour " + mp}</h3>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {tops.map((r, i) => (
+                      <div key={i} className="rounded-xl p-4 border-l-2" style={{ background: C.bg, borderColor: colK[r.k] }}>
+                        <div className="flex items-center justify-between gap-2 text-xs mb-1.5">
+                          <span style={{ color: C.muted }}>{r.canal} · {r.poste}</span>
+                          <span className="font-semibold whitespace-nowrap" style={{ color: C.green }}>+{keur(r.gain)}</span>
+                        </div>
+                        <p className="text-sm leading-relaxed">{r.action}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] mt-4 leading-relaxed" style={{ color: C.dim }}>Gains avant effet sur les ventes : réduire la publicité peut aussi réduire une partie du chiffre d’affaires. Transport : Géodis sur la moitié des envois DPD et incidents divisés par deux (−{pct(A.sc_rate)} du coût).</p>
+            </Card>
+          );
+        })()}
+
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <Title sub="Constats chiffrés tirés des données, avec l’action proposée.">Diagnostic</Title>
+            <Title sub={mp === "Global" ? "Constats chiffrés tirés des données, avec l’action proposée." : `Constats concernant ${mp} et constats globaux (filtre « Axes d’amélioration »).`}>Diagnostic{mp !== "Global" ? " · " + mp : ""}</Title>
             <div className="flex rounded-xl p-1 text-xs" style={{ background: C.bg }} role="tablist">
-              {[["ok", `Ce qui fonctionne (${(d.good || []).length})`, C.green], ["ko", `Ce qui ne va pas (${d.diag.length})`, C.red]].map(([k, l, col]) => (
+              {[["ok", `Ce qui fonctionne (${(d.good || []).filter((x) => matchMp(x.canal)).length})`, C.green], ["ko", `Ce qui ne va pas (${d.diag.filter((x) => matchMp(x.canal)).length})`, C.red]].map(([k, l, col]) => (
                 <button key={k} onClick={() => setDiagTab(k)} className="px-3 py-1.5 rounded-lg transition" style={{ background: diagTab === k ? col : "transparent", color: diagTab === k ? "#0A0908" : C.muted, fontWeight: diagTab === k ? 600 : 400 }}>{l}</button>
               ))}
             </div>
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            {diagTab === "ok" ? (d.good || []).map((x, i) => (
+            {diagTab === "ok" ? (d.good || []).filter((x) => matchMp(x.canal)).map((x, i) => (
               <div key={i} className="rounded-2xl border p-5" style={{ borderColor: "rgba(61,214,140,.25)", background: "rgba(61,214,140,.04)" }}>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>{x.canal}</span>
@@ -285,7 +362,7 @@ function Dashboard({ d, onLogout, embedded }) {
                 <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{x.constat}</p>
                 <p className="text-sm mt-3 pl-3 border-l-2 leading-relaxed" style={{ borderColor: C.green, color: C.text }}>{x.action}</p>
               </div>
-            )) : d.diag.map((x, i) => (
+            )) : d.diag.filter((x) => matchMp(x.canal)).map((x, i) => (
               <div key={i} className="rounded-2xl border p-5" style={{ borderColor: "rgba(255,77,79,.2)", background: "rgba(255,77,79,.03)" }}>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>{x.canal}</span>
