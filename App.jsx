@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useLayoutEffect, useContext, createContext } from "react";
+import { createPortal } from "react-dom";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, BarChart, Bar, Line, ComposedChart,
@@ -7,7 +8,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ChevronRight,
-  X, Package, Store, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, Truck, Snowflake, Flame, EyeOff, Eye, Check, Download, Wallet
+  X, Package, Store, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, Truck, Snowflake, Flame, EyeOff, Eye, Check, Download, Wallet, UserRound, LogOut, Globe, LockKeyhole, ChevronDown
 } from "lucide-react";
 import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinanceKey } from "./Finance.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
 import { etendre } from "./extension.js"; // prolongement du tableau de bord par les ventes Shopify (voir « PROLONGEMENT SHOPIFY »)
@@ -2525,16 +2526,16 @@ function SlidingNav({ tab, onChange, t }) {
   }, [tab]);
 
   return (
-    <nav ref={containerRef} className="hidden md:flex items-center gap-1 relative">
+    <nav ref={containerRef} className="hidden md:flex items-center gap-0.5 relative">
       <div className="absolute top-0 bottom-0 rounded-full" style={{
         left: indicator.left, width: indicator.width, background: `linear-gradient(135deg, ${accent.primary}, ${accent.primary}cc)`,
         boxShadow: `0 4px 14px -4px ${accent.primary}88`, transition: "left 0.4s cubic-bezier(.22,1,.36,1), width 0.4s cubic-bezier(.22,1,.36,1), background 0.4s ease", zIndex: 0,
       }} />
       {NAV.map((n) => (
-        <button key={n.id} ref={(el) => (btnRefs.current[n.id] = el)} onClick={() => onChange(n.id)}
-          className="btn-lift relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors duration-200"
+        <button key={n.id} ref={(el) => (btnRefs.current[n.id] = el)} onClick={() => onChange(n.id)} title={t[n.labelKey]} aria-label={t[n.labelKey]}
+          className="btn-lift relative flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 rounded-full text-[12.5px] xl:text-[13px] font-medium whitespace-nowrap transition-colors duration-200"
           style={{ color: tab === n.id ? accent.text : MUTED, zIndex: 1 }}>
-          <n.icon size={14} strokeWidth={2} /> {t[n.labelKey]}
+          <n.icon size={14} strokeWidth={2} /> <span className={tab === n.id ? "" : "hidden xl:inline"}>{t[n.labelKey]}</span>
         </button>
       ))}
     </nav>
@@ -2585,7 +2586,105 @@ function PuceFiltre({ icone: Icone, libelle, couleur, actif, iconeClasse = "", f
   );
 }
 
-function BarreMobile({ t, lang, datePreset, setDatePreset, customFrom, setCustomFrom, customTo, setCustomTo, globalMp, setGlobalMp, accent }) {
+
+// ===== MENU PROFIL — bouton avatar (en-tête bureau + barre mobile) : niveau d'accès, session, langue, verrouillage de
+// l'analyse financière et déconnexion. Sur téléphone, le menu s'ouvre en feuille depuis le bas de l'écran.
+const PROFIL_TXT = {
+  fr: { profil: "Profil", proprio: "Accès propriétaire", equipe: "Accès équipe", proprioDesc: "Tableau de bord + analyse financière", equipeDesc: "Tableau de bord", sessionJusquau: "Session mémorisée jusqu’au", sessionOnglet: "Session limitée à cet onglet", langue: "Langue", verrou: "Verrouiller l’analyse financière", verrouDesc: "Masque l’onglet sans vous déconnecter", deco: "Se déconnecter", decoConf: "Confirmer la déconnexion ?", oui: "Se déconnecter", non: "Annuler", fermer: "Fermer" },
+  en: { profil: "Profile", proprio: "Owner access", equipe: "Team access", proprioDesc: "Dashboard + financial analysis", equipeDesc: "Dashboard", sessionJusquau: "Session remembered until", sessionOnglet: "Session limited to this tab", langue: "Language", verrou: "Lock financial analysis", verrouDesc: "Hides the tab without signing out", deco: "Sign out", decoConf: "Sign out now?", oui: "Sign out", non: "Cancel", fermer: "Close" },
+  es: { profil: "Perfil", proprio: "Acceso propietario", equipe: "Acceso equipo", proprioDesc: "Panel + análisis financiero", equipeDesc: "Panel", sessionJusquau: "Sesión recordada hasta el", sessionOnglet: "Sesión limitada a esta pestaña", langue: "Idioma", verrou: "Bloquear el análisis financiero", verrouDesc: "Oculta la pestaña sin cerrar sesión", deco: "Cerrar sesión", decoConf: "¿Cerrar sesión?", oui: "Cerrar sesión", non: "Cancelar", fermer: "Cerrar" },
+  zh: { profil: "个人资料", proprio: "所有者权限", equipe: "团队权限", proprioDesc: "仪表板 + 财务分析", equipeDesc: "仪表板", sessionJusquau: "会话保留至", sessionOnglet: "会话仅限此标签页", langue: "语言", verrou: "锁定财务分析", verrouDesc: "隐藏该标签但不退出", deco: "退出登录", decoConf: "确认退出？", oui: "退出登录", non: "取消", fermer: "关闭" },
+};
+const LANGUES = [["fr", "FR"], ["en", "EN"], ["es", "ES"], ["zh", "中文"]];
+function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
+  const P = PROFIL_TXT[lang] || PROFIL_TXT.fr;
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const ref = useRef(null), panRef = useRef(null);
+  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  useEffect(() => { const f = () => setMobile(window.innerWidth < 768); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
+  useEffect(() => {
+    if (!open) { setConfirm(false); return; }
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target) && !(panRef.current && panRef.current.contains(e.target))) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc); document.addEventListener("touchstart", onDoc); document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("touchstart", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  let jusqua = null;
+  try { const v = Number(localStorage.getItem(REMEMBER_KEY)); if (v > Date.now()) jusqua = new Date(v).toLocaleDateString(lang === "zh" ? "zh-CN" : lang === "en" ? "en-GB" : lang === "es" ? "es-ES" : "fr-FR", { day: "numeric", month: "long" }); } catch { /* ignoré */ }
+  const couleur = owner ? ORANGE : MUTED;
+  const Avatar = ({ s }) => (
+    <span className="relative inline-flex items-center justify-center rounded-full shrink-0" style={{ width: s, height: s, background: owner ? `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})` : PANEL, border: owner ? "none" : `1px solid ${PANEL_BORDER}`, color: owner ? "#0A0908" : INK }}>
+      <UserRound size={Math.round(s * 0.5)} strokeWidth={2.2} />
+      {owner && <span className="absolute -bottom-0.5 -right-0.5 rounded-full flex items-center justify-center" style={{ width: s * 0.42, height: s * 0.42, background: BG, border: `1.5px solid ${ORANGE}` }}><Wallet size={Math.round(s * 0.24)} color={ORANGE} /></span>}
+    </span>
+  );
+  const panneau = (
+    <div ref={panRef} role="menu" aria-label={P.profil}
+      className="profil-panneau fixed md:absolute left-0 right-0 bottom-0 md:left-auto md:bottom-auto md:right-0 md:top-[calc(100%+10px)] md:w-[300px] z-[60] rounded-t-3xl md:rounded-2xl p-4 md:p-3"
+      style={{ background: "rgba(22,20,15,0.98)", border: `1px solid ${PANEL_BORDER}`, boxShadow: "0 24px 60px -12px rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}>
+      <div className="md:hidden mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: PANEL_BORDER }} />
+      <div className="flex items-center gap-3 p-2">
+        <Avatar s={44} />
+        <div className="min-w-0">
+          <div className="text-[14px] font-semibold" style={{ color: INK }}>{owner ? P.proprio : P.equipe}</div>
+          <div className="text-[12px]" style={{ color: MUTED }}>{owner ? P.proprioDesc : P.equipeDesc}</div>
+        </div>
+      </div>
+      <div className="text-[11.5px] px-2 pb-3" style={{ color: FAINT }}>{jusqua ? `${P.sessionJusquau} ${jusqua}` : P.sessionOnglet}</div>
+      <div className="border-t pt-2" style={{ borderColor: PANEL_BORDER_QUIET }}>
+        <div className="flex items-center justify-between gap-2 px-2 py-2">
+          <span className="flex items-center gap-2 text-[13px]" style={{ color: MUTED }}><Globe size={15} /> {P.langue}</span>
+          <div className="flex rounded-full p-0.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+            {LANGUES.map(([id, l]) => (
+              <button key={id} type="button" onClick={() => setLang(id)} aria-pressed={lang === id} className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-colors"
+                style={{ background: lang === id ? `${ORANGE}26` : "transparent", color: lang === id ? ORANGE_SOFT : MUTED }}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {owner && (
+          <button type="button" role="menuitem" onClick={() => { onLock(); setOpen(false); }} className="w-full flex items-start gap-3 text-left rounded-xl px-2 py-2.5 transition-colors hover:bg-white/5">
+            <LockKeyhole size={16} className="mt-0.5 shrink-0" color={MUTED} />
+            <span><span className="block text-[13px]" style={{ color: INK }}>{P.verrou}</span><span className="block text-[11.5px]" style={{ color: FAINT }}>{P.verrouDesc}</span></span>
+          </button>
+        )}
+      </div>
+      <div className="border-t mt-1 pt-2" style={{ borderColor: PANEL_BORDER_QUIET }}>
+        {!confirm ? (
+          <button type="button" role="menuitem" onClick={() => setConfirm(true)} className="w-full flex items-center gap-3 rounded-xl px-2 py-2.5 text-[13px] font-semibold transition-colors hover:bg-white/5" style={{ color: RED }}>
+            <LogOut size={16} /> {P.deco}
+          </button>
+        ) : (
+          <div className="rounded-xl p-2.5" style={{ background: `${RED}14`, border: `1px solid ${RED}40` }}>
+            <div className="text-[12.5px] mb-2" style={{ color: INK }}>{P.decoConf}</div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirm(false)} className="flex-1 rounded-lg py-2 text-[12.5px]" style={{ background: PANEL, color: MUTED, border: `1px solid ${PANEL_BORDER}` }}>{P.non}</button>
+              <button type="button" onClick={onLogout} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={{ background: RED, color: "#0A0908" }}>{P.oui}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={P.profil} title={P.profil}
+        className="btn-lift flex items-center gap-1.5 rounded-full p-0.5 pr-1.5 transition-colors"
+        style={{ background: open ? PANEL : "transparent", border: `1px solid ${open ? PANEL_BORDER : "transparent"}` }}>
+        <Avatar s={size} />
+        <ChevronDown size={14} className="hidden md:block transition-transform" style={{ color: couleur, transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open && !mobile && panneau}
+      {open && mobile && createPortal(
+        <>
+          <div className="fixed inset-0 z-[55]" style={{ background: "rgba(0,0,0,0.55)" }} onClick={() => setOpen(false)} />
+          {panneau}
+        </>, document.body)}
+    </div>
+  );
+}
+
+function BarreMobile({ profil, t, lang, datePreset, setDatePreset, customFrom, setCustomFrom, customTo, setCustomTo, globalMp, setGlobalMp, accent }) {
   const L = BARRE_TXT[lang] || BARRE_TXT.fr;
   const filtre = globalMp !== "Toutes";
   const moisLabels = DATA.mois_labels, mois = Number(DMAX.split("-")[1]);
@@ -2612,6 +2711,7 @@ function BarreMobile({ t, lang, datePreset, setDatePreset, customFrom, setCustom
             {marketplaces.map((mp) => <option key={mp} value={mp} style={{ background: BG }}>{mp}</option>)}
           </select>
         </PuceFiltre>
+        {profil}
       </div>
       {datePreset === "personnalise" && (
         <div className="flex items-center gap-2 px-3 pb-2">
@@ -3897,7 +3997,7 @@ function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
   );
 }
 
-function DashboardApp() {
+function DashboardApp({ onLogout }) {
   // tab/datePreset/dates personnalisées initialisés depuis l'URL si présents
   // (même pattern que globalMp ci-dessous) — permet au routeur conversationnel
   // (ChatRouter, avant ce composant) de préremplir le bon écran avant même le
@@ -4027,7 +4127,11 @@ function DashboardApp() {
     setSlideDir(newIndex > oldIndex ? 1 : -1);
     setFading(true);
     setTimeout(() => { setTab(id); setPrevIndex(newIndex); setFading(false); }, 180);
-  };
+  };  // menu profil : verrouiller l'analyse financière (retire l'onglet, garde la session) ou se déconnecter
+  const [owner, setOwner] = useState(() => !!getFinanceKey());
+  const lockFinance = () => { clearFinanceKey(); desactiverFinance(); setOwner(false); if (tab === "finance") changeTab("apercu"); };
+  const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onLogout={onLogout} size={size} />;
+
 
   const moisLabels = DATA.mois_labels;
   // résolution du filtre de date global — {from, to} calculé depuis le préréglage
@@ -5103,18 +5207,22 @@ function DashboardApp() {
           <span className="text-[11.5px] font-semibold">{t.demo_mode_actif}</span>
         </div>
       )}
-      <BarreMobile t={t} lang={lang} datePreset={datePreset} setDatePreset={setDatePreset} customFrom={customFrom} setCustomFrom={setCustomFrom}
+      <BarreMobile profil={profilMenu(30)} t={t} lang={lang} datePreset={datePreset} setDatePreset={setDatePreset} customFrom={customFrom} setCustomFrom={setCustomFrom}
         customTo={customTo} setCustomTo={setCustomTo} globalMp={globalMp} setGlobalMp={setGlobalMp} accent={mpAccent} />
       <header className="hidden md:block relative z-20 backdrop-blur-xl" style={{ background: "rgba(10,9,8,0.75)", borderBottom: `1px solid ${PANEL_BORDER}` }}>
         <div className="max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <HomyLogo size={24} />
-            <div className="hidden sm:flex flex-col leading-none border-l pl-3" style={{ borderColor: PANEL_BORDER }}>
+            <div className="hidden 2xl:flex flex-col leading-none border-l pl-3" style={{ borderColor: PANEL_BORDER }}>
               <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>{t.pilotage}</span>
               <div className="flex items-center gap-1.5 mt-0.5"><BesthermLogo size={11} color={MUTED} showMark={false} /><span style={{ color: FAINT, fontSize: 10 }}>×</span><ThomsonLogo size={10} color={MUTED} /></div>
             </div>
           </div>
-          <SlidingNav tab={tab} onChange={changeTab} t={t} />
+          <div className="flex items-center gap-3">
+            <SlidingNav tab={tab} onChange={changeTab} t={t} />
+            <span className="h-6 w-px" style={{ background: PANEL_BORDER }} />
+            {profilMenu(34)}
+          </div>
         </div>
       </header>
 
@@ -6919,7 +7027,12 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(() => { try { if (new URLSearchParams(window.location.search).has("connexion")) return false; } catch { /* ignoré */ } return aUneSessionMemorisee(); });
   return (
     <ErrorBoundary>
-      {!unlocked ? <EntryGate onUnlock={() => setUnlocked(true)} /> : <DashboardApp />}
+      {!unlocked ? <EntryGate onUnlock={() => setUnlocked(true)} /> : <DashboardApp onLogout={() => {
+        try { localStorage.removeItem(REMEMBER_KEY); sessionStorage.removeItem("homy_fin_sec"); } catch { /* ignoré */ }
+        clearFinanceKey(); desactiverFinance();
+        try { const u = new URL(window.location.href); u.searchParams.delete("connexion"); window.history.replaceState(null, "", u); } catch { /* ignoré */ }
+        setUnlocked(false);
+      }} />}
     </ErrorBoundary>
   );
 }
