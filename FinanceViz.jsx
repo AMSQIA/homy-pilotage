@@ -7,10 +7,17 @@ import {
   ScatterChart, Scatter, ZAxis, LineChart, Line, Legend,
 } from "recharts";
 
+// Code couleur unique des indicateurs : rouge = à corriger, orange = à surveiller, vert = bon.
+// Marge nette (avant frais fixes) : < 5 % rouge, 5–10 % orange, ≥ 10 % vert.
+export const toneMargin = (v) => (v == null || !isFinite(v) ? "#B8AF9F" : v < 0.05 ? "#FF4D4F" : v < 0.1 ? "#FFB020" : "#3DD68C");
+// Frais de vente en % des ventes HT : < 12 % vert, 12–20 % orange, ≥ 20 % rouge.
+export const toneFees = (v) => (v == null || !isFinite(v) ? "#B8AF9F" : v >= 0.2 ? "#FF4D4F" : v >= 0.12 ? "#FFB020" : "#3DD68C");
+// Variation d'un taux (en points) : neutre sous 0,1 pt ; « up » = hausse défavorable (frais, retours) ou favorable (marges).
+export const toneDelta = (d, badWhenUp = true) => (d == null || !isFinite(d) || Math.abs(d) < 0.001 ? "#B8AF9F" : (d > 0) === badWhenUp ? "#FF4D4F" : "#3DD68C");
 export const VZ = {
   card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#B8AF9F", dim: "#968E80", bg: "#0A0908",
   series: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
-  neutral: "#4A453D", good: "#3DD68C", bad: "#FF4D4F",
+  neutral: "#4A453D", good: "#3DD68C", bad: "#FF4D4F", warn: "#FFB020", sub: "#A39C90",
 };
 // postes de coût : couleur fixe par poste (mêmes 4 premiers slots, ordre validé)
 export const POSTE = {
@@ -72,7 +79,7 @@ export function Waterfall({ pl, ch: chProp }) {
     if (k === "contrib" || k === "mn") { run = v; return { name, rng: [Math.min(0, v), Math.max(0, v)], k, raw: v }; }
     const top = run; run += v; return { name, rng: [Math.min(top, run), Math.max(top, run)], k, raw: v };
   });
-  const col = (k, v) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.good : k === "mn" ? (v < 0 ? VZ.bad : VZ.good) : k === "oth" ? "#8A8378" : k === "achat" ? "#9085e9" : POSTE[k].c);
+  const col = (k, v) => (k === "total" ? "#8A8378" : k === "contrib" ? VZ.sub : k === "mn" ? toneMargin(v / p.ht) : k === "oth" ? "#8A8378" : k === "achat" ? "#9085e9" : POSTE[k].c);
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
@@ -94,7 +101,7 @@ export function Waterfall({ pl, ch: chProp }) {
                   <div className="flex items-baseline justify-between gap-2 text-[13px]">
                     <span className={sub ? "font-semibold" : ""} style={{ color: VZ.text }}>{r.name}</span>
                     <span className="whitespace-nowrap">
-                      <b style={{ color: r.k === "mn" ? (r.raw < 0 ? VZ.bad : VZ.good) : VZ.text }}>{r.raw >= 0 ? keu(r.raw) : "−" + keu(-r.raw)}</b>
+                      <b style={{ color: r.k === "mn" ? toneMargin(r.raw / p.ht) : VZ.text }}>{r.raw >= 0 ? keu(r.raw) : "−" + keu(-r.raw)}</b>
                       <span className="text-[11px] ml-1.5" style={{ color: VZ.muted }}>{pc(Math.abs(r.raw) / p.ht)}</span>
                     </span>
                   </div>
@@ -126,8 +133,8 @@ export function Waterfall({ pl, ch: chProp }) {
         </div>
       )}
       <p className="text-xs mt-2" style={{ color: VZ.muted }}>
-        Contribution : <b style={{ color: VZ.good }}>{pc(p.contrib / p.ht)}</b> des ventes HT · frais de vente {pc(-p.fv / p.ht)} · transport et supply chain {pc(-p.sc / p.ht)}
-        {hasMn && <> · achats produits {pc(-p.achat / p.ht)} · marge nette <b style={{ color: p.mn < 0 ? VZ.bad : VZ.good }}>{pc(p.mn / p.ht)}</b> avant frais fixes</>}
+        Contribution : <b style={{ color: VZ.text }}>{pc(p.contrib / p.ht)}</b> des ventes HT · frais de vente {pc(-p.fv / p.ht)} · transport et supply chain {pc(-p.sc / p.ht)}
+        {hasMn && <> · achats produits {pc(-p.achat / p.ht)} · marge nette <b style={{ color: toneMargin(p.mn / p.ht) }}>{pc(p.mn / p.ht)}</b> avant frais fixes</>}
       </p>
     </div>
   );

@@ -2,7 +2,7 @@
 // publicité par marketplace et par produit (avec les autres frais), explication du transport.
 import React, { useMemo, useState } from "react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, Legend, Cell, LabelList } from "recharts";
-import { VZ, POSTE } from "./FinanceViz.jsx";
+import { VZ, POSTE, toneMargin, toneDelta } from "./FinanceViz.jsx";
 
 const ORANGE = "#FF5A1F", ORANGE2 = "#FF8A50";
 const eur = (v, d = 0) => (v == null || !isFinite(v) ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
@@ -81,8 +81,8 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
         <Stat label={`Ventes nettes HT ${y1}`} value={keu(a.ht)} sub={b.ht ? `${a.ht >= b.ht ? "+" : ""}${pc(a.ht / b.ht - 1)} vs ${y0}` : "nouveau canal"} />
         <Stat label="Remboursements" value={M.ref_ok ? pc(refR, 2) : "n.d."} sub={M.ref_ok ? `${keu(a.ref)} TTC · ${y0} : ${pc(refR0, 2)}` : "non suivis pour ce canal"} color={M.ref_ok && refR > 0.04 ? VZ.bad : undefined} />
         <Stat label="Frais de vente" value={pc(a.fv / a.ht)} sub={`${y0} : ${pc(b.fv / b.ht)} · premier poste : ${biggest[0].toLowerCase()}`} />
-        <Stat label="Contribution" value={pc(a.contrib / a.ht)} sub={keu(a.contrib) + " après transport"} color={a.contrib < 0 ? VZ.bad : VZ.good} />
-        {a.mn != null && <Stat label="Marge nette" value={pc(a.mn / a.ht)} sub={`${keu(a.mn)} après achats (${pc(a.achat / a.ht)})`} color={a.mn < 0 ? VZ.bad : VZ.good} />}
+        <Stat label="Contribution" value={pc(a.contrib / a.ht)} sub={keu(a.contrib) + " après transport, avant achats"} color={a.contrib < 0 ? VZ.bad : undefined} />
+        {a.mn != null && <Stat label="Marge nette" value={pc(a.mn / a.ht)} sub={`${keu(a.mn)} après achats (${pc(a.achat / a.ht)})`} color={toneMargin(a.mn / a.ht)} />}
       </div>
       <div className="overflow-x-auto -mx-1">
         <table className="w-full text-sm">
@@ -101,7 +101,7 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
               const p1 = pctOf(row, true), p0 = pctOf(row, false);
               const isPct = !["ttc", "ht", "g"].includes(row.k) || row.k === "ref";
               return (
-                <tr key={i} className="border-t" style={{ borderColor: VZ.line, background: row.hl ? "rgba(61,214,140,.06)" : row.key ? "rgba(255,90,31,.05)" : "transparent" }}>
+                <tr key={i} className="border-t" style={{ borderColor: VZ.line, background: row.hl ? "rgba(255,255,255,.04)" : row.key ? "rgba(255,90,31,.05)" : "transparent" }}>
                   <td className={`py-2 px-3 ${row.strong ? "font-semibold" : ""}`} style={{ paddingLeft: 12 + (row.indent || 0) * 18, minWidth: 230 }}>
                     <span className="inline-flex items-center gap-2">
                       {row.color && <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: row.color }} />}
@@ -111,11 +111,11 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
                     </span>
                     {row.note && <div className="text-[11px]" style={{ color: VZ.dim }}>{row.note}</div>}
                   </td>
-                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.hl ? (row.va < 0 ? VZ.bad : VZ.good) : VZ.text }}>{row.va == null ? "n.d." : eur(row.va)}</td>
+                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.k === "mn" ? toneMargin(row.va / a.ht) : row.va < 0 && row.hl ? VZ.bad : VZ.text }}>{row.va == null ? "n.d." : eur(row.va)}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.muted }}>{isPct && p1 != null ? pc(row.k === "mn" ? p1 : Math.abs(p1)) : row.k === "ht" ? "100 %" : ""}</td>
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{row.vb == null ? (["sc", "contrib", "mn"].includes(row.k) ? "n.d." : "–") : eur(row.vb)}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.dim }}>{isPct && p0 != null ? pc(Math.abs(p0)) : row.k === "ht" ? "100 %" : ""}</td>
-                  <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: p1 != null && p0 != null ? ((Math.abs(p1) - Math.abs(p0)) * (row.neg ? 1 : -1) > 0.0005 ? VZ.bad : VZ.good) : VZ.dim }}>
+                  <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: p1 != null && p0 != null && !["tva", "ttc", "ht", "g"].includes(row.k) ? toneDelta(Math.abs(p1) - Math.abs(p0), !!row.neg) : VZ.dim }}>
                     {isPct && p1 != null && p0 != null && row.k !== "g" ? pts(Math.abs(p1) - Math.abs(p0)) : ""}
                   </td>
                 </tr>
@@ -164,7 +164,7 @@ export function Refunds({ det }) {
       <Box>
         <H sub={`Remboursements clients en % des ventes brutes TTC, ${y1} à date vs ${y0} même période. Site bestherm.fr non suivi (pas de donnée de retour).`}>Taux de remboursement</H>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          <Stat label={`Taux ${y1}`} value={pc(R1 / G1, 2)} sub={`${keu(R1)} remboursés sur ${keu(G1)}`} color={R1 / G1 > R0 / G0 ? VZ.bad : VZ.good} />
+          <Stat label={`Taux ${y1}`} value={pc(R1 / G1, 2)} sub={`${keu(R1)} remboursés sur ${keu(G1)}`} color={toneDelta(R1 / G1 - R0 / G0)} />
           <Stat label={`Taux ${y0}`} value={pc(R0 / G0, 2)} sub={`évolution ${pts(R1 / G1 - R0 / G0)}`} />
           <Stat label="Commission récupérée" value={pc(comR / refHTcomOK)} sub={`des remboursements HT : ${keu(comR)} de commission reversés (Mirakl, Cdiscount)`} />
           <Stat label="Coût net des retours" value={keu(R1 / 1.2 - comR)} sub="ventes HT perdues moins commission récupérée" />
@@ -188,7 +188,7 @@ export function Refunds({ det }) {
                   <td className="py-2 px-3 text-right whitespace-nowrap">{keu(x.ref)}</td>
                   <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: x.rate > 0.04 ? VZ.bad : VZ.text }}>{pc(x.rate, 2)}</td>
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{pc(x.rate0, 2)}</td>
-                  <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: x.rate0 != null && x.rate > x.rate0 ? VZ.bad : VZ.good }}>{x.rate0 != null ? pts(x.rate - x.rate0) : "–"}</td>
+                  <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: x.rate0 != null ? toneDelta(x.rate - x.rate0) : VZ.dim }}>{x.rate0 != null ? pts(x.rate - x.rate0) : "–"}</td>
                   <td className="py-2 px-3 text-right whitespace-nowrap">{pts(x.pt).replace("+", "")} <span style={{ color: VZ.dim }}>({pc(x.pt / (R1 / G1), 0)})</span></td>
                 </tr>
               ))}
@@ -482,7 +482,7 @@ export function ProductMargin({ det, pl }) {
   }, [q, sort, det]);
   const tot = rows.reduce((t, p) => ({ ht: t.ht + p.ht, a: t.a + p.achat, f: t.f + p.frais, m: t.m + p.m }), { ht: 0, a: 0, f: 0, m: 0 });
   const losers = rows.filter((p) => p.pn < 0);
-  const heat = (v) => (v < 0 ? VZ.bad : v < 0.05 ? "#FFB020" : VZ.good);
+  const heat = (v) => toneMargin(v);
   const Bar3 = ({ p }) => (
     <div className="flex h-2 w-full rounded-full overflow-hidden" style={{ background: VZ.bg }} title="achat · frais marketplace · transport moyen · marge">
       <span style={{ width: `${Math.min(p.pa, 1) * 100}%`, background: "#9085e9" }} />
@@ -569,7 +569,7 @@ export function Essentiel({ d, onGo }) {
   const losers = (det.marg_prod || []).filter((p) => p.ht >= 20000 && p.m / p.ht - scR < 0);
   const ax = d.axes && d.axes.glob ? [...d.axes.glob].sort((a, b) => b.gain - a.gain)[0] : null;
   const msgs = [];
-  if (T.mn != null) msgs.push({ tone: T.mnpct < 0.05 ? "bad" : "good", t: `Marge nette ${pc(T.mnpct)} des ventes HT`, s: `${keu(T.mn)} après frais de vente, transport et achats (${pc(-T.achat / T.ht)}). ${best ? `Meilleur canal : ${best.c} (${pc(best.mnpct)})` : ""}${worst && worst.mnpct < 0 ? ` · ${worst.c} perd de l’argent (${pc(worst.mnpct)}, ${keu(worst.mn)})` : ""}.`, go: "pl" });
+  if (T.mn != null) msgs.push({ tone: T.mnpct < 0.05 ? "bad" : T.mnpct < 0.1 ? "warn" : "good", t: `Marge nette ${pc(T.mnpct)} des ventes HT`, s: `${keu(T.mn)} après frais de vente, transport et achats (${pc(-T.achat / T.ht)}). ${best ? `Meilleur canal : ${best.c} (${pc(best.mnpct)})` : ""}${worst && worst.mnpct < 0 ? ` · ${worst.c} perd de l’argent (${pc(worst.mnpct)}, ${keu(worst.mn)})` : ""}.`, go: "pl" });
   msgs.push({ tone: -T.fv / T.ht > -O.fv / O.ht ? "bad" : "good", t: `Frais de vente ${pc(-T.fv / T.ht)} (${pts(-T.fv / T.ht + O.fv / O.ht)} sur un an)`, s: ax ? `Premier levier : ${ax.poste.toLowerCase()}, ${pc(ax.r26)} contre ${pc(ax.r25)} en ${P.y0} – retour à la cible = ${keu(ax.gain)} à date (${keu(ax.gain_an)} sur un an).` : "", go: "plan" });
   if (losers.length) msgs.push({ tone: "bad", t: `${losers.length} grosses références vendues à perte après transport`, s: `Parmi celles à plus de 20 k€ de ventes : ${losers.slice(0, 3).map((p) => p.nom).join(", ")}… soit ${keu(losers.reduce((t, p) => t + p.ht, 0))} de ventes HT à revoir (prix, promos ou achat).`, go: "pl" });
   // alertes
