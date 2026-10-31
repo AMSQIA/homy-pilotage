@@ -12,7 +12,8 @@ const C = {
   bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#948C7E", dim: "#6B6459",
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
-const CH_COLORS = ["#FF5A1F", "#4A9EFF", "#FFB020", "#3DD68C", "#B57BFF", "#FF8A50", "#6FB4FF", "#E8E1D5"];
+import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ } from "./FinanceViz.jsx";
+const CH_COLORS = VZ.series;
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const hex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -253,6 +254,15 @@ function Dashboard({ d, onLogout, embedded }) {
         </div>
 
         {sec === "pl" && (<>
+        {d.pl && (
+          <>
+            <Card><Waterfall pl={d.pl} /></Card>
+            <div className="grid xl:grid-cols-2 gap-6">
+              <Card><CostStructure pl={d.pl} /></Card>
+              <Card><ChannelMap pl={d.pl} axes={d.axes} /></Card>
+            </div>
+          </>
+        )}
         {d.pl && (() => {
           const P = d.pl; const cols = P.ch;
           const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" ? pct(v) : eur(v));
@@ -522,24 +532,7 @@ function Dashboard({ d, onLogout, embedded }) {
         </>)}
 
         {sec === "evo" && (<>
-        <Card>
-          <Title sub="Ventes nettes TTC par canal (barres) et coût total des canaux en % des ventes (courbe). Octobre 2026 partiel.">Ventes mensuelles et poids des frais</Title>
-          <div style={{ height: 340 }}>
-            <ResponsiveContainer>
-              <ComposedChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke={C.line} vertical={false} />
-                <XAxis dataKey="m" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis yAxisId="v" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v / 1000) + "k"} width={48} />
-                <YAxis yAxisId="p" orientation="right" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => Math.round(v * 100) + "%"} width={40} domain={[0, 0.35]} />
-                <Tooltip contentStyle={tipStyle} formatter={(v, n) => (n === "% frais" ? pct(v) : eur(v))} />
-                <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
-                {chans.map((c, i) => <Bar key={c} yAxisId="v" dataKey={c} stackId="a" fill={CH_COLORS[i % CH_COLORS.length]} radius={i === chans.length - 1 ? [4, 4, 0, 0] : 0} />)}
-                <Line yAxisId="p" dataKey="pf" name="% frais" stroke="#F5F1EA" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
+        <Card><MonthlyViz d={d} /></Card>
         </>)}
 
         {sec === "log" && (<>
