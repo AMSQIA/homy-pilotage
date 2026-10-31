@@ -8,7 +8,7 @@ import {
 } from "recharts";
 
 export const VZ = {
-  card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#948C7E", dim: "#6B6459", bg: "#0A0908",
+  card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#B8AF9F", dim: "#968E80", bg: "#0A0908",
   series: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
   neutral: "#4A453D", good: "#3DD68C", bad: "#FF4D4F",
 };

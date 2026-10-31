@@ -5,3 +5,29 @@
 body {
   margin: 0;
 }
+
+/* Analyse financière : lisibilité sur téléphone */
+@media (max-width: 640px) {
+  .fin-root { font-size: 15px; }
+  .fin-root .text-\[10px\], .fin-root .text-\[10\.5px\], .fin-root .text-\[11px\] { font-size: 12.5px !important; line-height: 1.45; }
+  .fin-root .text-xs { font-size: 13.5px !important; line-height: 1.5; }
+  .fin-root .text-sm { font-size: 15px !important; }
+  .fin-root .rounded-2xl { padding: 16px !important; }
+  .fin-root .fin-kpis .rounded-2xl { padding: 14px !important; }
+  .fin-root .recharts-cartesian-axis-tick text, .fin-root .recharts-legend-item-text { font-size: 12px !important; fill: #B8AF9F; }
+  .fin-root .recharts-label-list text, .fin-root .recharts-label { font-size: 11.5px !important; }
+  .fin-root table td, .fin-root table th { padding-top: 10px; padding-bottom: 10px; }
+}
+@media (max-width: 640px) {
+  .fin-root table.fin-cards, .fin-root table.fin-cards tbody { display: block; width: 100%; }
+  .fin-root table.fin-cards thead { display: none; }
+  .fin-root table.fin-cards tr { display: block; border: 1px solid #26221B !important; border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; background: #0A0908; }
+  .fin-root table.fin-cards td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0 !important; text-align: right !important; white-space: normal !important; border: 0 !important; position: static !important; background: transparent !important; min-width: 0 !important; }
+  .fin-root table.fin-cards td::before { content: attr(data-label); color: #968E80; font-size: 12.5px; text-align: left; flex-shrink: 0; max-width: 48%; }
+  .fin-root table.fin-cards td:first-child { display: block; text-align: left !important; font-weight: 600; font-size: 15px; padding-bottom: 6px !important; }
+  .fin-root table.fin-cards td:first-child::before { display: none; }
+  .fin-root table.fin-cards td[data-label=""]::before { display: none; }
+  .fin-root table.fin-cards td:empty { display: none; }
+  .fin-root .overflow-x-auto:has(> table.fin-cards) { overflow-x: hidden; margin-left: 0; margin-right: 0; }
+  .fin-root .overflow-x-auto[class*="max-h-"]:has(> table.fin-cards) { max-height: 72vh; }
+}

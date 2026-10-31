@@ -4,12 +4,12 @@
 import React, { useMemo, useState } from "react";
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
-  BarChart, PieChart, Pie, Cell,
+  BarChart, PieChart, Pie, Cell, LabelList,
 } from "recharts";
 import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search, Wallet } from "lucide-react";
 
 const C = {
-  bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#948C7E", dim: "#6B6459",
+  bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#B8AF9F", dim: "#968E80",
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
 import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ } from "./FinanceViz.jsx";
@@ -79,10 +79,10 @@ function Kpi({ icon: Icon, label, value, delta, deltaGood, sub }) {
   const good = deltaGood;
   return (
     <Card>
-      <div className="flex items-center gap-2 text-xs uppercase tracking-wider" style={{ color: C.muted }}>
-        <Icon size={14} /> {label}
+      <div className="flex items-center gap-1.5 text-[11px] sm:text-xs uppercase tracking-wide sm:tracking-wider leading-tight" style={{ color: C.muted }}>
+        <Icon size={14} className="shrink-0" /> {label}
       </div>
-      <div className="mt-3 text-2xl sm:text-3xl font-bold" style={{ color: C.text, fontFamily: "'Archivo Black', sans-serif" }}>{value}</div>
+      <div className="mt-2 sm:mt-3 text-[22px] sm:text-3xl font-bold leading-tight" style={{ color: C.text, fontFamily: "'Archivo Black', sans-serif" }}>{value}</div>
       {delta && (
         <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full"
           style={{ background: good ? "rgba(61,214,140,.12)" : "rgba(255,77,79,.12)", color: good ? C.green : C.red }}>
@@ -145,6 +145,16 @@ function Dashboard({ d, onLogout, embedded }) {
   const [cat, setCat] = useState("Toutes");
   const SECTIONS = [["pl", "Compte d’exploitation"], ["plan", "Plan d’action"], ["frais", "Canaux et catégories"], ["ref", "Remboursements"], ["pub", "Publicité et produits"], ["log", "Transport et logistique"], ["evo", "Évolution"]];
   const [plv, setPlv] = useState("Consolidé");
+  React.useEffect(() => {   // libellés de colonnes pour l'affichage en cartes sur téléphone
+    const label = () => document.querySelectorAll(".fin-root table.fin-cards").forEach((t) => {
+      const hs = [...t.querySelectorAll("thead th")].map((h) => h.textContent.trim());
+      t.querySelectorAll("tbody tr").forEach((r) => [...r.children].forEach((td, i) => { const v = hs[i] || ""; if (td.getAttribute("data-label") !== v) td.setAttribute("data-label", v); }));
+    });
+    label();
+    const root = document.querySelector(".fin-root"); if (!root) return;
+    const mo = new MutationObserver(() => label()); mo.observe(root, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
   const [sec, setSec] = useState(() => { try { const v = sessionStorage.getItem("homy_fin_sec"); if (v && SECTIONS.some((x) => x[0] === v)) return v; } catch { /* ignoré */ } return "pl"; });
   React.useEffect(() => { try { sessionStorage.setItem("homy_fin_sec", sec); } catch { /* ignoré */ } }, [sec]);
   const [xl, setXl] = useState("");
@@ -225,11 +235,11 @@ function Dashboard({ d, onLogout, embedded }) {
         </div>
       </header>}
 
-      <main className={embedded ? "space-y-6" : "max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6"}>
+      <main className={`fin-root ${embedded ? "space-y-6" : "max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6"}`}>
         {d.pl && (() => {
           const T = d.pl.t26, O = d.pl.t25;
           return (
-            <section className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x lg:grid lg:grid-cols-3 xl:grid-cols-6 lg:gap-4 lg:overflow-visible [&>*]:min-w-[200px] [&>*]:shrink-0 [&>*]:snap-start lg:[&>*]:min-w-0">
+            <section className={`fin-kpis ${sec !== "pl" ? "hidden sm:grid" : "grid"} grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6 lg:gap-4`}>
               <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
               <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
               <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
@@ -249,7 +259,7 @@ function Dashboard({ d, onLogout, embedded }) {
           </section>
         )}
 
-        {d.pl && d.pl.t26 && <Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+        {d.pl && d.pl.t26 && <div className={sec !== "pl" ? "hidden sm:block" : ""}><Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} /></div>}
 
         <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.94)" : C.bg }}>
           <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Sections">
@@ -278,7 +288,7 @@ function Dashboard({ d, onLogout, embedded }) {
             <Card><Waterfall pl={d.pl} ch="Total" /></Card>
             <div className="grid xl:grid-cols-2 gap-6">
               <Card><CostStructure pl={d.pl} /></Card>
-              <Card><ChannelMap pl={d.pl} axes={d.axes} /></Card>
+              <Card className="hidden sm:block"><ChannelMap pl={d.pl} axes={d.axes} /></Card>
             </div>
           </>
         )}
@@ -298,9 +308,9 @@ function Dashboard({ d, onLogout, embedded }) {
                       <th className="py-2 px-3 text-left font-medium sticky left-0 z-[1]" style={{ background: C.card }}>Poste</th>
                       <th className="py-2 px-3 text-right font-medium whitespace-nowrap" style={{ color: C.orange2 }}>Total {P.y1}</th>
                       <th className="py-2 px-2 text-right font-medium">% HT</th>
-                      <th className="py-2 px-3 text-right font-medium whitespace-nowrap">Total {P.y0}</th>
-                      <th className="py-2 px-2 text-right font-medium">% HT</th>
-                      {cols.map((c) => <th key={c} className="py-2 px-3 text-right font-medium whitespace-nowrap">{c}</th>)}
+                      <th className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">Total {P.y0}</th>
+                      <th className="hidden sm:table-cell py-2 px-2 text-right font-medium">% HT</th>
+                      {cols.map((c) => <th key={c} className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">{c}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -311,11 +321,11 @@ function Dashboard({ d, onLogout, embedded }) {
                           <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: k === "contrib" || k === "mn" ? C.orange2 : C.text, minWidth: 220 }}>{lab}</td>
                           <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: ["contrib", "pct", "mn", "mnpct"].includes(k) ? C.orange2 : C.text }}>{fmtv(k, P.t26[k])}</td>
                           <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.muted }}>{share(P.t26, k)}</td>
-                          <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
-                          <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
+                          <td className="hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
+                          <td className="hidden sm:table-cell py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
                           {cols.map((c) => {
                             const v = P.p26[c][k];
-                            return <td key={c} className={`py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "pct" ? heat(0.75 - (v || 0)) : k === "mnpct" ? heat(0.12 - (v || 0)) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
+                            return <td key={c} className={`hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "pct" ? heat(0.75 - (v || 0)) : k === "mnpct" ? heat(0.12 - (v || 0)) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
                           })}
                         </tr>
                       );
@@ -323,6 +333,7 @@ function Dashboard({ d, onLogout, embedded }) {
                   </tbody>
                 </table>
               </div>
+              <p className="sm:hidden text-xs mt-3" style={{ color: C.muted }}>Détail par canal : choisis un canal dans « Vue » en haut de l’onglet.</p>
               <p className="text-[11px] mt-3 leading-relaxed" style={{ color: C.dim }}>
                 Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. ManoMano non inclus (non connecté). Coût d’achat : prix FOB 2026 + coût logistique d’approche par référence (Base produits ONLINE de la supply chain), exact par ligne de commande pour Leroy Merlin et les enseignes Mirakl{P.ach_est ? " ; " + Object.entries(P.ach_est).map(([k, v]) => `${k} : ${v}`).join(" ; ") : ""}. Les prix 2026 sont aussi appliqués à {P.y0}. Marge nette = avant frais fixes (salaires, loyers, SAV).
               </p>
@@ -472,16 +483,16 @@ function Dashboard({ d, onLogout, embedded }) {
         <div className="grid lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2">
             <Title sub={`Commission + pub + logistique, en % des ventes nettes, à période égale (1er janv. – ${dLong}).`}>{`Coût par canal : 2025 vs 2026${cat !== "Toutes" ? " · " + cat : ""}`}</Title>
-            <div style={{ height: 300 }}>
+            <div style={{ height: 360 }}>
               <ResponsiveContainer>
-                <BarChart data={costBars} layout="vertical" margin={{ left: 10, right: 20 }}>
+                <BarChart data={costBars} layout="vertical" margin={{ left: 0, right: 48 }}>
                   <CartesianGrid stroke={C.line} horizontal={false} />
                   <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={(v) => Math.round(v * 100) + "%"} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" tick={{ fill: C.text, fontSize: 12 }} width={110} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: C.text, fontSize: 12 }} width={96} axisLine={false} tickLine={false} />
                   <Tooltip {...TT} formatter={(v) => pct(v)} cursor={{ fill: "rgba(255,255,255,.03)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="2025" fill={C.dim} radius={[0, 4, 4, 0]} barSize={10} />
-                  <Bar dataKey="2026" fill={C.orange} radius={[0, 4, 4, 0]} barSize={10} />
+                  <Bar dataKey="2026" fill={C.orange} radius={[0, 4, 4, 0]} barSize={10}><LabelList dataKey="2026" position="right" formatter={(v) => pct(v)} style={{ fill: C.text, fontSize: 11 }} /></Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -514,7 +525,7 @@ function Dashboard({ d, onLogout, embedded }) {
             <Title sub={`Ventes nettes TTC, frais HT et poids des frais par canal – ${period}${cat !== "Toutes" ? " · " + cat : ""}.`}>Synthèse par canal</Title>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="fin-cards w-full text-sm">
               <thead>
                 <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
                   {["Canal", "Ventes", "Part", "Commission", "Pub", "Logistique", "% frais"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
@@ -592,7 +603,7 @@ function Dashboard({ d, onLogout, embedded }) {
                   </ResponsiveContainer>
                 </div>
                 <div className="overflow-x-auto max-h-[260px]">
-                  <table className="w-full text-sm">
+                  <table className="fin-cards w-full text-sm">
                     <thead className="sticky top-0" style={{ background: C.card }}>
                       <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
                         {["Canal", "Transport", "Pièces", "€ / pièce", cat === "Toutes" ? "% ventes" : ""].map((h, i) => <th key={i} className={`py-2 px-2 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
@@ -627,7 +638,7 @@ function Dashboard({ d, onLogout, embedded }) {
           <Card>
             <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="fin-cards w-full text-sm">
                 <thead>
                   <tr style={{ color: C.muted }} className="text-xs uppercase tracking-wider">
                     {["Canal", "Dispositif", "Budget 2026", "Budget à date", "Réel à date", "Statut"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i > 1 && i < 5 ? "text-right" : "text-left"}`}>{h}</th>)}

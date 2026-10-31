@@ -177,7 +177,7 @@ export function Refunds({ det }) {
           ))}
         </div>
         <div className="overflow-x-auto mt-4">
-          <table className="w-full text-sm">
+          <table className="fin-cards w-full text-sm">
             <thead><tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
               {["Canal", "Remboursé TTC", `Taux ${y1}`, `Taux ${y0}`, "Évolution", "Poids dans le taux global"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
             </tr></thead>
@@ -218,7 +218,7 @@ export function Refunds({ det }) {
         </Box>
         <Box>
           <H sub={`Leroy Merlin et enseignes Mirakl (lignes de commande), ${y1} à date.`}>Par catégorie et par pays Leroy Merlin</H>
-          <table className="w-full text-sm mb-4">
+          <table className="fin-cards w-full text-sm mb-4">
             <tbody>
               {cats.map((x) => (
                 <tr key={x.cat} className="border-t" style={{ borderColor: VZ.line }}>
@@ -240,7 +240,7 @@ export function Refunds({ det }) {
       <Box>
         <H sub={`Produits les plus remboursés en ${y1} (Leroy Merlin et enseignes Mirakl, ventes ≥ 1 500 €).`}>Produits les plus remboursés</H>
         <div className="overflow-x-auto max-h-[420px]">
-          <table className="w-full text-sm">
+          <table className="fin-cards w-full text-sm">
             <thead className="sticky top-0" style={{ background: VZ.card }}><tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
               {["Produit", "Canal", "Ventes brutes", "Remboursé", "Taux"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i > 1 ? "text-right" : "text-left"}`}>{h}</th>)}
             </tr></thead>
@@ -300,7 +300,7 @@ export function AdsDetail({ d }) {
           <Stat label="Logistique + autres frais" value={pc((M.y1.logmp + M.y1.oth) / ht1)} sub={keu(M.y1.logmp + M.y1.oth)} />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="fin-cards w-full text-sm">
             <thead><tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
               {["Dispositif", y1, "% HT", y0, "% HT", "CA attribué", "ROAS"].map((h, i) => <th key={h + i} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
             </tr></thead>
@@ -346,7 +346,7 @@ export function AdsDetail({ d }) {
             </div>
           </div>
           <div className="overflow-x-auto max-h-[520px]">
-            <table className="w-full text-sm">
+            <table className="fin-cards w-full text-sm">
               <thead className="sticky top-0 z-[1]" style={{ background: VZ.card }}><tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
                 {["Produit", "Ventes TTC", "Unités", "Pub", "ROAS", "Commission", mp === "Amazon" ? "FBA" : "Autres", "Total frais", "% ventes HT"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
               </tr></thead>
@@ -411,7 +411,7 @@ export function TransportExplain({ det, log }) {
         <Box>
           <H sub={`Coût transport et supply chain affecté à chaque canal, ${y1} à date.`}>Répartition par canal</H>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="fin-cards w-full text-sm">
               <thead><tr className="text-xs uppercase tracking-wider" style={{ color: VZ.muted }}>
                 {["Canal", "Part", "Réel", "Prolongé", "Total", "% HT", "€ / pièce"].map((h, i) => <th key={h} className={`py-2 px-2 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
               </tr></thead>
@@ -447,7 +447,7 @@ export function TransportExplain({ det, log }) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <table className="w-full text-sm mt-3">
+          <table className="fin-cards w-full text-sm mt-3">
             <tbody>
               {(log?.trp || []).map((x) => (
                 <tr key={x.t} className="border-t" style={{ borderColor: VZ.line }}>
@@ -598,18 +598,24 @@ export function Essentiel({ d, onGo }) {
         ))}
       </div>
       {al.length > 0 && (
-        <div className="mt-4 rounded-xl p-3" style={{ background: "rgba(240,68,56,.06)", border: "1px solid rgba(240,68,56,.25)" }}>
+        <details className="mt-4 group" open={typeof window !== "undefined" && window.innerWidth >= 640}>
+        <summary className="sm:hidden cursor-pointer text-sm font-semibold py-2 list-none flex items-center justify-between" style={{ color: VZ.bad }}>Voir les {al.length} alertes <span className="group-open:rotate-180 transition">▾</span></summary>
+        <div className="rounded-xl p-3" style={{ background: "rgba(240,68,56,.06)", border: "1px solid rgba(240,68,56,.25)" }}>
           <div className="text-xs font-semibold mb-1.5" style={{ color: VZ.bad }}>Alertes ({al.length})</div>
-          <ul className="text-xs space-y-1" style={{ color: VZ.text }}>{al.slice(0, 6).map((a, i) => <li key={i}>• {a}</li>)}</ul>
+          <ul className="text-xs space-y-1.5" style={{ color: VZ.text }}>{al.slice(0, 6).map((a, i) => <li key={i}>• {a}</li>)}</ul>
         </div>
+        </details>
       )}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <details className="mt-3 group" open={typeof window !== "undefined" && window.innerWidth >= 640}>
+      <summary className="sm:hidden cursor-pointer text-sm py-2 list-none flex items-center justify-between" style={{ color: VZ.muted }}>Fraîcheur des données <span className="group-open:rotate-180 transition">▾</span></summary>
+      <div className="mt-1 sm:mt-1 flex flex-wrap gap-2">
         {fresh.map(([k, v, s]) => (
           <span key={k} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]" style={{ background: VZ.bg, color: VZ.muted }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ background: col[s] }} /><b style={{ color: VZ.text, fontWeight: 500 }}>{k}</b> {v}
           </span>
         ))}
       </div>
+      </details>
     </Box>
   );
 }
