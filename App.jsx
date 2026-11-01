@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ChevronRight,
-  X, Package, Store, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, Truck, Snowflake, Flame, EyeOff, Eye, Check, Download, Wallet, UserRound, LogOut, Globe, LockKeyhole, ChevronDown
+  X, Package, Store, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, Truck, Snowflake, Flame, EyeOff, Eye, Check, Download, Wallet, UserRound, LogOut, Globe, LockKeyhole, ChevronDown, Plug, ChevronLeft
 } from "lucide-react";
 import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinanceKey } from "./Finance.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
 import { etendre } from "./extension.js"; // prolongement du tableau de bord par les ventes Shopify (voir « PROLONGEMENT SHOPIFY »)
@@ -2590,21 +2590,85 @@ function PuceFiltre({ icone: Icone, libelle, couleur, actif, iconeClasse = "", f
 // ===== MENU PROFIL — bouton avatar (en-tête bureau + barre mobile) : niveau d'accès, session, langue, verrouillage de
 // l'analyse financière et déconnexion. Sur téléphone, le menu s'ouvre en feuille depuis le bas de l'écran.
 const PROFIL_TXT = {
-  fr: { profil: "Profil", proprio: "Accès propriétaire", equipe: "Accès équipe", proprioDesc: "Tableau de bord + analyse financière", equipeDesc: "Tableau de bord", sessionJusquau: "Session mémorisée jusqu’au", sessionOnglet: "Session limitée à cet onglet", langue: "Langue", verrou: "Verrouiller l’analyse financière", verrouDesc: "Masque l’onglet sans vous déconnecter", deco: "Se déconnecter", decoConf: "Confirmer la déconnexion ?", oui: "Se déconnecter", non: "Annuler", fermer: "Fermer" },
-  en: { profil: "Profile", proprio: "Owner access", equipe: "Team access", proprioDesc: "Dashboard + financial analysis", equipeDesc: "Dashboard", sessionJusquau: "Session remembered until", sessionOnglet: "Session limited to this tab", langue: "Language", verrou: "Lock financial analysis", verrouDesc: "Hides the tab without signing out", deco: "Sign out", decoConf: "Sign out now?", oui: "Sign out", non: "Cancel", fermer: "Close" },
-  es: { profil: "Perfil", proprio: "Acceso propietario", equipe: "Acceso equipo", proprioDesc: "Panel + análisis financiero", equipeDesc: "Panel", sessionJusquau: "Sesión recordada hasta el", sessionOnglet: "Sesión limitada a esta pestaña", langue: "Idioma", verrou: "Bloquear el análisis financiero", verrouDesc: "Oculta la pestaña sin cerrar sesión", deco: "Cerrar sesión", decoConf: "¿Cerrar sesión?", oui: "Cerrar sesión", non: "Cancelar", fermer: "Cerrar" },
-  zh: { profil: "个人资料", proprio: "所有者权限", equipe: "团队权限", proprioDesc: "仪表板 + 财务分析", equipeDesc: "仪表板", sessionJusquau: "会话保留至", sessionOnglet: "会话仅限此标签页", langue: "语言", verrou: "锁定财务分析", verrouDesc: "隐藏该标签但不退出", deco: "退出登录", decoConf: "确认退出？", oui: "退出登录", non: "取消", fermer: "关闭" },
+  fr: { connManuelles: "manuelles", conn: "Connexions des données", connActives: "actives", stActif: "Actif", stManuel: "Manuel", stActiver: "À activer", retour: "Retour", profil: "Profil", proprio: "Accès propriétaire", equipe: "Accès équipe", proprioDesc: "Tableau de bord + analyse financière", equipeDesc: "Tableau de bord", sessionJusquau: "Session mémorisée jusqu’au", sessionOnglet: "Session limitée à cet onglet", langue: "Langue", verrou: "Verrouiller l’analyse financière", verrouDesc: "Masque l’onglet sans vous déconnecter", deco: "Se déconnecter", decoConf: "Confirmer la déconnexion ?", oui: "Se déconnecter", non: "Annuler", fermer: "Fermer" },
+  en: { connManuelles: "manual", conn: "Data connections", connActives: "active", stActif: "Active", stManuel: "Manual", stActiver: "To activate", retour: "Back", profil: "Profile", proprio: "Owner access", equipe: "Team access", proprioDesc: "Dashboard + financial analysis", equipeDesc: "Dashboard", sessionJusquau: "Session remembered until", sessionOnglet: "Session limited to this tab", langue: "Language", verrou: "Lock financial analysis", verrouDesc: "Hides the tab without signing out", deco: "Sign out", decoConf: "Sign out now?", oui: "Sign out", non: "Cancel", fermer: "Close" },
+  es: { connManuelles: "manuales", conn: "Conexiones de datos", connActives: "activas", stActif: "Activa", stManuel: "Manual", stActiver: "Por activar", retour: "Volver", profil: "Perfil", proprio: "Acceso propietario", equipe: "Acceso equipo", proprioDesc: "Panel + análisis financiero", equipeDesc: "Panel", sessionJusquau: "Sesión recordada hasta el", sessionOnglet: "Sesión limitada a esta pestaña", langue: "Idioma", verrou: "Bloquear el análisis financiero", verrouDesc: "Oculta la pestaña sin cerrar sesión", deco: "Cerrar sesión", decoConf: "¿Cerrar sesión?", oui: "Cerrar sesión", non: "Cancelar", fermer: "Cerrar" },
+  zh: { connManuelles: "手动", conn: "数据连接", connActives: "已连接", stActif: "已连接", stManuel: "手动", stActiver: "待启用", retour: "返回", profil: "个人资料", proprio: "所有者权限", equipe: "团队权限", proprioDesc: "仪表板 + 财务分析", equipeDesc: "仪表板", sessionJusquau: "会话保留至", sessionOnglet: "会话仅限此标签页", langue: "语言", verrou: "锁定财务分析", verrouDesc: "隐藏该标签但不退出", deco: "退出登录", decoConf: "确认退出？", oui: "退出登录", non: "取消", fermer: "关闭" },
 };
 const LANGUES = [["fr", "FR"], ["en", "EN"], ["es", "ES"], ["zh", "中文"]];
+// État des connexions de données (affiché dans le profil). « actif » = flux automatique ; « manuel » = extraction ponctuelle ;
+// « activer » = pas de connexion. Les dates Shopify sont lues dans shopify_extension.json (retard signalé au-delà de 2 jours).
+const CONNEXIONS = (() => {
+  const b = (SHOPIFY_EXT && SHOPIFY_EXT.boutiques) || {};
+  const jFr = (d) => (d ? d.split("-").reverse().slice(0, 2).join("/") : "?");
+  const retard = (d) => !d || (Date.now() - Date.parse(d + "T23:59:59")) / 86400000 > 2;
+  const shop = (bq, nom, quoi) => ({ nom, quoi, via: "Shopify · quotidien", st: retard(bq && bq.au) ? "manuel" : "actif", info: bq ? `données au ${jFr(bq.au)}${retard(bq.au) ? " · actualisation en retard (connecteur Shopify à reconnecter)" : ""}` : "aucune donnée" });
+  return [
+    ["Marketplaces", [
+      { nom: "Leroy Merlin", quoi: "FR · ES · IT · PT · Technomat", via: "API Mirakl · mensuel", st: "actif", info: "ventes, commissions, remboursements" },
+      { nom: "Castorama", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
+      { nom: "Boulanger", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
+      { nom: "Bricomarché", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
+      { nom: "Maxeda Praxis", quoi: "Pays-Bas", via: "API Mirakl · mensuel", st: "actif" },
+      { nom: "Maxeda Belgique", quoi: "Brico / Plan-It", via: "API Mirakl", st: "activer", info: "clé API Mirakl dédiée à créer" },
+      { nom: "Amazon France", quoi: "ventes, frais, FBA, Ads", via: "extraction navigateur", st: "manuel", info: "figé au 28/10 · à brancher sur l’API SP-API" },
+      { nom: "Amazon Europe", quoi: "DE · IT · ES · BE · NL", via: "API SP-API", st: "activer", info: "≈ 150 k€ HT de ventes non suivies en finance" },
+      { nom: "Cdiscount", quoi: "ventes, frais, pub", via: "extraction navigateur", st: "manuel", info: "figé au 28/10 · à brancher sur l’API Octopia" },
+      { nom: "ManoMano", quoi: "ventes, frais, pub", via: "API ManoMano", st: "activer", info: "canal absent de l’analyse financière" },
+      { nom: "Retail media Leroy Merlin", quoi: "SP · SV · SD (Valiuz)", via: "rapports e-mail · hebdo", st: "actif" },
+    ]],
+    ["Sites et Shopify", [
+      shop(b.marketplaces, "Shopify BESTHERM", "commandes de toutes les marketplaces"),
+      shop(b.site, "Site bestherm.fr", "boutique Shopify du site"),
+      { nom: "Pub du site (Google, Meta)", quoi: "JVWEB", via: "budget", st: "activer", info: "dépense réelle non reliée, estimée sur budget" },
+    ]],
+    ["Données internes", [
+      { nom: "Transport et supply chain", quoi: "app logistique", via: "extraction navigateur", st: "manuel", info: "réel jusqu’à août, prolongé ensuite" },
+      { nom: "Prix d’achat", quoi: "base produits supply chain", via: "SharePoint", st: "manuel", info: "fichier du 27/10" },
+      { nom: "Factures pub hors relevé", quoi: "DSP, m19, Kingfisher", via: "budget", st: "activer", info: "montants réels à fournir (compta)" },
+    ]],
+  ];
+})();
+function Connexions({ P }) {
+  const tous = CONNEXIONS.flatMap(([, l]) => l);
+  const n = (st) => tous.filter((x) => x.st === st).length;
+  const ST = { actif: [GREEN, P.stActif], manuel: [AMBER, P.stManuel], activer: [MUTED, P.stActiver] };
+  return (
+    <div>
+      <div className="flex gap-1.5 px-1 pb-3 text-[11px] font-semibold">
+        {["actif", "manuel", "activer"].map((k) => <span key={k} className="flex-1 text-center rounded-lg py-1.5" style={{ background: `${ST[k][0]}14`, color: ST[k][0] }}>{n(k)} {k === "actif" ? P.connActives : k === "manuel" ? P.connManuelles : P.stActiver.toLowerCase()}</span>)}
+      </div>
+      {CONNEXIONS.map(([g, l]) => (
+        <div key={g} className="mb-2">
+          <div className="text-[10.5px] uppercase tracking-wider px-1 pb-1" style={{ color: FAINT }}>{g}</div>
+          {l.map((x) => (
+            <div key={x.nom} className="flex items-start gap-2.5 rounded-xl px-2 py-2" style={{ background: "rgba(255,255,255,0.02)" }}>
+              <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: ST[x.st][0], boxShadow: x.st === "actif" ? `0 0 0 3px ${GREEN}22` : "none" }} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[13px] font-medium truncate" style={{ color: INK }}>{x.nom}</span>
+                  <span className="text-[10.5px] font-semibold shrink-0 rounded-full px-2 py-0.5" style={{ color: ST[x.st][0], background: `${ST[x.st][0]}18` }}>{ST[x.st][1]}</span>
+                </div>
+                <div className="text-[11.5px] leading-snug" style={{ color: MUTED }}>{x.quoi} · {x.via}</div>
+                {x.info && <div className="text-[11px] leading-snug" style={{ color: x.st === "actif" ? FAINT : ST[x.st][0] === MUTED ? "#B8AF9F" : AMBER }}>{x.info}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
   const P = PROFIL_TXT[lang] || PROFIL_TXT.fr;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [vue, setVue] = useState("menu");
   const ref = useRef(null), panRef = useRef(null);
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   useEffect(() => { const f = () => setMobile(window.innerWidth < 768); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
   useEffect(() => {
-    if (!open) { setConfirm(false); return; }
+    if (!open) { setConfirm(false); setVue("menu"); return; }
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target) && !(panRef.current && panRef.current.contains(e.target))) setOpen(false); };
     const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDoc); document.addEventListener("touchstart", onDoc); document.addEventListener("keydown", onKey);
@@ -2621,9 +2685,14 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
   );
   const panneau = (
     <div ref={panRef} role="menu" aria-label={P.profil}
-      className="profil-panneau fixed md:absolute left-0 right-0 bottom-0 md:left-auto md:bottom-auto md:right-0 md:top-[calc(100%+10px)] md:w-[300px] z-[60] rounded-t-3xl md:rounded-2xl p-4 md:p-3"
+      className="profil-panneau fixed md:absolute left-0 right-0 bottom-0 md:left-auto md:bottom-auto md:right-0 md:top-[calc(100%+10px)] md:w-[340px] z-[60] rounded-t-3xl md:rounded-2xl p-4 md:p-3 max-h-[85vh] md:max-h-[78vh] overflow-y-auto"
       style={{ background: "rgba(22,20,15,0.98)", border: `1px solid ${PANEL_BORDER}`, boxShadow: "0 24px 60px -12px rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}>
       <div className="md:hidden mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: PANEL_BORDER }} />
+      {vue === "conn" ? (<>
+        <button type="button" onClick={() => setVue("menu")} className="flex items-center gap-1.5 text-[12.5px] px-1 pb-2" style={{ color: MUTED }}><ChevronLeft size={15} /> {P.retour}</button>
+        <div className="flex items-center gap-2 px-1 pb-3"><Plug size={16} color={ORANGE} /><span className="text-[14px] font-semibold" style={{ color: INK }}>{P.conn}</span></div>
+        <Connexions P={P} />
+      </>) : (<>
       <div className="flex items-center gap-3 p-2">
         <Avatar s={44} />
         <div className="min-w-0">
@@ -2633,6 +2702,13 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
       </div>
       <div className="text-[11.5px] px-2 pb-3" style={{ color: FAINT }}>{jusqua ? `${P.sessionJusquau} ${jusqua}` : P.sessionOnglet}</div>
       <div className="border-t pt-2" style={{ borderColor: PANEL_BORDER_QUIET }}>
+        {(() => { const t = CONNEXIONS.flatMap(([, l]) => l); const a = t.filter((x) => x.st === "actif").length, m = t.filter((x) => x.st !== "actif").length; return (
+          <button type="button" role="menuitem" onClick={() => setVue("conn")} className="w-full flex items-center gap-3 text-left rounded-xl px-2 py-2.5 transition-colors hover:bg-white/5">
+            <Plug size={16} className="shrink-0" color={MUTED} />
+            <span className="flex-1 min-w-0"><span className="block text-[13px]" style={{ color: INK }}>{P.conn}</span>
+              <span className="flex items-center gap-2 text-[11.5px] mt-0.5"><span style={{ color: GREEN }}>● {a} {P.connActives}</span><span style={{ color: AMBER }}>● {m} {P.stActiver.toLowerCase()}</span></span></span>
+            <ChevronRight size={15} color={FAINT} />
+          </button>); })()}
         <div className="flex items-center justify-between gap-2 px-2 py-2">
           <span className="flex items-center gap-2 text-[13px]" style={{ color: MUTED }}><Globe size={15} /> {P.langue}</span>
           <div className="flex rounded-full p-0.5" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
@@ -2664,6 +2740,7 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
           </div>
         )}
       </div>
+      </>)}
     </div>
   );
   return (
