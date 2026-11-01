@@ -58,7 +58,8 @@ export function clearFinanceKey() {
   try { sessionStorage.removeItem(FK); localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL); } catch { /* ignoré */ }
 }
 
-const eur = (v, d = 0) => (v == null ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
+const GILROY = "'Gilroy', 'Inter', system-ui, sans-serif";
+const eur = (v, d = 0) => (v == null ? "–" : d === 0 && Math.abs(v) >= 10000 ? keur(v) : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
 const keur = (v) => (v == null ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " M€" : Math.round(v / 1000).toLocaleString("fr-FR") + " k€");
 const pct = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (v * 100).toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " %");
 const pts = (v) => (v == null || !isFinite(v) ? "–" : (v >= 0 ? "+" : "") + (v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " pt");
@@ -82,7 +83,7 @@ function Kpi({ icon: Icon, label, value, delta, deltaGood, sub, valueColor }) {
       <div className="flex items-center gap-1.5 text-[11px] sm:text-xs uppercase tracking-wide sm:tracking-wider leading-tight" style={{ color: C.muted }}>
         <Icon size={14} className="shrink-0" /> {label}
       </div>
-      <div className="mt-2 sm:mt-3 text-[22px] sm:text-3xl font-bold leading-tight" style={{ color: valueColor || C.text, fontFamily: "'Archivo Black', sans-serif" }}>{value}</div>
+      <div className="mt-2 sm:mt-3 text-[22px] sm:text-3xl font-bold leading-tight" style={{ color: valueColor || C.text, fontFamily: GILROY, fontWeight: 800 }}>{value}</div>
       {delta && (
         <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full"
           style={{ background: good ? "rgba(61,214,140,.12)" : "rgba(255,77,79,.12)", color: good ? C.green : C.red }}>
@@ -111,7 +112,7 @@ function Login({ onOk, inline, note }) {
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-6" style={{ background: "rgba(255,90,31,.12)" }}>
           <Lock size={22} color={C.orange} />
         </div>
-        <h1 className="text-xl font-bold" style={{ color: C.text, fontFamily: "'Archivo Black', sans-serif" }}>Analyse financière</h1>
+        <h1 className="text-xl font-bold" style={{ color: C.text, fontFamily: GILROY, fontWeight: 800 }}>Analyse financière</h1>
         <p className="text-sm mt-1 mb-6" style={{ color: C.muted }}>Espace réservé. Saisis ton code d’accès.</p>
         <input type="password" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code d’accès"
           className="w-full rounded-xl px-4 py-3 outline-none text-sm" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.text }} />
@@ -143,7 +144,7 @@ function Dashboard({ d, onLogout, embedded }) {
     return o;
   });
   const [cat, setCat] = useState("Toutes");
-  const SECTIONS = [["pl", "Compte d’exploitation"], ["plan", "Plan d’action"], ["frais", "Canaux et catégories"], ["ref", "Remboursements"], ["pub", "Publicité et produits"], ["log", "Transport et logistique"], ["evo", "Évolution"]];
+  const SECTIONS = [["res", "Résumé"], ["can", "Canaux"], ["prod", "Produits"], ["cout", "Coûts"]];
   const [plv, setPlv] = useState("Consolidé");
   React.useEffect(() => {   // libellés de colonnes pour l'affichage en cartes sur téléphone
     const label = () => document.querySelectorAll(".fin-root table.fin-cards").forEach((t) => {
@@ -155,7 +156,7 @@ function Dashboard({ d, onLogout, embedded }) {
     const mo = new MutationObserver(() => label()); mo.observe(root, { childList: true, subtree: true });
     return () => mo.disconnect();
   }, []);
-  const [sec, setSec] = useState(() => { try { const v = sessionStorage.getItem("homy_fin_sec"); if (v && SECTIONS.some((x) => x[0] === v)) return v; } catch { /* ignoré */ } return "pl"; });
+  const [sec, setSec] = useState(() => { try { const v = sessionStorage.getItem("homy_fin_sec"); if (v && SECTIONS.some((x) => x[0] === v)) return v; } catch { /* ignoré */ } return "res"; });
   React.useEffect(() => { try { sessionStorage.setItem("homy_fin_sec", sec); } catch { /* ignoré */ } }, [sec]);
   const [xl, setXl] = useState("");
   const exportXlsx = async () => {
@@ -205,13 +206,13 @@ function Dashboard({ d, onLogout, embedded }) {
   const prioColor = { "Élevée": C.red, "Moyenne": C.amber, "Faible": C.muted, "Info": C.blue };
 
   return (
-    <div className={embedded ? "" : "min-h-screen"} style={{ background: embedded ? "transparent" : C.bg, color: C.text, fontFamily: "'Inter', sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap');`}</style>
+    <div className={embedded ? "" : "min-h-screen"} style={{ background: embedded ? "transparent" : C.bg, color: C.text, fontFamily: GILROY }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
       {embedded ? (
         <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
           <div>
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: C.orange }}>Accès réservé</div>
-            <h2 className="text-xl font-bold" style={{ fontFamily: "'Archivo Black', sans-serif" }}>Analyse financière des canaux</h2>
+            <h2 className="text-xl font-bold" style={{ fontFamily: GILROY, fontWeight: 800 }}>Analyse financière des canaux</h2>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[11px] sm:text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
@@ -222,7 +223,7 @@ function Dashboard({ d, onLogout, embedded }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: C.orange }}>hom'y · pilotage</div>
-            <h1 className="text-lg sm:text-xl font-bold" style={{ fontFamily: "'Archivo Black', sans-serif" }}>Analyse financière des canaux</h1>
+            <h1 className="text-lg sm:text-xl font-bold" style={{ fontFamily: GILROY, fontWeight: 800 }}>Analyse financière des canaux</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline text-xs" style={{ color: C.muted }}>Données au {d.cutoff} · mise à jour {new Date(d.generated).toLocaleDateString("fr-FR")}</span>
@@ -238,7 +239,7 @@ function Dashboard({ d, onLogout, embedded }) {
         {d.pl && (() => {
           const T = d.pl.t26, O = d.pl.t25;
           return (
-            <section className={`fin-kpis ${sec !== "pl" ? "hidden sm:grid" : "grid"} grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6 lg:gap-4`}>
+            <section className={`fin-kpis ${sec !== "res" ? "hidden" : "grid"} grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6 lg:gap-4`}>
               <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
               <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
               <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
@@ -258,7 +259,7 @@ function Dashboard({ d, onLogout, embedded }) {
           </section>
         )}
 
-        {d.pl && d.pl.t26 && <div className={sec !== "pl" ? "hidden sm:block" : ""}><Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} /></div>}
+        {d.pl && d.pl.t26 && <div className={sec !== "res" ? "hidden" : ""}><Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} /></div>}
 
         <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.94)" : C.bg }}>
           <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Sections">
@@ -268,7 +269,9 @@ function Dashboard({ d, onLogout, embedded }) {
           </div>
         </div>
 
-        {sec === "pl" && (<>
+        {sec === "res" && d.pl && <Card><Waterfall pl={d.pl} ch="Total" /></Card>}
+
+        {sec === "can" && (<>
         {d.pl && d.det && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Vue</span>
@@ -284,7 +287,6 @@ function Dashboard({ d, onLogout, embedded }) {
         )}
         {d.pl && (plv === "Consolidé" || !d.det) && (
           <>
-            <Card><Waterfall pl={d.pl} ch="Total" /></Card>
             <div className="grid xl:grid-cols-2 gap-6">
               <Card><CostStructure pl={d.pl} /></Card>
               <Card className="hidden sm:block"><ChannelMap pl={d.pl} axes={d.axes} /></Card>
@@ -293,7 +295,7 @@ function Dashboard({ d, onLogout, embedded }) {
         )}
         {(plv === "Consolidé" || !d.det) && d.pl && (() => {
           const P = d.pl; const cols = P.ch;
-          const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" || k === "mnpct" ? pct(v) : eur(v));
+          const fmtv = (k, v) => (v == null ? "n.d." : k === "pct" || k === "mnpct" ? pct(v) : (k === "pubnc" && v ? "≈ " : "") + keur(v));
           const key = new Set(["ht", "fv", "mfv", "tfv", "contrib", "mn"]);
           const neg = (k) => !["ttc", "ht", "mfv", "contrib", "pct", "mn", "mnpct"].includes(k);
           const share = (t, k) => (t[k] != null && t.ht && !["ttc", "tva", "pct", "mnpct"].includes(k) ? pct(t[k] / t.ht) : "");
@@ -339,10 +341,9 @@ function Dashboard({ d, onLogout, embedded }) {
             </Card>
           );
         })()}
-        {d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} />}
         </>)}
 
-        {sec === "plan" && (<>
+        {sec === "res" && (<>
         {d.axes && (() => {
           const A = d.axes;
           const rows = mp === "Global" ? A.glob.map((g) => ({ ...g, canal: "Tous canaux" })) : A.rows.filter((r) => r.canal === mp);
@@ -364,12 +365,12 @@ function Dashboard({ d, onLogout, embedded }) {
               <div className="grid grid-cols-2 gap-3 mb-5">
                 <div className="rounded-xl p-4" style={{ background: "rgba(61,214,140,.06)", border: "1px solid rgba(61,214,140,.2)" }}>
                   <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>Gain potentiel à date</div>
-                  <div className="text-2xl font-bold mt-1" style={{ color: C.green, fontFamily: "'Archivo Black', sans-serif" }}>{keur(g)}</div>
+                  <div className="text-2xl font-bold mt-1" style={{ color: C.green, fontFamily: GILROY, fontWeight: 800 }}>{keur(g)}</div>
                   <div className="text-xs" style={{ color: C.dim }}>{d.pl ? pct(g / (mp === "Global" ? d.pl.t26.ht : d.pl.p26[mp].ht)) + " des ventes HT" : ""}</div>
                 </div>
                 <div className="rounded-xl p-4" style={{ background: C.bg }}>
                   <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>En année pleine</div>
-                  <div className="text-2xl font-bold mt-1" style={{ fontFamily: "'Archivo Black', sans-serif" }}>{keur(gan)}</div>
+                  <div className="text-2xl font-bold mt-1" style={{ fontFamily: GILROY, fontWeight: 800 }}>{keur(gan)}</div>
                   <div className="text-xs" style={{ color: C.dim }}>saisonnalité de l’an dernier (×{String(A.f_an).replace(".", ",")})</div>
                 </div>
               </div>
@@ -450,7 +451,7 @@ function Dashboard({ d, onLogout, embedded }) {
         </Card>
         </>)}
 
-        {sec === "frais" && (<>
+        {sec === "can" && (<>
         <Card className="!py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
@@ -561,11 +562,11 @@ function Dashboard({ d, onLogout, embedded }) {
 
         </>)}
 
-        {sec === "evo" && (<>
+        {sec === "can" && (<>
         <Card><MonthlyViz d={d} /></Card>
         </>)}
 
-        {sec === "log" && (<>
+        {sec === "cout" && (<>
         {d.det && <TransportExplain det={d.det} log={d.log} />}
         {d.log && (() => {
           const L = d.log; const supT = L.sup.reduce((t, x) => t + x.tot, 0);
@@ -627,11 +628,12 @@ function Dashboard({ d, onLogout, embedded }) {
         })()}
         </>)}
 
-        {sec === "ref" && d.det && (<>
+        {sec === "cout" && d.det && (<>
         <Refunds det={d.det} />
         </>)}
 
-        {sec === "pub" && (<>
+        {sec === "prod" && d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} />}
+        {sec === "prod" && (<>
         {d.det && <AdsDetail d={d} />}
         {(d.disp || []).length > 0 && (
           <Card>

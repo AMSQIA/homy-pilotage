@@ -31,3 +31,13 @@ body {
   .fin-root .overflow-x-auto:has(> table.fin-cards) { overflow-x: hidden; margin-left: 0; margin-right: 0; }
   .fin-root .overflow-x-auto[class*="max-h-"]:has(> table.fin-cards) { max-height: 72vh; }
 }
+
+/* Typo de la marque : Gilroy (fichiers à ajouter dans /public/fonts quand ils seront fournis ; en attendant, la police installée sur l'appareil est utilisée, sinon Inter) */
+@font-face { font-family: 'Gilroy'; font-weight: 300; font-style: normal; font-display: swap; src: local('Gilroy Light'), local('Gilroy-Light'); }
+@font-face { font-family: 'Gilroy'; font-weight: 400; font-style: normal; font-display: swap; src: local('Gilroy Regular'), local('Gilroy-Regular'); }
+@font-face { font-family: 'Gilroy'; font-weight: 500; font-style: normal; font-display: swap; src: local('Gilroy Medium'), local('Gilroy-Medium'); }
+@font-face { font-family: 'Gilroy'; font-weight: 600; font-style: normal; font-display: swap; src: local('Gilroy Semibold'), local('Gilroy-Semibold'); }
+@font-face { font-family: 'Gilroy'; font-weight: 700; font-style: normal; font-display: swap; src: local('Gilroy Bold'), local('Gilroy-Bold'); }
+@font-face { font-family: 'Gilroy'; font-weight: 800; font-style: normal; font-display: swap; src: local('Gilroy Extrabold'), local('Gilroy-Extrabold'); }
+@font-face { font-family: 'Gilroy'; font-weight: 900; font-style: normal; font-display: swap; src: local('Gilroy Black'), local('Gilroy-Black'); }
+.fin-root, .fin-root svg text { font-family: 'Gilroy', 'Inter', system-ui, sans-serif; }

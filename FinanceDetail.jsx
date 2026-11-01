@@ -5,7 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGri
 import { VZ, POSTE, toneMargin, toneDelta } from "./FinanceViz.jsx";
 
 const ORANGE = "#FF5A1F", ORANGE2 = "#FF8A50";
-const eur = (v, d = 0) => (v == null || !isFinite(v) ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
+const eur = (v, d = 0) => (v == null || !isFinite(v) ? "–" : d === 0 && Math.abs(v) >= 10000 ? keu(v) : v.toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " €");
 const keu = (v) => (v == null || !isFinite(v) ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " M€" : Math.abs(v) >= 1000 ? Math.round(v / 1000).toLocaleString("fr-FR") + " k€" : Math.round(v).toLocaleString("fr-FR") + " €");
 const pc = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (v * 100).toLocaleString("fr-FR", { maximumFractionDigits: d, minimumFractionDigits: d }) + " %");
 const pts = (v) => (v == null || !isFinite(v) ? "–" : (v >= 0 ? "+" : "−") + Math.abs(v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " pt");
@@ -111,7 +111,7 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
                     </span>
                     {row.note && <div className="text-[11px]" style={{ color: VZ.dim }}>{row.note}</div>}
                   </td>
-                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.k === "mn" ? toneMargin(row.va / a.ht) : row.va < 0 && row.hl ? VZ.bad : VZ.text }}>{row.va == null ? "n.d." : eur(row.va)}</td>
+                  <td className={`py-2 px-3 text-right whitespace-nowrap ${row.strong ? "font-semibold" : ""}`} style={{ color: row.k === "mn" ? toneMargin(row.va / a.ht) : row.va < 0 && row.hl ? VZ.bad : VZ.text }}>{row.va == null ? "n.d." : (row.est ? "≈ " : "") + eur(row.va)}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.muted }}>{isPct && p1 != null ? pc(row.k === "mn" ? p1 : Math.abs(p1)) : row.k === "ht" ? "100 %" : ""}</td>
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: VZ.muted }}>{row.vb == null ? (["sc", "contrib", "mn"].includes(row.k) ? "n.d." : "–") : eur(row.vb)}</td>
                   <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: VZ.dim }}>{isPct && p0 != null ? pc(Math.abs(p0)) : row.k === "ht" ? "100 %" : ""}</td>
@@ -569,9 +569,9 @@ export function Essentiel({ d, onGo }) {
   const losers = (det.marg_prod || []).filter((p) => p.ht >= 20000 && p.m / p.ht - scR < 0);
   const ax = d.axes && d.axes.glob ? [...d.axes.glob].sort((a, b) => b.gain - a.gain)[0] : null;
   const msgs = [];
-  if (T.mn != null) msgs.push({ tone: T.mnpct < 0.05 ? "bad" : T.mnpct < 0.1 ? "warn" : "good", t: `Marge nette ${pc(T.mnpct)} des ventes HT`, s: `${keu(T.mn)} après frais de vente, transport et achats (${pc(-T.achat / T.ht)}). ${best ? `Meilleur canal : ${best.c} (${pc(best.mnpct)})` : ""}${worst && worst.mnpct < 0 ? ` · ${worst.c} perd de l’argent (${pc(worst.mnpct)}, ${keu(worst.mn)})` : ""}.`, go: "pl" });
-  msgs.push({ tone: -T.fv / T.ht > -O.fv / O.ht ? "bad" : "good", t: `Frais de vente ${pc(-T.fv / T.ht)} (${pts(-T.fv / T.ht + O.fv / O.ht)} sur un an)`, s: ax ? `Premier levier : ${ax.poste.toLowerCase()}, ${pc(ax.r26)} contre ${pc(ax.r25)} en ${P.y0} – retour à la cible = ${keu(ax.gain)} à date (${keu(ax.gain_an)} sur un an).` : "", go: "plan" });
-  if (losers.length) msgs.push({ tone: "bad", t: `${losers.length} grosses références vendues à perte après transport`, s: `Parmi celles à plus de 20 k€ de ventes : ${losers.slice(0, 3).map((p) => p.nom).join(", ")}… soit ${keu(losers.reduce((t, p) => t + p.ht, 0))} de ventes HT à revoir (prix, promos ou achat).`, go: "pl" });
+  if (T.mn != null) msgs.push({ tone: T.mnpct < 0.05 ? "bad" : T.mnpct < 0.1 ? "warn" : "good", t: `Marge nette ${pc(T.mnpct)} des ventes HT`, s: `${keu(T.mn)} après frais de vente, transport et achats (${pc(-T.achat / T.ht)}). ${best ? `Meilleur canal : ${best.c} (${pc(best.mnpct)})` : ""}${worst && worst.mnpct < 0 ? ` · ${worst.c} perd de l’argent (${pc(worst.mnpct)}, ${keu(worst.mn)})` : ""}.`, go: "can" });
+  msgs.push({ tone: -T.fv / T.ht > -O.fv / O.ht ? "bad" : "good", t: `Frais de vente ${pc(-T.fv / T.ht)} (${pts(-T.fv / T.ht + O.fv / O.ht)} sur un an)`, s: ax ? `Premier levier : ${ax.poste.toLowerCase()}, ${pc(ax.r26)} contre ${pc(ax.r25)} en ${P.y0} – retour à la cible = ${keu(ax.gain)} à date (${keu(ax.gain_an)} sur un an).` : "", go: "res" });
+  if (losers.length) msgs.push({ tone: "bad", t: `${losers.length} grosses références vendues à perte après transport`, s: `Parmi celles à plus de 20 k€ de ventes : ${losers.slice(0, 3).map((p) => p.nom).join(", ")}… soit ${keu(losers.reduce((t, p) => t + p.ht, 0))} de ventes HT à revoir (prix, promos ou achat).`, go: "prod" });
   // alertes
   const al = [];
   (d.disp || []).forEach((x) => { if (x.budget_ytd > 0 && x.reel > x.budget_ytd * 1.1) al.push(`${x.canal} · ${x.disp} : ${keu(x.reel)} dépensés pour ${keu(x.budget_ytd)} de budget à date (+${Math.round((x.reel / x.budget_ytd - 1) * 100)} %)`); });
