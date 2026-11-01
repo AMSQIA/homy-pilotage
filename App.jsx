@@ -252,7 +252,7 @@ function EntryGate({ onUnlock }) {
     // second code : même entrée, mais ajoute l'onglet « Analyse financière » (le code déchiffre les données côté navigateur)
     try {
       const k = await unlockFinance(pwd.trim());
-      storeFinanceKey(k, rememberMe ? REMEMBER_DAYS : 0); activerFinance(); ouvrir();
+      storeFinanceKey(k); activerFinance(); ouvrir();
     } catch {
       setError(true); setTimeout(() => setError(false), 500);
     }
@@ -2592,10 +2592,10 @@ function PuceFiltre({ icone: Icone, libelle, couleur, actif, iconeClasse = "", f
 // ===== MENU PROFIL — bouton avatar (en-tête bureau + barre mobile) : niveau d'accès, session, langue, verrouillage de
 // l'analyse financière et déconnexion. Sur téléphone, le menu s'ouvre en feuille depuis le bas de l'écran.
 const PROFIL_TXT = {
-  fr: { connManuelles: "manuelles", conn: "Connexions des données", connActives: "actives", stActif: "Actif", stManuel: "Manuel", stActiver: "À activer", retour: "Retour", profil: "Profil", proprio: "Accès propriétaire", equipe: "Accès équipe", proprioDesc: "Tableau de bord + analyse financière", equipeDesc: "Tableau de bord", sessionJusquau: "Session mémorisée jusqu’au", sessionOnglet: "Session limitée à cet onglet", langue: "Langue", verrou: "Verrouiller l’analyse financière", verrouDesc: "Masque l’onglet sans vous déconnecter", deco: "Se déconnecter", decoConf: "Confirmer la déconnexion ?", oui: "Se déconnecter", non: "Annuler", fermer: "Fermer" },
-  en: { connManuelles: "manual", conn: "Data connections", connActives: "active", stActif: "Active", stManuel: "Manual", stActiver: "To activate", retour: "Back", profil: "Profile", proprio: "Owner access", equipe: "Team access", proprioDesc: "Dashboard + financial analysis", equipeDesc: "Dashboard", sessionJusquau: "Session remembered until", sessionOnglet: "Session limited to this tab", langue: "Language", verrou: "Lock financial analysis", verrouDesc: "Hides the tab without signing out", deco: "Sign out", decoConf: "Sign out now?", oui: "Sign out", non: "Cancel", fermer: "Close" },
-  es: { connManuelles: "manuales", conn: "Conexiones de datos", connActives: "activas", stActif: "Activa", stManuel: "Manual", stActiver: "Por activar", retour: "Volver", profil: "Perfil", proprio: "Acceso propietario", equipe: "Acceso equipo", proprioDesc: "Panel + análisis financiero", equipeDesc: "Panel", sessionJusquau: "Sesión recordada hasta el", sessionOnglet: "Sesión limitada a esta pestaña", langue: "Idioma", verrou: "Bloquear el análisis financiero", verrouDesc: "Oculta la pestaña sin cerrar sesión", deco: "Cerrar sesión", decoConf: "¿Cerrar sesión?", oui: "Cerrar sesión", non: "Cancelar", fermer: "Cerrar" },
-  zh: { connManuelles: "手动", conn: "数据连接", connActives: "已连接", stActif: "已连接", stManuel: "手动", stActiver: "待启用", retour: "返回", profil: "个人资料", proprio: "所有者权限", equipe: "团队权限", proprioDesc: "仪表板 + 财务分析", equipeDesc: "仪表板", sessionJusquau: "会话保留至", sessionOnglet: "会话仅限此标签页", langue: "语言", verrou: "锁定财务分析", verrouDesc: "隐藏该标签但不退出", deco: "退出登录", decoConf: "确认退出？", oui: "退出登录", non: "取消", fermer: "关闭" },
+  fr: { deverrou: "Afficher la rentabilité", deverrouDesc: "Code financier, valable jusqu’à la fermeture de l’onglet", codeFin: "Code financier", valider: "Valider", codeFaux: "Code incorrect", rentaVisible: "Rentabilité visible", masquer: "Masquer", connManuelles: "manuelles", conn: "Connexions des données", connActives: "actives", stActif: "Actif", stManuel: "Manuel", stActiver: "À activer", retour: "Retour", profil: "Profil", proprio: "Accès propriétaire", equipe: "Accès équipe", proprioDesc: "Tableau de bord + analyse financière", equipeDesc: "Tableau de bord", sessionJusquau: "Session mémorisée jusqu’au", sessionOnglet: "Session limitée à cet onglet", langue: "Langue", verrou: "Verrouiller l’analyse financière", verrouDesc: "Masque l’onglet sans vous déconnecter", deco: "Se déconnecter", decoConf: "Confirmer la déconnexion ?", oui: "Se déconnecter", non: "Annuler", fermer: "Fermer" },
+  en: { deverrou: "Show profitability", deverrouDesc: "Finance code, valid until this tab is closed", codeFin: "Finance code", valider: "Confirm", codeFaux: "Wrong code", rentaVisible: "Profitability visible", masquer: "Hide", connManuelles: "manual", conn: "Data connections", connActives: "active", stActif: "Active", stManuel: "Manual", stActiver: "To activate", retour: "Back", profil: "Profile", proprio: "Owner access", equipe: "Team access", proprioDesc: "Dashboard + financial analysis", equipeDesc: "Dashboard", sessionJusquau: "Session remembered until", sessionOnglet: "Session limited to this tab", langue: "Language", verrou: "Lock financial analysis", verrouDesc: "Hides the tab without signing out", deco: "Sign out", decoConf: "Sign out now?", oui: "Sign out", non: "Cancel", fermer: "Close" },
+  es: { deverrou: "Mostrar la rentabilidad", deverrouDesc: "Código financiero, válido hasta cerrar la pestaña", codeFin: "Código financiero", valider: "Validar", codeFaux: "Código incorrecto", rentaVisible: "Rentabilidad visible", masquer: "Ocultar", connManuelles: "manuales", conn: "Conexiones de datos", connActives: "activas", stActif: "Activa", stManuel: "Manual", stActiver: "Por activar", retour: "Volver", profil: "Perfil", proprio: "Acceso propietario", equipe: "Acceso equipo", proprioDesc: "Panel + análisis financiero", equipeDesc: "Panel", sessionJusquau: "Sesión recordada hasta el", sessionOnglet: "Sesión limitada a esta pestaña", langue: "Idioma", verrou: "Bloquear el análisis financiero", verrouDesc: "Oculta la pestaña sin cerrar sesión", deco: "Cerrar sesión", decoConf: "¿Cerrar sesión?", oui: "Cerrar sesión", non: "Cancelar", fermer: "Cerrar" },
+  zh: { deverrou: "显示盈利数据", deverrouDesc: "财务密码，关闭标签页后失效", codeFin: "财务密码", valider: "确认", codeFaux: "密码错误", rentaVisible: "盈利数据可见", masquer: "隐藏", connManuelles: "手动", conn: "数据连接", connActives: "已连接", stActif: "已连接", stManuel: "手动", stActiver: "待启用", retour: "返回", profil: "个人资料", proprio: "所有者权限", equipe: "团队权限", proprioDesc: "仪表板 + 财务分析", equipeDesc: "仪表板", sessionJusquau: "会话保留至", sessionOnglet: "会话仅限此标签页", langue: "语言", verrou: "锁定财务分析", verrouDesc: "隐藏该标签但不退出", deco: "退出登录", decoConf: "确认退出？", oui: "退出登录", non: "取消", fermer: "关闭" },
 };
 const LANGUES = [["fr", "FR"], ["en", "EN"], ["es", "ES"], ["zh", "中文"]];
 // État des connexions de données (affiché dans le profil). « actif » = flux automatique ; « manuel » = extraction ponctuelle ;
@@ -2663,7 +2663,8 @@ function Connexions({ P, owner }) {
     </div>
   );
 }
-function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
+function ProfileMenu({ lang, setLang, owner, onLock, onUnlockFin, onLogout, size = 34 }) {
+  const [saisie, setSaisie] = useState(null); const [codeErr, setCodeErr] = useState(false);
   const P = PROFIL_TXT[lang] || PROFIL_TXT.fr;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -2672,7 +2673,7 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   useEffect(() => { const f = () => setMobile(window.innerWidth < 768); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
   useEffect(() => {
-    if (!open) { setConfirm(false); setVue("menu"); return; }
+    if (!open) { setConfirm(false); setVue("menu"); setSaisie(null); setCodeErr(false); return; }
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target) && !(panRef.current && panRef.current.contains(e.target))) setOpen(false); };
     const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDoc); document.addEventListener("touchstart", onDoc); document.addEventListener("keydown", onKey);
@@ -2722,6 +2723,18 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
             ))}
           </div>
         </div>
+        {!owner && (saisie == null ? (
+          <button type="button" role="menuitem" onClick={() => setSaisie("")} className="w-full flex items-start gap-3 text-left rounded-xl px-2 py-2.5 transition-colors hover:bg-white/5">
+            <Wallet size={16} className="mt-0.5 shrink-0" color={MUTED} />
+            <span><span className="block text-[13px]" style={{ color: INK }}>{P.deverrou}</span><span className="block text-[11.5px]" style={{ color: FAINT }}>{P.deverrouDesc}</span></span>
+          </button>
+        ) : (
+          <form className="flex gap-2 px-2 py-2" onSubmit={async (e) => { e.preventDefault(); try { await onUnlockFin(saisie); setOpen(false); } catch { setCodeErr(true); } }}>
+            <input type="password" autoFocus autoComplete="off" value={saisie} onChange={(e) => { setSaisie(e.target.value); setCodeErr(false); }} placeholder={codeErr ? P.codeFaux : P.codeFin}
+              className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={{ background: PANEL, color: INK, border: `1px solid ${codeErr ? RED : PANEL_BORDER}` }} />
+            <button type="submit" className="rounded-lg px-3 text-[12.5px] font-semibold" style={{ background: ORANGE, color: "#0A0908" }}>{P.valider}</button>
+          </form>
+        ))}
         {owner && (
           <button type="button" role="menuitem" onClick={() => { onLock(); setOpen(false); }} className="w-full flex items-start gap-3 text-left rounded-xl px-2 py-2.5 transition-colors hover:bg-white/5">
             <LockKeyhole size={16} className="mt-0.5 shrink-0" color={MUTED} />
@@ -4470,6 +4483,7 @@ function DashboardApp({ onLogout }) {
     setTimeout(() => { setTab(id); setPrevIndex(newIndex); setFading(false); }, 180);
   };  // menu profil : verrouiller l'analyse financière (retire l'onglet, garde la session) ou se déconnecter
   const [owner, setOwner] = useState(() => !!getFinanceKey());
+  const unlockFin = async (code) => { const k = await unlockFinance(String(code).trim()); storeFinanceKey(k); activerFinance(); setOwner(true); };
   const lockFinance = () => { clearFinanceKey(); desactiverFinance(); setOwner(false); if (tab === "finance") changeTab("apercu"); };
   // rentabilité (propriétaire) : marge nette par marketplace et par produit, issue de l'analyse financière chiffrée
   const [fin, setFin] = useState(null);
@@ -4506,7 +4520,7 @@ function DashboardApp({ onLogout }) {
     const mbCanal = {}; Object.entries(P).forEach(([c, x]) => { if (x && x.ht > 50000 && x.mn != null) mbCanal[c] = (x.mn - (x.pub || 0) - (x.pubnc || 0)) / x.ht; });
     return { mp, prod: prodV, eco, sc, pub, mbSku: (k) => mbs[nsku(k)], mbCanal };
   }, [fin]);
-  const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onLogout={onLogout} size={size} />;
+  const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onUnlockFin={unlockFin} onLogout={onLogout} size={size} />;
 
 
   const moisLabels = DATA.mois_labels;
@@ -5685,6 +5699,11 @@ function DashboardApp({ onLogout }) {
 
       <main key={tab} className="relative z-10 max-w-[1240px] xl:max-w-[1400px] mx-auto px-5 lg:px-8 pt-7 pb-24 md:pb-7 tab-slide-enter" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.18s", "--slide-from": `${slideDir * 18}px` }}>
 
+        {owner && tab !== "finance" && (() => { const P = PROFIL_TXT[lang] || PROFIL_TXT.fr; return (
+          <div className="flex items-center justify-between gap-3 mb-4 rounded-xl px-3 py-2 text-[12px]" style={{ background: `${ORANGE}12`, border: `1px solid ${ORANGE}33` }}>
+            <span className="flex items-center gap-2" style={{ color: ORANGE_SOFT }}><Wallet size={14} /> {P.rentaVisible}</span>
+            <button type="button" onClick={lockFinance} className="flex items-center gap-1.5 font-semibold rounded-lg px-2.5 py-1" style={{ color: INK, background: "rgba(255,255,255,0.06)" }}><LockKeyhole size={13} /> {P.masquer}</button>
+          </div>); })()}
         {tab === "apercu" && (
           <>
             <DonneesFraicheurCard t={t} lang={lang} mpF={globalMp === "Toutes" ? null : globalMp} accent={mpAccent} />

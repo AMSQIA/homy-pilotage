@@ -39,18 +39,14 @@ export async function unlockFinance(code) {
 }
 // Mémorisation de la clé sur l'appareil (même durée que « se souvenir de moi », sinon la session de l'onglet)
 const FK = "homy_fin_k", FK_UNTIL = "homy_fin_until";
-export function storeFinanceKey(k, days) {
-  try {
-    if (days) { localStorage.setItem(FK, k); localStorage.setItem(FK_UNTIL, String(Date.now() + days * 86400000)); }
-    else sessionStorage.setItem(FK, k);
-  } catch { /* stockage indisponible */ }
+// Toujours limité à l'onglet ouvert : la rentabilité n'est jamais mémorisée sur l'appareil, même avec « se souvenir de moi »
+export function storeFinanceKey(k) {
+  try { sessionStorage.setItem(FK, k); localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL); } catch { /* stockage indisponible */ }
 }
 export function getFinanceKey() {
   try {
+    localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL); // anciennes mémorisations longues : effacées
     const s = sessionStorage.getItem(FK); if (s) return s;
-    const l = localStorage.getItem(FK), u = Number(localStorage.getItem(FK_UNTIL));
-    if (l && u > Date.now()) return l;
-    localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL);
   } catch { /* stockage indisponible */ }
   return null;
 }
@@ -109,7 +105,7 @@ function Login({ onOk, inline, note }) {
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr("");
     try {
-      const k = await unlockFinance(code); storeFinanceKey(k, 0); onOk(k);
+      const k = await unlockFinance(code); storeFinanceKey(k); onOk(k);
     } catch { setErr("Code incorrect."); }
     setBusy(false);
   };
