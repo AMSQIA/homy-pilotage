@@ -4305,8 +4305,9 @@ function DashboardApp({ onLogout }) {
     const toks = (x) => String(x || "").toUpperCase().replace(/(\d+)W\s*\+\s*(\d+)W/g, "$1+$2W").replace(/[^A-Z0-9+ ]/g, " ").split(/\s+/).filter(Boolean).filter((w) => w !== "VENTIL").map((w) => (w === "B" || w === "BLACK" ? "NOIR" : w));
     const key = (t) => [...new Set(t)].sort().join(" "), sansBlanc = (t) => t.filter((w) => w !== "BLANC");
     const agg = {};
-    ((fin.det && fin.det.marg_prod) || []).forEach((r) => { const k = key(toks(r.nom)); const a = agg[k] || (agg[k] = { ht: 0, m: 0, t: toks(r.nom) }); a.ht += r.ht; a.m += r.m; });
-    const ent = Object.entries(agg).filter(([, a]) => a.ht > 3000).map(([k, a]) => ({ k, kb: key(sansBlanc(a.t)), t: new Set(a.t), v: a.m / a.ht - sc - pub }));
+    ((fin.det && fin.det.marg_prod) || []).forEach((r) => { const k = key(toks(r.nom)); const a = agg[k] || (agg[k] = { ht: 0, m: 0, achat: 0, q: 0, frais: 0, t: toks(r.nom) }); a.ht += r.ht; a.m += r.m; a.achat += r.achat; a.q += r.q; a.frais += r.frais; });
+    const ent = Object.entries(agg).filter(([, a]) => a.ht > 3000 && a.q > 0).map(([k, a]) => ({ k, kb: key(sansBlanc(a.t)), t: new Set(a.t), v: a.m / a.ht - sc - pub,
+      eco: { u: a.achat / a.q, f: a.frais / a.ht, tU: (sc * a.ht) / a.q } }));
     const memo = {};
     const prod = (n) => {
       if (n in memo) return memo[n];
@@ -4315,13 +4316,15 @@ function DashboardApp({ onLogout }) {
       let e = ent.find((x) => x.k === k) || ent.find((x) => x.kb === kb && memeCouleur(x));
       if (!e) { const c = ent.filter((x) => memeCouleur(x) && [...x.t].every((w) => ts.has(w) || w === "BLANC") && [...x.t][0] === t[0]); if (c.length === 1) e = c[0]; }
       if (!e) { const c = ent.filter((x) => memeCouleur(x) && t.every((w) => x.t.has(w) || w === "BLANC") && [...x.t][0] === t[0]); if (c.length === 1) e = c[0]; }
-      return (memo[n] = e ? e.v : undefined);
+      return (memo[n] = e || null);
     };
+    const prodV = (n) => { const e = prod(n); return e ? e.v : undefined; };
+    const eco = (n) => { const e = prod(n); return e ? e.eco : null; };
     // marge avant pub (HT) : par SKU (base produits) et par canal — sert au ROAS minimum de la pub
     const nsku = (x) => String(x || "").split(",")[0].trim().toUpperCase().replace(/\//g, "-").replace(/(-FLM|-HOMY|-LM|-AMZ|-FBA)+$/, "");
     const mbs = {}; ((fin.det && fin.det.marg_prod) || []).forEach((r) => { if (r.ht > 0) mbs[nsku(r.sku)] = r.m / r.ht - sc; });
     const mbCanal = {}; Object.entries(P).forEach(([c, x]) => { if (x && x.ht > 50000 && x.mn != null) mbCanal[c] = (x.mn - (x.pub || 0) - (x.pubnc || 0)) / x.ht; });
-    return { mp, prod, sc, pub, mbSku: (k) => mbs[nsku(k)], mbCanal };
+    return { mp, prod: prodV, eco, sc, pub, mbSku: (k) => mbs[nsku(k)], mbCanal };
   }, [fin]);
   const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onLogout={onLogout} size={size} />;
 
@@ -4524,6 +4527,26 @@ function DashboardApp({ onLogout }) {
   const adsSorted = [...adsForFilter].sort((a,b) => (b.ca_genere||0) - (a.ca_genere||0));
   const top3Ads = adsSorted.slice(0, 3);
   const atRiskAds = adsForFilter.filter((a) => a.roas !== null && a.roas < 3);
+  // ===== alertes automatiques (vue d'ensemble) : recalculées à chaque chargement, les plus graves d'abord =====
+  const alertes = useMemo(() => {
+    const L = [], k = (v) => Math.round(v / 1000).toLocaleString("fr-FR") + " k€", p1 = (v) => v.toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " %";
+    const b = (SHOPIFY_EXT && SHOPIFY_EXT.boutiques) || {};
+    Object.entries({ marketplaces: "Ventes marketplaces (Shopify BESTHERM)", site: "Ventes du site (Shopify)" }).forEach(([id, lib]) => {
+      const au = b[id] && b[id].au; const j = au ? Math.floor((Date.now() - Date.parse(au + "T23:59:59")) / 86400000) : 99;
+      if (j >= 2) L.push({ g: j >= 4 ? 2 : 1, tab: "data", txt: `${lib} non actualisées depuis ${j} jours (données au ${au ? au.split("-").reverse().slice(0, 2).join("/") : "?"}) : reconnecter le connecteur Shopify.` });
+    });
+    if (planPace && planPace.statut === "retard") L.push({ g: planPace.ecart < -5 ? 2 : 1, tab: "apercu", txt: `Objectif 2026 : ${planPace.ecart.toFixed(1).replace(".", ",")} pt de retard sur le plan à date (semaine ${planPace.semaine}).` });
+    sortedMp.filter((m) => m.yoy_pct != null && m.yoy_pct < -10 && m.ca > 20000 && m.marketplace !== "Autre").forEach((m) => L.push({ g: m.yoy_pct < -25 ? 2 : 1, tab: "marketplaces", txt: `${m.marketplace} : ventes en baisse de ${p1(-m.yoy_pct)} sur la période (${k(m.ca)}).` }));
+    atRiskAds.forEach((a) => L.push({ g: 1, tab: "ads", txt: `Pub ${a.marketplace} : ROAS ${a.roas.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} (sous 3) pour ${k(a.spend)} dépensés.` }));
+    if (marges) {
+      Object.entries(marges.mp).filter(([mp, v]) => v < 0 && DATA.mp_vs_objectif.some((x) => x.marketplace === mp)).forEach(([mp, v]) => L.push({ g: 2, tab: "marketplaces", txt: `${mp} perd de l’argent : marge nette ${p1(v * 100)} des ventes (après achats, frais et transport).` }));
+      const pertes = (DATA.products_top15 || []).filter((x) => { const v = marges.prod(x.produit); return v != null && v < 0; });
+      if (pertes.length) L.push({ g: 2, tab: "marques", txt: `${pertes.length} best-sellers vendus à perte une fois la pub comptée : ${pertes.slice(0, 3).map((x) => x.produit).join(", ")}${pertes.length > 3 ? "…" : ""}.` });
+      ((fin && fin.disp) || []).forEach((d) => { if (d.budget_ytd > 0 && d.reel > d.budget_ytd * 1.1) L.push({ g: 1, tab: "ads", txt: `${d.canal} · ${d.disp.split(" (")[0]} : ${k(d.reel)} dépensés pour ${k(d.budget_ytd)} de budget à date (+${Math.round((d.reel / d.budget_ytd - 1) * 100)} %).` }); });
+    }
+    return L.sort((a, b) => b.g - a.g);
+  }, [planPace, sortedMp, atRiskAds, marges, fin]);
+  const [alertesOuvertes, setAlertesOuvertes] = useState(false);
   const restAdsList = adsSorted.slice(3).filter((a) => !atRiskAds.includes(a));
   const totalSpend = adsSorted.reduce((s,a) => s + a.spend, 0);
   const totalAdsCa = adsSorted.reduce((s,a) => s + a.ca_genere, 0);
@@ -4630,8 +4653,19 @@ function DashboardApp({ onLogout }) {
     const caProjete = simPrix * qteProjetee;
     const deltaCaPct = caActuel > 0 ? ((caProjete - caActuel) / caActuel) * 100 : 0;
     const horsPlage = simPrix < prixMin || simPrix > prixMax;
-    return { deltaPrixPct, deltaVolPct, qteProjetee, caActuel, caProjete, deltaCaPct, horsPlage, elast, r2, fiable, prixMoyen, qteMoy, prixMin, prixMax };
-  }, [simDonnee, simPrix]);
+    // marge (propriétaire) : prix HT × (1 − commission − pub moyenne) − achat − transport, par unité
+    let marge = null;
+    const ec = marges && simDonnee ? marges.eco(simDonnee[0]) : null;
+    if (ec) {
+      const mu = (p) => p * (1 - ec.f - marges.pub) - ec.u - ec.tU;
+      const qAt = (p) => Math.max(0, qteMoy * (1 + (elast * ((p - prixMoyen) / prixMoyen) * 100) / 100));
+      const mAct = qteMoy * mu(prixMoyen), mProj = qteProjetee * mu(simPrix);
+      let best = prixMoyen, bestM = mAct;
+      for (let p = prixMin * 0.7; p <= prixMax * 1.3; p += 0.5) { const m = qAt(p) * mu(p); if (m > bestM) { bestM = m; best = p; } }
+      marge = { muAct: mu(prixMoyen), muProj: mu(simPrix), mAct, mProj, delta: mProj - mAct, best, bestM, plancher: (ec.u + ec.tU) / (1 - ec.f - marges.pub) };
+    }
+    return { deltaPrixPct, deltaVolPct, qteProjetee, caActuel, caProjete, deltaCaPct, horsPlage, elast, r2, fiable, prixMoyen, qteMoy, prixMin, prixMax, marge };
+  }, [simDonnee, simPrix, marges]);
 
   const YEAR_COLORS = { 2024: FAINT, 2025: AMBER, 2026: ORANGE };
 
@@ -5475,6 +5509,21 @@ function DashboardApp({ onLogout }) {
           <>
             <DonneesFraicheurCard t={t} lang={lang} mpF={globalMp === "Toutes" ? null : globalMp} accent={mpAccent} />
             <PeriodSummaryCard key={`apercu-${globalMp}-${datePreset}`} items={summaryApercu} t={t} />
+            {alertes.length > 0 && (
+              <GlassCard className="p-3 sm:p-4 mb-5" quiet>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: INK }}><AlertTriangle size={14} color={alertes[0].g === 2 ? RED : AMBER} /> Alertes ({alertes.length})</span>
+                  {alertes.length > 3 && <button type="button" onClick={() => setAlertesOuvertes((o) => !o)} className="text-[11.5px] font-semibold" style={{ color: ORANGE_SOFT }}>{alertesOuvertes ? "Réduire" : `Tout voir (${alertes.length})`}</button>}
+                </div>
+                <div className="space-y-1.5">
+                  {(alertesOuvertes ? alertes : alertes.slice(0, 3)).map((a, i) => (
+                    <button key={i} type="button" onClick={() => changeTab(a.tab)} className="w-full text-left flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] leading-snug transition-colors hover:bg-white/5" style={{ background: "rgba(255,255,255,0.02)", borderLeft: `3px solid ${a.g === 2 ? RED : AMBER}`, color: INK }}>
+                      <span className="flex-1">{a.txt}</span><ChevronRight size={14} color={FAINT} className="shrink-0 mt-0.5" />
+                    </button>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
             {SOUS_INFOS && (<div className="flex items-center gap-2 mb-4 px-1 text-[11px]" style={{ color: FAINT }}>
               <CalendarDays size={12} />
               <span className="tabular-nums">{periodStats.from} → {periodStats.to}</span>
@@ -6627,7 +6676,22 @@ function DashboardApp({ onLogout }) {
                           <div key={`ca-${Math.round(simPrix)}`} className="punch tabular-nums font-bold" style={{ fontSize: 20, color: simResultat.deltaCaPct >= 0 ? GREEN : RED }}>{simResultat.deltaCaPct >= 0 ? "+" : ""}{simResultat.deltaCaPct.toFixed(0)}%</div>
                           <div className="text-[9px]" style={{ color: FAINT }}>CA net</div>
                         </div>
+                        {simResultat.marge && (
+                          <div className="text-center">
+                            <div className="tabular-nums font-bold" style={{ fontSize: 20, color: simResultat.marge.delta >= 0 ? GREEN : RED }}>{simResultat.marge.delta >= 0 ? "+" : "−"}{fmtEURk(Math.abs(simResultat.marge.delta))}</div>
+                            <div className="text-[9px]" style={{ color: FAINT }}>Marge</div>
+                          </div>
+                        )}
                       </div>
+                      {simResultat.marge && (
+                        <div className="rounded-xl p-3 mb-2 text-[11.5px] leading-relaxed" style={{ background: "rgba(255,255,255,0.025)", color: MUTED }}>
+                          Marge par unité : <b style={{ color: toneMargin(simResultat.marge.muAct / simResultat.prixMoyen) }}>{fmtEURplain(simResultat.marge.muAct)}</b> au prix actuel → <b style={{ color: toneMargin(simResultat.marge.muProj / simPrix) }}>{fmtEURplain(simResultat.marge.muProj)}</b> à {fmtEURplain(simPrix)}.
+                          {" "}Prix plancher (marge nulle) : <b style={{ color: INK }}>{fmtEURplain(simResultat.marge.plancher)}</b>.
+                          {" "}Prix qui maximise la marge (selon l’élasticité) : <b style={{ color: GREEN }}>{fmtEURplain(simResultat.marge.best)}</b>{simResultat.marge.best > simResultat.prixMax ? " (au-delà des prix observés : à tester prudemment)" : ""}.
+                          <button type="button" onClick={() => setSimPrix(Math.round(simResultat.marge.best * 10) / 10)} className="ml-2 text-[11px] font-semibold underline" style={{ color: ORANGE_SOFT }}>Appliquer</button>
+                          <div className="text-[10px] mt-1" style={{ color: FAINT }}>Prix HT · achat, commission, transport et pub moyens déduits · accès propriétaire.</div>
+                        </div>
+                      )}
 
                       {simResultat.horsPlage && (
                         <div className="flex items-start gap-1.5 text-[10.5px]" style={{ color: AMBER }}>
