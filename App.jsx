@@ -4097,6 +4097,67 @@ function TriMarge({ on, set }) {
   );
 }
 
+// Rentabilité de la pub (propriétaire) : ROAS réel face au ROAS minimum = 1,2 ÷ marge avant pub (ventes attribuées TTC, marge HT)
+function PubRentabilite({ fin, marges }) {
+  const [vue, setVue] = useState("perte");
+  const rows = useMemo(() => {
+    const out = [];
+    (fin.lm_products || []).forEach((p) => out.push({ canal: "Leroy Merlin", pays: p.pays, nom: p.nom, sku: String(p.sku || "").split(",")[0], pub: p.ptot ?? p.pub, roas: p.roas }));
+    (fin.amz_products || []).forEach((p) => out.push({ canal: "Amazon", pays: "France", nom: p.nom, sku: p.sku, pub: p.pub, roas: p.roas }));
+    return out.filter((r) => r.pub > 50 && r.roas != null).map((r) => {
+      const mb = marges.mbSku(r.sku);
+      const min = mb && mb > 0 ? 1.2 / mb : null;
+      const gain = mb != null ? r.pub * ((r.roas * mb) / 1.2 - 1) : null;   // marge avant pub sur les ventes attribuées − dépense
+      return { ...r, mb, min, gain, ok: min != null ? r.roas >= min : null };
+    });
+  }, [fin, marges]);
+  const conn = rows.filter((r) => r.gain != null);
+  const perte = conn.filter((r) => !r.ok), gainTot = conn.reduce((t, r) => t + r.gain, 0), perteTot = perte.reduce((t, r) => t + r.gain, 0);
+  const liste = (vue === "perte" ? perte.sort((a, b) => a.gain - b.gain) : [...conn].sort((a, b) => b.pub - a.pub)).slice(0, 25);
+  const eur = (v) => (v >= 0 ? "+" : "−") + Math.abs(Math.round(v)).toLocaleString("fr-FR") + " €";
+  const x1 = (v) => (v == null ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 }));
+  const canaux = ["Leroy Merlin", "Amazon"].filter((c) => marges.mbCanal[c] != null).map((c) => [c, marges.mbCanal[c]]);
+  return (
+    <GlassCard className="p-4 sm:p-5 mb-4" scrollReveal>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div>
+          <div className="text-[14px] font-semibold" style={{ color: INK }}>Rentabilité de la pub par produit</div>
+          <div className="text-[11.5px] mt-0.5 max-w-[640px]" style={{ color: MUTED }}>Une campagne est rentable si son ROAS dépasse le ROAS minimum = 1,2 ÷ marge avant pub du produit (ventes attribuées TTC, marge HT après achat, commission et transport). En dessous, chaque euro de pub coûte plus qu’il ne rapporte.</div>
+        </div>
+        <div className="inline-flex rounded-full p-0.5 text-[11px]" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+          {[["perte", `Sous le seuil (${perte.length})`], ["tout", "Toutes"]].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setVue(k)} className="px-2.5 py-1 rounded-full font-semibold" style={{ background: vue === k ? `${ORANGE}26` : "transparent", color: vue === k ? ORANGE_SOFT : MUTED }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-3">
+        <div className="rounded-xl p-3" style={{ background: PANEL_QUIET }}><div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>Résultat net de la pub</div><div className="text-[18px] font-bold tabular-nums" style={{ color: gainTot >= 0 ? GREEN : RED }}>{eur(gainTot)}</div><div className="text-[11px]" style={{ color: FAINT }}>{conn.length} produits analysés</div></div>
+        <div className="rounded-xl p-3" style={{ background: PANEL_QUIET }}><div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>Pub qui perd de l’argent</div><div className="text-[18px] font-bold tabular-nums" style={{ color: RED }}>{eur(perteTot)}</div><div className="text-[11px]" style={{ color: FAINT }}>{perte.length} produits sous le seuil</div></div>
+        {canaux.slice(0, 2).map(([c, mb]) => (
+          <div key={c} className="rounded-xl p-3" style={{ background: PANEL_QUIET }}><div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>ROAS minimum · {c}</div><div className="text-[18px] font-bold tabular-nums" style={{ color: INK }}>{mb > 0 ? x1(1.2 / mb) : "∞"}</div><div className="text-[11px]" style={{ color: FAINT }}>marge avant pub {(mb * 100).toFixed(1).replace(".", ",")} %</div></div>
+        ))}
+      </div>
+      <div className="space-y-1.5" style={{ maxHeight: 460, overflowY: "auto" }}>
+        {liste.map((r, i) => (
+          <div key={r.canal + r.pays + r.sku + i} className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.025)", borderLeft: `3px solid ${r.ok == null ? FAINT : r.ok ? GREEN : RED}` }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[12.5px] truncate min-w-0" style={{ color: INK }} title={r.nom}>{r.nom}</span>
+              <span className="text-[12.5px] font-semibold tabular-nums shrink-0" style={{ color: r.gain == null ? FAINT : r.gain >= 0 ? GREEN : RED }}>{r.gain == null ? "marge inconnue" : eur(r.gain)}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums mt-0.5" style={{ color: MUTED }}>
+              <span>{r.canal}{r.pays && r.pays !== "France" ? ` ${r.pays}` : ""} · {r.sku}</span>
+              <span>pub {Math.round(r.pub).toLocaleString("fr-FR")} €</span>
+              <span>ROAS <b style={{ color: r.ok == null ? INK : r.ok ? GREEN : RED }}>{x1(r.roas)}</b> / mini {r.min == null ? (r.mb != null ? "∞ (marge ≤ 0)" : "–") : x1(r.min)}</span>
+            </div>
+          </div>
+        ))}
+        {liste.length === 0 && <div className="text-[12px] p-3" style={{ color: FAINT }}>Aucun produit sous le seuil.</div>}
+      </div>
+      <div className="text-[10.5px] mt-2" style={{ color: FAINT }}>Leroy Merlin : pub Sponsored Products imputée par produit depuis sept. 2025 · Amazon : Sponsored Products 1er août – 28 oct. 2026. Visible seulement en accès propriétaire.</div>
+    </GlassCard>
+  );
+}
+
 function DashboardApp({ onLogout }) {
   // tab/datePreset/dates personnalisées initialisés depuis l'URL si présents
   // (même pattern que globalMp ci-dessous) — permet au routeur conversationnel
@@ -4256,7 +4317,11 @@ function DashboardApp({ onLogout }) {
       if (!e) { const c = ent.filter((x) => memeCouleur(x) && t.every((w) => x.t.has(w) || w === "BLANC") && [...x.t][0] === t[0]); if (c.length === 1) e = c[0]; }
       return (memo[n] = e ? e.v : undefined);
     };
-    return { mp, prod, sc, pub };
+    // marge avant pub (HT) : par SKU (base produits) et par canal — sert au ROAS minimum de la pub
+    const nsku = (x) => String(x || "").split(",")[0].trim().toUpperCase().replace(/\//g, "-").replace(/(-FLM|-HOMY|-LM|-AMZ|-FBA)+$/, "");
+    const mbs = {}; ((fin.det && fin.det.marg_prod) || []).forEach((r) => { if (r.ht > 0) mbs[nsku(r.sku)] = r.m / r.ht - sc; });
+    const mbCanal = {}; Object.entries(P).forEach(([c, x]) => { if (x && x.ht > 50000 && x.mn != null) mbCanal[c] = (x.mn - (x.pub || 0) - (x.pubnc || 0)) / x.ht; });
+    return { mp, prod, sc, pub, mbSku: (k) => mbs[nsku(k)], mbCanal };
   }, [fin]);
   const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onLogout={onLogout} size={size} />;
 
@@ -6641,6 +6706,8 @@ function DashboardApp({ onLogout }) {
               <TiltCard className="p-5 reveal-d1" glow glowColor={mpAccent.primary} scrollReveal><Eyebrow hint={t.ca_genere_ht_hint}>{t.ca_genere_ht}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)" }}>{fmtEUR(totalAdsCa)}</div></TiltCard>
               <TiltCard className="p-5 reveal-d2" glow glowColor={mpAccent.primary} scrollReveal><Eyebrow hint={t.roas_pondere_hint}>{t.roas_pondere}</Eyebrow><div className="tabular-nums font-bold" style={{ fontSize: "clamp(24px, 3.5vw, 32px)", color: mpAccent.primary }}>{blendedRoas.toFixed(1)}x</div></TiltCard>
             </div>
+
+            {marges && fin && (globalMp === "Toutes" || ["Leroy Merlin", "Amazon FR"].includes(globalMp)) && <><ZoneLabel>Rentabilité</ZoneLabel><PubRentabilite fin={fin} marges={marges} /></>}
 
             {/* ===== section — Budget / Consommé / Restant, très visuel ===== */}
             <ZoneLabel>{t.zone_budget}</ZoneLabel>
