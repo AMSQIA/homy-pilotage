@@ -14,6 +14,7 @@ import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinance
 import { toneMargin } from "./FinanceViz.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
 import { etendre } from "./extension.js"; // prolongement du tableau de bord par les ventes Shopify (voir « PROLONGEMENT SHOPIFY »)
 import SHOPIFY_EXT from "./shopify_extension.json"; // ventes des deux boutiques Shopify après la dernière ligne ODP (actualisé chaque matin)
+import STOCK from "./data/stock.json"; // inventaire mensuel (quantités par lieu, sans valeur) — couverture de stock
 import N1_2025 from "./data/n1_2025.json"; // ventes 2025 par jour (comparaisons « même période l'an dernier »)
 import { construireRepartitions, vue as repVue, matrice as repMatrice, partsParMarketplace as repParts, replier, attribuerCouleurs, dispoQte, infoMois, AUTRES_PRODUITS, NB_SERIES, GRIS } from "./repartitions.js"; // répartitions pays / marque / type de produit × mois × marketplace (page Marques)
 
@@ -2623,15 +2624,17 @@ const CONNEXIONS = (() => {
       shop(b.site, "Site bestherm.fr", "boutique Shopify du site"),
       { nom: "Pub du site (Google, Meta)", quoi: "JVWEB", via: "budget", st: "activer", info: "dépense réelle non reliée, estimée sur budget" },
     ]],
-    ["Données internes", [
+    ["Données internes", [ // groupe visible seulement avec le code financier (coûts d'achat et de transport)
       { nom: "Transport et supply chain", quoi: "app logistique", via: "extraction navigateur", st: "manuel", info: "réel jusqu’à août, prolongé ensuite" },
       { nom: "Prix d’achat", quoi: "base produits supply chain", via: "SharePoint", st: "manuel", info: "fichier du 27/10" },
       { nom: "Factures pub hors relevé", quoi: "DSP, m19, Kingfisher", via: "budget", st: "activer", info: "montants réels à fournir (compta)" },
     ]],
   ];
 })();
-function Connexions({ P }) {
-  const tous = CONNEXIONS.flatMap(([, l]) => l);
+const connexionsVisibles = (owner) => CONNEXIONS.filter(([g]) => owner || g !== "Données internes");
+function Connexions({ P, owner }) {
+  const groupes = connexionsVisibles(owner);
+  const tous = groupes.flatMap(([, l]) => l);
   const n = (st) => tous.filter((x) => x.st === st).length;
   const ST = { actif: [GREEN, P.stActif], manuel: [AMBER, P.stManuel], activer: [MUTED, P.stActiver] };
   return (
@@ -2639,7 +2642,7 @@ function Connexions({ P }) {
       <div className="flex gap-1.5 px-1 pb-3 text-[11px] font-semibold">
         {["actif", "manuel", "activer"].map((k) => <span key={k} className="flex-1 text-center rounded-lg py-1.5" style={{ background: `${ST[k][0]}14`, color: ST[k][0] }}>{n(k)} {k === "actif" ? P.connActives : k === "manuel" ? P.connManuelles : P.stActiver.toLowerCase()}</span>)}
       </div>
-      {CONNEXIONS.map(([g, l]) => (
+      {groupes.map(([g, l]) => (
         <div key={g} className="mb-2">
           <div className="text-[10.5px] uppercase tracking-wider px-1 pb-1" style={{ color: FAINT }}>{g}</div>
           {l.map((x) => (
@@ -2692,7 +2695,7 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
       {vue === "conn" ? (<>
         <button type="button" onClick={() => setVue("menu")} className="flex items-center gap-1.5 text-[12.5px] px-1 pb-2" style={{ color: MUTED }}><ChevronLeft size={15} /> {P.retour}</button>
         <div className="flex items-center gap-2 px-1 pb-3"><Plug size={16} color={ORANGE} /><span className="text-[14px] font-semibold" style={{ color: INK }}>{P.conn}</span></div>
-        <Connexions P={P} />
+        <Connexions P={P} owner={owner} />
       </>) : (<>
       <div className="flex items-center gap-3 p-2">
         <Avatar s={44} />
@@ -2703,7 +2706,7 @@ function ProfileMenu({ lang, setLang, owner, onLock, onLogout, size = 34 }) {
       </div>
       <div className="text-[11.5px] px-2 pb-3" style={{ color: FAINT }}>{jusqua ? `${P.sessionJusquau} ${jusqua}` : P.sessionOnglet}</div>
       <div className="border-t pt-2" style={{ borderColor: PANEL_BORDER_QUIET }}>
-        {(() => { const t = CONNEXIONS.flatMap(([, l]) => l); const a = t.filter((x) => x.st === "actif").length, m = t.filter((x) => x.st !== "actif").length; return (
+        {(() => { const t = connexionsVisibles(owner).flatMap(([, l]) => l); const a = t.filter((x) => x.st === "actif").length, m = t.filter((x) => x.st !== "actif").length; return (
           <button type="button" role="menuitem" onClick={() => setVue("conn")} className="w-full flex items-center gap-3 text-left rounded-xl px-2 py-2.5 transition-colors hover:bg-white/5">
             <Plug size={16} className="shrink-0" color={MUTED} />
             <span className="flex-1 min-w-0"><span className="block text-[13px]" style={{ color: INK }}>{P.conn}</span>
@@ -4158,6 +4161,183 @@ function PubRentabilite({ fin, marges }) {
   );
 }
 
+// ===== Stock : couverture en semaines (inventaire mensuel − ventes depuis, face à la demande attendue = même période 2025 × tendance) =====
+const cleProduit = (n) => [...new Set(String(n || "").toUpperCase().replace(/(\d+)W\s*\+\s*(\d+)W/g, "$1+$2W").replace(/[^A-Z0-9+ ]/g, " ").split(/\s+/)
+  .filter((w) => w && !["VENTIL", "BLANC", "DESHUM", "CONNECT"].includes(w) && !/^\d+\+$/.test(w))
+  .map((w) => (w === "B" || w === "BLACK" ? "NOIR" : w === "ORPHEE" ? "ORPHE" : w === "CO" ? "" : w)).filter(Boolean)
+  .map((w, i, t) => (t.includes("COSMO") && w === "1500W" ? "500+1000W" : w))
+  .filter((w, i, t) => !(/^\d+W$/.test(w) && t.some((x) => ["NOVA", "KERIA", "ILLA", "ATHEA", "FERYEL", "AZRA"].includes(x)))))].sort().join(" ");
+function calculerStock() {
+  const E = SHOPIFY_EXT, N = N1_2025, au = DMAX;
+  const jour = (d) => Date.parse(d + "T12:00:00");
+  const plus = (d, n) => new Date(jour(d) + n * 86400000).toISOString().slice(0, 10);
+  const moinsAn = (d) => plus(d, -364);
+  const inv = STOCK.date;
+  const ventes = (lignes, prods, du, a, iProd, iQ) => { const m = new Map(); for (const l of lignes || []) { if (l[0] <= du || l[0] > a) continue; const k = cleProduit(prods[l[iProd]] && (prods[l[iProd]][0] ?? prods[l[iProd]])); m.set(k, (m.get(k) || 0) + l[iQ]); } return m; };
+  const extProds = (E && E.produits) || [], nProds = (N && N.produits) || [];
+  const depuisInv = ventes(E && E.lignes, extProds, inv, au, 2, 4);                          // ventes depuis l'inventaire (lignes Shopify connues)
+  const premier = E && E.lignes && E.lignes.length ? E.lignes.reduce((x, l) => (l[0] < x ? l[0] : x), au) : au;
+  const joursCouverts = Math.max(1, (jour(au) - jour(premier > inv ? plus(premier, -1) : inv)) / 86400000), joursDepuis = Math.max(1, (jour(au) - jour(inv)) / 86400000);
+  const ext = joursDepuis / joursCouverts;                                                    // jours entre l'inventaire et le début des lignes : extrapolés
+  const recent26 = ventes(E && E.lignes, extProds, premier > inv ? plus(premier, -1) : inv, au, 2, 4);
+  const recent25 = ventes(N && N.lignes, nProds, moinsAn(premier > inv ? plus(premier, -1) : inv), moinsAn(au), 2, 4);
+  const avenir25 = ventes(N && N.lignes, nProds, moinsAn(au), moinsAn(plus(au, 56)), 2, 4);   // 8 semaines à venir, l'an dernier
+  const t26 = [...recent26.values()].reduce((a, b) => a + b, 0), t25 = [...recent25.values()].reduce((a, b) => a + b, 0);
+  const gGlobal = t25 ? Math.min(3, Math.max(0.5, t26 / t25)) : 1;
+  const rows = Object.entries(STOCK.produits).map(([nom, lieux]) => {
+    const k = cleProduit(nom);
+    const enMer = lieux["EN MER"] || 0, stockInv = Object.entries(lieux).filter(([l]) => l !== "EN MER").reduce((a, [, q]) => a + q, 0);
+    const vendu = Math.round((depuisInv.get(k) || 0) * ext);
+    const stock = Math.max(0, stockInv - vendu);
+    const r26 = recent26.get(k) || 0, r25 = recent25.get(k) || 0;
+    const g = r25 >= 20 ? Math.min(3, Math.max(0.3, r26 / r25)) : gGlobal;
+    const a25 = avenir25.get(k) || 0;
+    const parSemaine = a25 > 0 ? (a25 * g) / 8 : (r26 / Math.max(1, joursCouverts)) * 7;     // repli : rythme récent
+    const couv = parSemaine > 0.5 ? stock / parSemaine : null, couvMer = parSemaine > 0.5 ? (stock + enMer) / parSemaine : null;
+    return { nom, lieux, stockInv, vendu, stock, enMer, parSemaine, couv, couvMer, g };
+  }).filter((r) => r.stockInv + r.enMer > 0);
+  return { rows, inv, au, gGlobal };
+}
+// ===== Météo et ventes : degrés-jours de chauffe (base 18 °C, moyenne de 7 grandes villes, Open-Meteo) face aux ventes mensuelles =====
+const METEO_VILLES = [[48.86, 2.35], [45.76, 4.84], [43.30, 5.37], [50.63, 3.06], [44.84, -0.58], [47.22, -1.55], [48.58, 7.75]];
+function useMeteo() {
+  const [m, setM] = useState(null);
+  useEffect(() => {
+    const auj = new Date().toISOString().slice(0, 10), cle = "homy_meteo_" + auj;
+    try { const c = sessionStorage.getItem(cle); if (c) { setM(JSON.parse(c)); return; } } catch { /* ignoré */ }
+    const lat = METEO_VILLES.map((v) => v[0]).join(","), lon = METEO_VILLES.map((v) => v[1]).join(",");
+    const fin = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+    const moy = (rep) => { const L = Array.isArray(rep) ? rep : [rep]; const t = L[0].daily.time; return t.map((d, i) => [d, L.reduce((a, x) => a + (x.daily.temperature_2m_mean[i] ?? 0), 0) / L.length]); };
+    Promise.all([
+      fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=2024-01-01&end_date=${fin}&daily=temperature_2m_mean&timezone=Europe%2FParis`).then((r) => r.json()),
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_mean&past_days=7&forecast_days=14&timezone=Europe%2FParis`).then((r) => r.json()),
+    ]).then(([a, f]) => {
+      const jours = {}; moy(a).forEach(([d, t]) => (jours[d] = t)); const prev = moy(f); prev.forEach(([d, t]) => (jours[d] = t));
+      const res = { jours, prevision: prev.filter(([d]) => d > auj).map(([d]) => d) };
+      try { sessionStorage.setItem(cle, JSON.stringify(res)); } catch { /* ignoré */ }
+      setM(res);
+    }).catch(() => setM({ erreur: true }));
+  }, []);
+  return m;
+}
+function MeteoVentes() {
+  const m = useMeteo();
+  if (!m) return <GlassCard className="p-4 mb-6" quiet><span className="text-[12px]" style={{ color: FAINT }}>Chargement de la météo…</span></GlassCard>;
+  if (m.erreur) return <GlassCard className="p-4 mb-6" quiet><span className="text-[12px]" style={{ color: FAINT }}>Météo indisponible pour le moment (service Open-Meteo injoignable).</span></GlassCard>;
+  const dju = (t) => Math.max(0, 18 - t);
+  const parMois = {}; Object.entries(m.jours).forEach(([d, t]) => { const k = d.slice(0, 7); parMois[k] = (parMois[k] || 0) + dju(t); });
+  const mois = DATA.mois_labels, nComplets = MOIS_EN_COURS_IDX;            // mois entiers connus en 2026
+  const djuM = (y, i) => parMois[`${y}-${String(i + 1).padStart(2, "0")}`] ?? null;
+  const ventes = (y, i) => (DATA.monthly_total[String(y)] || [])[i] || 0;
+  // corrélation ventes mensuelles × degrés-jours (2024–2025)
+  const pts = []; [2024, 2025].forEach((y) => mois.forEach((_, i) => { const d = djuM(y, i), v = ventes(y, i); if (d != null && v) pts.push([d, v]); }));
+  const corr = (() => { const n = pts.length; if (n < 6) return null; const mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
+    const sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0), sx = Math.sqrt(pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0)), sy = Math.sqrt(pts.reduce((a, p) => a + (p[1] - my) ** 2, 0)); return sxy / (sx * sy); })();
+  const data = mois.map((label, i) => ({ mois: label, "2025": djuM(2025, i) != null ? Math.round(djuM(2025, i)) : null, "2026": i <= nComplets && djuM(2026, i) != null ? Math.round(djuM(2026, i)) : null }));
+  // dernier mois complet : croissance brute et corrigée du climat (ventes par degré-jour)
+  const iDer = nComplets - 1, d25 = djuM(2025, iDer), d26 = djuM(2026, iDer), v25 = ventes(2025, iDer), v26 = ventes(2026, iDer);
+  const brut = v25 ? v26 / v25 - 1 : null, ecartDju = d25 ? d26 / d25 - 1 : null;
+  // sensibilité des ventes au froid (élasticité log-log sur les mois 2024–2025 avec du chauffage), bornée entre 0 et 1
+  const elast = (() => { const q = pts.filter((x) => x[0] > 20).map((x) => [Math.log(x[0]), Math.log(x[1])]); if (q.length < 6) return null;
+    const mx = q.reduce((a, x) => a + x[0], 0) / q.length, my = q.reduce((a, x) => a + x[1], 0) / q.length;
+    const b = q.reduce((a, x) => a + (x[0] - mx) * (x[1] - my), 0) / q.reduce((a, x) => a + (x[0] - mx) ** 2, 0); return Math.max(0, Math.min(1, b)); })();
+  const corrige = brut != null && ecartDju != null && elast != null && d25 > 60 ? (1 + brut) / Math.pow(1 + ecartDju, elast) - 1 : null;
+  // 14 prochains jours vs mêmes jours l'an dernier
+  const prevDju = m.prevision.reduce((a, d) => a + dju(m.jours[d]), 0);
+  const anDernier = m.prevision.reduce((a, d) => { const x = new Date(Date.parse(d) - 364 * 86400000).toISOString().slice(0, 10); return a + (m.jours[x] != null ? dju(m.jours[x]) : 0); }, 0);
+  const ecartPrev = anDernier ? prevDju / anDernier - 1 : null;
+  const pc = (v) => (v >= 0 ? "+" : "−") + Math.abs(v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " %";
+  return (
+    <GlassCard className="p-4 sm:p-5 mb-6">
+      <div className="text-[14px] font-semibold" style={{ color: INK }}>Météo et ventes</div>
+      <div className="text-[11.5px] mt-0.5 mb-3" style={{ color: MUTED }}>Degrés-jours de chauffe (somme de 18 °C − température moyenne, quand il fait moins de 18 °C ; moyenne de Paris, Lyon, Marseille, Lille, Bordeaux, Nantes et Strasbourg). Plus le chiffre est haut, plus il fait froid.</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-4">
+        <div className="rounded-xl p-3" style={{ background: PANEL_QUIET }}>
+          <div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>14 prochains jours</div>
+          <div className="text-[18px] font-bold" style={{ color: ecartPrev == null ? INK : ecartPrev > 0.1 ? "#4A9EFF" : ecartPrev < -0.1 ? AMBER : INK }}>{ecartPrev == null ? "–" : ecartPrev > 0.1 ? "Plus froid" : ecartPrev < -0.1 ? "Plus doux" : "Comparable"}</div>
+          <div className="text-[11px]" style={{ color: MUTED }}>{ecartPrev == null ? "" : `${pc(ecartPrev)} de degrés-jours vs l’an dernier${ecartPrev > 0.1 ? " : demande à anticiper (stock, pub)" : ecartPrev < -0.1 ? " : demande plus faible attendue" : ""}`}</div>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: PANEL_QUIET }}>
+          <div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>{mois[iDer]} : météo vs 2025</div>
+          <div className="text-[18px] font-bold" style={{ color: INK }}>{ecartDju == null ? "–" : pc(ecartDju)} <span className="text-[12px] font-normal" style={{ color: MUTED }}>de froid</span></div>
+          <div className="text-[11px]" style={{ color: MUTED }}>ventes {brut == null ? "–" : pc(brut)} vs {mois[iDer]} 2025{corrige != null ? ` · à météo égale ≈ ${pc(corrige)}` : ""}</div>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: PANEL_QUIET }}>
+          <div className="text-[10.5px] uppercase tracking-wider" style={{ color: FAINT }}>Lien froid ↔ ventes</div>
+          <div className="text-[18px] font-bold" style={{ color: INK }}>{corr == null ? "–" : corr.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}</div>
+          <div className="text-[11px]" style={{ color: MUTED }}>corrélation mensuelle 2024–2025 (1 = les ventes suivent parfaitement le froid)</div>
+        </div>
+      </div>
+      <div style={{ height: 220 }}>
+        <ResponsiveContainer>
+          <BarChart data={data} margin={{ top: 8, right: 4, left: -18, bottom: 0 }} barCategoryGap="20%">
+            <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis dataKey="mois" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ background: "#1E1B15", border: `1px solid ${PANEL_BORDER}`, borderRadius: 12, fontSize: 12 }} itemStyle={{ color: INK }} labelStyle={{ color: MUTED }} formatter={(v, n) => [`${v} degrés-jours`, n]} />
+            <Bar dataKey="2025" fill={FAINT} radius={[3, 3, 0, 0]} />
+            <Bar dataKey="2026" fill="#4A9EFF" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex items-center gap-4 text-[11px] mt-1" style={{ color: MUTED }}><span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: FAINT }} />2025</span><span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#4A9EFF" }} />2026</span><span style={{ color: FAINT }}>Source : Open-Meteo (archives + prévisions 14 j)</span></div>
+    </GlassCard>
+  );
+}
+let STOCK_CACHE = null;
+function StockCouverture() {
+  const [vue, setVue] = useState("risque");
+  const [q, setQ] = useState("");
+  const S = STOCK_CACHE || (STOCK_CACHE = calculerStock());
+  const statut = (r) => (r.couv == null ? "lent" : r.couv < 4 ? (r.couvMer != null && r.couvMer >= 8 ? "arrivage" : "rupture") : r.couv < 8 ? "tendu" : r.couv > 40 ? "surstock" : "ok");
+  const C = { rupture: [RED, "Rupture < 4 sem."], arrivage: [AMBER, "Tendu, arrivage en mer"], tendu: [AMBER, "4–8 semaines"], ok: [GREEN, "OK"], surstock: ["#4A9EFF", "Surstock > 40 sem."], lent: [FAINT, "Pas de ventes récentes"] };
+  const ordre = { rupture: 0, arrivage: 1, tendu: 2, surstock: 3, ok: 4, lent: 5 };
+  let rows = S.rows.map((r) => ({ ...r, st: statut(r) }));
+  if (q) rows = rows.filter((r) => r.nom.toLowerCase().includes(q.toLowerCase()));
+  rows = vue === "risque" ? rows.filter((r) => ["rupture", "arrivage", "tendu"].includes(r.st)).sort((a, b) => ordre[a.st] - ordre[b.st] || (a.couv ?? 999) - (b.couv ?? 999))
+    : vue === "surstock" ? rows.filter((r) => r.st === "surstock" || r.st === "lent").sort((a, b) => b.stock - a.stock) : rows.sort((a, b) => b.parSemaine - a.parSemaine);
+  const n = (st) => S.rows.map((r) => statut(r)).filter((x) => x === st).length;
+  const fr = (d) => d.split("-").reverse().slice(0, 2).join("/");
+  const sem = (v) => (v == null ? "–" : v > 99 ? "> 99" : v.toLocaleString("fr-FR", { maximumFractionDigits: v < 10 ? 1 : 0 }));
+  return (
+    <GlassCard className="p-4 sm:p-5 mb-6" scrollReveal>
+      <div className="text-[14px] font-semibold" style={{ color: INK }}>Couverture de stock</div>
+      <div className="text-[11.5px] mt-0.5 mb-3" style={{ color: MUTED }}>Stock de l’inventaire du {fr(S.inv)} (entrepôt Dometrans, Amazon FBA, ManoMano, Leroy Merlin) moins les ventes depuis, face à la demande attendue sur 8 semaines : ventes de la même période l’an dernier × tendance récente du produit (globale : ×{S.gGlobal.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}).</div>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[["rupture", n("rupture")], ["tendu", n("tendu") + n("arrivage")], ["surstock", n("surstock")]].map(([k, v]) => (
+          <div key={k} className="rounded-xl p-2.5 text-center" style={{ background: `${C[k][0]}12` }}><div className="text-[20px] font-bold tabular-nums" style={{ color: C[k][0] }}>{v}</div><div className="text-[10.5px]" style={{ color: MUTED }}>{k === "tendu" ? "4–8 semaines" : C[k][1]}</div></div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="inline-flex rounded-full p-0.5 text-[11px]" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
+          {[["risque", "À risque"], ["surstock", "Surstock / lent"], ["tout", "Tous"]].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setVue(k)} className="px-2.5 py-1 rounded-full font-semibold" style={{ background: vue === k ? `${ORANGE}26` : "transparent", color: vue === k ? ORANGE_SOFT : MUTED }}>{l}</button>
+          ))}
+        </div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Chercher un produit" className="flex-1 min-w-[140px] text-[12px] px-3 py-1.5 rounded-full outline-none" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}`, color: INK }} />
+      </div>
+      <div className="space-y-1.5" style={{ maxHeight: 520, overflowY: "auto" }}>
+        {rows.map((r) => (
+          <div key={r.nom} className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.025)", borderLeft: `3px solid ${C[r.st][0]}` }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[12.5px] font-medium truncate" style={{ color: INK }}>{r.nom}</span>
+              <span className="text-[12px] font-semibold tabular-nums shrink-0" style={{ color: C[r.st][0] }}>{sem(r.couv)} sem.{r.enMer ? <span className="font-normal" style={{ color: MUTED }}> · {sem(r.couvMer)} avec arrivages</span> : null}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums mt-0.5" style={{ color: MUTED }}>
+              <span>stock ≈ {Math.round(r.stock).toLocaleString("fr-FR")} u.</span>
+              {r.enMer > 0 && <span>en mer {r.enMer.toLocaleString("fr-FR")} u.</span>}
+              <span>demande ≈ {Math.round(r.parSemaine).toLocaleString("fr-FR")} u./sem.</span>
+              <span style={{ color: FAINT }}>{Object.entries(r.lieux).filter(([l, v]) => l !== "EN MER" && v).map(([l, v]) => `${l === "DOMETRANS" ? "entrepôt" : l === "LEROY MERLIN" ? "LM" : l === "AMAZON" ? "FBA" : "Mano"} ${v}`).join(" · ")}</span>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && <div className="text-[12px] p-3" style={{ color: FAINT }}>Aucun produit dans cette vue.</div>}
+      </div>
+      <div className="text-[10.5px] mt-2" style={{ color: FAINT }}>Inventaire mensuel (mis à jour chaque mois) · ventes depuis l’inventaire d’après les commandes Shopify connues, au {fr(S.au)} · quantités seulement, aucune valeur.</div>
+    </GlassCard>
+  );
+}
+
 function DashboardApp({ onLogout }) {
   // tab/datePreset/dates personnalisées initialisés depuis l'URL si présents
   // (même pattern que globalMp ci-dessous) — permet au routeur conversationnel
@@ -4746,7 +4926,7 @@ function DashboardApp({ onLogout }) {
   const [marquesTab, setMarquesTab] = useState(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("sousTab");
-      return fromUrl && ["marque", "repartitions", "produits", "classification", "radar", "puissances"].includes(fromUrl) ? fromUrl : "marque";
+      return fromUrl && ["marque", "repartitions", "produits", "classification", "radar", "puissances", "stock"].includes(fromUrl) ? fromUrl : "marque";
     } catch { return "marque"; }
   });
   const [wattageCat, setWattageCat] = useState("Toutes");
@@ -5730,6 +5910,8 @@ function DashboardApp({ onLogout }) {
               })()}
             </div>
             {SOUS_INFOS && (<div className="flex items-center gap-2 px-1 py-2 text-[11.5px]" style={{ color: FAINT }}><Info size={12} /> {t.tous_montants_ht}</div>)}
+            <ZoneLabel>Météo</ZoneLabel>
+            <MeteoVentes />
           </>
         )}
 
@@ -5876,7 +6058,7 @@ function DashboardApp({ onLogout }) {
               items={[
                 { id: "marque", label: t.zone_marque }, { id: "repartitions", label: t.rep_tab }, { id: "produits", label: t.zone_produits_titre },
                 { id: "radar", label: t.subnav_produit_ideal }, { id: "classification", label: t.subnav_normes_cat },
-                { id: "puissances", label: t.zone_puissances },
+                { id: "puissances", label: t.zone_puissances }, { id: "stock", label: "Stock" },
               ]} />
 
             {marquesTab === "marque" && (
@@ -5914,6 +6096,7 @@ function DashboardApp({ onLogout }) {
             </>
             )}
 
+            {marquesTab === "stock" && <StockCouverture />}
             {marquesTab === "repartitions" && (
             <>
             <ZoneLabel first>{t.rep_titre}</ZoneLabel>
