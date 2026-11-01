@@ -10,7 +10,8 @@ import {
   TrendingUp, TrendingDown, ChevronRight,
   X, Package, Store, Megaphone, LayoutGrid, Info, Minus, AlertTriangle, Lock, Tag, Search, CalendarDays, Sparkles, Radar, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, Truck, Snowflake, Flame, EyeOff, Eye, Check, Download, Wallet, UserRound, LogOut, Globe, LockKeyhole, ChevronDown, Plug, ChevronLeft
 } from "lucide-react";
-import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinanceKey } from "./Finance.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
+import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinanceKey, loadFinancePayload } from "./Finance.jsx";
+import { toneMargin } from "./FinanceViz.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
 import { etendre } from "./extension.js"; // prolongement du tableau de bord par les ventes Shopify (voir « PROLONGEMENT SHOPIFY »)
 import SHOPIFY_EXT from "./shopify_extension.json"; // ventes des deux boutiques Shopify après la dernière ligne ODP (actualisé chaque matin)
 import N1_2025 from "./data/n1_2025.json"; // ventes 2025 par jour (comparaisons « même période l'an dernier »)
@@ -4074,6 +4075,28 @@ function ChatRouter({ onComplete, lang: langInitiale = "fr" }) {
   );
 }
 
+// Marge nette (≈, taux de l'année à date appliqué au CA affiché) — visible seulement pour le propriétaire
+function MargeBadge({ v, ca = null, compact = false }) {
+  if (v == null) return compact ? <span className="text-[10.5px]" style={{ color: FAINT }}>–</span> : null;
+  const c = toneMargin(v), p = (v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " %";
+  if (compact) return <span className="text-[10.5px] tabular-nums font-semibold" style={{ color: c }} title="Marge nette ≈ (après achats, frais, transport et pub)">{p}</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] tabular-nums rounded-full px-2 py-0.5" style={{ color: c, background: `${c}18` }} title="Marge nette ≈ : taux de l'année à date (après achats, frais de vente, transport et pub) appliqué au CA affiché">
+      marge {p}{ca != null && <span style={{ opacity: 0.85 }}>· ≈ {Math.round((ca * v) / 1000).toLocaleString("fr-FR")} k€</span>}
+    </span>
+  );
+}
+function TriMarge({ on, set }) {
+  return (
+    <div className="inline-flex rounded-full p-0.5 text-[11px]" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }} role="group" aria-label="Tri">
+      {[[false, "Tri : CA"], [true, "Tri : marge €"]].map(([k, l]) => (
+        <button key={String(k)} type="button" onClick={() => set(k)} aria-pressed={on === k} className="px-2.5 py-1 rounded-full font-semibold"
+          style={{ background: on === k ? `${ORANGE}26` : "transparent", color: on === k ? ORANGE_SOFT : MUTED }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
 function DashboardApp({ onLogout }) {
   // tab/datePreset/dates personnalisées initialisés depuis l'URL si présents
   // (même pattern que globalMp ci-dessous) — permet au routeur conversationnel
@@ -4207,6 +4230,34 @@ function DashboardApp({ onLogout }) {
   };  // menu profil : verrouiller l'analyse financière (retire l'onglet, garde la session) ou se déconnecter
   const [owner, setOwner] = useState(() => !!getFinanceKey());
   const lockFinance = () => { clearFinanceKey(); desactiverFinance(); setOwner(false); if (tab === "finance") changeTab("apercu"); };
+  // rentabilité (propriétaire) : marge nette par marketplace et par produit, issue de l'analyse financière chiffrée
+  const [fin, setFin] = useState(null);
+  useEffect(() => { let ok = true; if (owner) loadFinancePayload().then((x) => ok && setFin(x)); else setFin(null); return () => { ok = false; }; }, [owner]);
+  const [triMarge, setTriMarge] = useState(false);
+  const marges = useMemo(() => {
+    if (!fin || !fin.pl || !fin.pl.t26) return null;
+    const T = fin.pl.t26, P = fin.pl.p26;
+    const MP = { "Leroy Merlin": "Leroy Merlin", "Technomat": "Leroy Merlin", "Amazon FR": "Amazon", "Amazon": "Amazon", "Cdiscount": "Cdiscount", "Castorama": "Castorama", "Boulanger": "Boulanger", "Bricomarché": "Bricomarché", "Maxeda": "Maxeda", "Site web": "Site bestherm.fr", "Site Web": "Site bestherm.fr", "Site bestherm.fr": "Site bestherm.fr" };
+    const mp = {}; Object.entries(MP).forEach(([a, c]) => { if (P[c] && P[c].mnpct != null && P[c].ht > 50000) mp[a] = P[c].mnpct; });
+    const sc = T.sc != null ? -T.sc / T.ht : 0, pub = -((T.pub || 0) + (T.pubnc || 0)) / T.ht;
+    // rapprochement des noms (app ↔ base produits) : mêmes mots dans n'importe quel ordre, « BLANC » facultatif, sinon nom inclus sans ambiguïté
+    const toks = (x) => String(x || "").toUpperCase().replace(/(\d+)W\s*\+\s*(\d+)W/g, "$1+$2W").replace(/[^A-Z0-9+ ]/g, " ").split(/\s+/).filter(Boolean).filter((w) => w !== "VENTIL").map((w) => (w === "B" || w === "BLACK" ? "NOIR" : w));
+    const key = (t) => [...new Set(t)].sort().join(" "), sansBlanc = (t) => t.filter((w) => w !== "BLANC");
+    const agg = {};
+    ((fin.det && fin.det.marg_prod) || []).forEach((r) => { const k = key(toks(r.nom)); const a = agg[k] || (agg[k] = { ht: 0, m: 0, t: toks(r.nom) }); a.ht += r.ht; a.m += r.m; });
+    const ent = Object.entries(agg).filter(([, a]) => a.ht > 3000).map(([k, a]) => ({ k, kb: key(sansBlanc(a.t)), t: new Set(a.t), v: a.m / a.ht - sc - pub }));
+    const memo = {};
+    const prod = (n) => {
+      if (n in memo) return memo[n];
+      const t = toks(n), k = key(t), kb = key(sansBlanc(t)), ts = new Set(t);
+      const noir = ts.has("NOIR"), memeCouleur = (x) => x.t.has("NOIR") === noir;
+      let e = ent.find((x) => x.k === k) || ent.find((x) => x.kb === kb && memeCouleur(x));
+      if (!e) { const c = ent.filter((x) => memeCouleur(x) && [...x.t].every((w) => ts.has(w) || w === "BLANC") && [...x.t][0] === t[0]); if (c.length === 1) e = c[0]; }
+      if (!e) { const c = ent.filter((x) => memeCouleur(x) && t.every((w) => x.t.has(w) || w === "BLANC") && [...x.t][0] === t[0]); if (c.length === 1) e = c[0]; }
+      return (memo[n] = e ? e.v : undefined);
+    };
+    return { mp, prod, sc, pub };
+  }, [fin]);
   const profilMenu = (size) => <ProfileMenu lang={lang} setLang={setLang} owner={owner} onLock={lockFinance} onLogout={onLogout} size={size} />;
 
 
@@ -4387,8 +4438,9 @@ function DashboardApp({ onLogout }) {
           pct_objectif: m.objectif ? (ca / m.objectif) * 100 : null,
         };
       })
-      .sort((a, b) => b.ca - a.ca);
-  }, [dateRange.from, dateRange.to]);
+      .map((m) => ({ ...m, marge: marges ? marges.mp[m.marketplace] ?? null : null }))
+      .sort((a, b) => (triMarge && marges ? (b.marge == null ? -1e12 : b.ca * b.marge) - (a.marge == null ? -1e12 : a.ca * a.marge) : b.ca - a.ca));
+  }, [dateRange.from, dateRange.to, marges, triMarge]);
   const top3Mp = sortedMp.slice(0, 3), restMp = sortedMp.slice(3);
   const maxMpCa = Math.max(...sortedMp.map((m) => m.ca), 1);
   const totalCaAllMp = sortedMp.reduce((s, m) => s + m.ca, 0);
@@ -4417,7 +4469,11 @@ function DashboardApp({ onLogout }) {
     return mv && mv.yoy_pct !== undefined ? mv.yoy_pct : null;
   }, [globalMp]);
 
-  const productsSource = globalMp === "Toutes" ? DATA.products_top15 : (DATA.gf.top_products_by_mp[globalMp] || []).map((p) => ({ ...p, qte: null, yoy_pct: null }));
+  const productsSource = (() => {
+    const base = (globalMp === "Toutes" ? DATA.products_top15 : (DATA.gf.top_products_by_mp[globalMp] || []).map((p) => ({ ...p, qte: null, yoy_pct: null })))
+      .map((p) => ({ ...p, marge: marges ? marges.prod(p.produit) ?? null : null }));
+    return triMarge && marges ? [...base].sort((a, b) => (b.marge == null ? -1e12 : b.ca * b.marge) - (a.marge == null ? -1e12 : a.ca * a.marge)) : base;
+  })();
   const top3Prod = productsSource.slice(0, 3), restProd = productsSource.slice(3);
   const maxProdCa = Math.max(...productsSource.map((p) => p.ca), 1);
   const heatmapMax = Math.max(...Object.values(DATA.products_monthly_top6).flatMap((p) => p.ca));
@@ -4719,8 +4775,9 @@ function DashboardApp({ onLogout }) {
   const allProductsYTDFiltered = useMemo(() => {
     const q = apSearch.trim().toLowerCase();
     const filtered = q === "" ? allProductsYTD : allProductsYTD.filter((p) => p.produit.toLowerCase().includes(q));
-    return [...filtered].sort((a, b) => apSort === "ca" ? b.ca - a.ca : apSort === "qte" ? b.qte - a.qte : a.produit.localeCompare(b.produit));
-  }, [allProductsYTD, apSearch, apSort]);
+    const mg = (p) => { const v = marges ? marges.prod(p.produit) : undefined; return v == null ? -1e12 : p.ca * v; };
+    return [...filtered].sort((a, b) => apSort === "ca" ? b.ca - a.ca : apSort === "qte" ? b.qte - a.qte : apSort === "marge" ? mg(b) - mg(a) : a.produit.localeCompare(b.produit));
+  }, [allProductsYTD, apSearch, apSort, marges]);
   // ===== Top 5 / Flop 5 fusionnés dans "Tous les produits" (badge sur la ligne,
   // pas une section séparée) — évite la redondance avec une liste déjà triable.
   // Basé sur le même critère que le tri actuel (CA ou Qté, "produit" -> repli sur
@@ -5587,7 +5644,7 @@ function DashboardApp({ onLogout }) {
                     </div>
                   )}
                 </div>
-                <div className="mt-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader></div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><SectionHeader hint={t.top3_hint}>{t.top3}</SectionHeader>{marges && <TriMarge on={triMarge} set={setTriMarge} />}</div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
                   {top3Mp.map((m, i) => (
                     <TiltCard key={m.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i === 2 ? "reveal-d2" : ""}`} glow={i === 0} glowColor={mpAccent.primary} scrollReveal>
@@ -5597,6 +5654,7 @@ function DashboardApp({ onLogout }) {
                         {m.objectif_fiable ? <span className="text-[11.5px]" style={{ color: m.pct_objectif > 40 ? GREEN : AMBER }}>{fmtPct(m.pct_objectif).replace('+','')} {t.de_word} {fmtEURk(m.objectif)}</span> : <span className="text-[11px]" style={{ color: FAINT }}>{t.objectif_non_defini}</span>}
                         <YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} lang={lang} />
                       </div>
+                      {marges && <div className="mt-2"><MargeBadge v={m.marge} ca={m.ca} /></div>}
                     </TiltCard>
                   ))}
                 </div>
@@ -5613,6 +5671,7 @@ function DashboardApp({ onLogout }) {
                       <div className="hidden sm:block flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (m.ca / maxMpCa) * 100)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} /></div>
                       <span className="text-[11.5px] tabular-nums w-14 sm:w-16 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(m.ca)}</span>
                       <span className="text-[11px] tabular-nums w-12 whitespace-nowrap text-right shrink-0" style={{ color: m.objectif_fiable ? FAINT : "#4A453E" }}>{m.objectif_fiable ? fmtPct(m.pct_objectif).replace('+','') : t.nd}</span>
+                      {marges && <span className="w-12 text-right shrink-0"><MargeBadge v={m.marge} compact /></span>}
                       <span className="w-[76px] text-right shrink-0 whitespace-nowrap"><YoyBadge pct={m.yoy_pct} naLabel={t.nouveau} lang={lang} /></span>
                     </StaggerRow>
                   );})}
@@ -5788,7 +5847,7 @@ function DashboardApp({ onLogout }) {
                   className="flex-1 text-[12px] outline-none bg-transparent" style={{ color: INK }} />
               </div>
               <div className="flex gap-1.5 rounded-full p-0.5" style={{ background: "rgba(255,255,255,0.03)" }}>
-                {[{ id: "ca", label: "CA" }, { id: "qte", label: t.qte_mode }, { id: "produit", label: t.produit_col }].map((s) => (
+                {[{ id: "ca", label: "CA" }, ...(marges ? [{ id: "marge", label: "Marge €" }] : []), { id: "qte", label: t.qte_mode }, { id: "produit", label: t.produit_col }].map((s) => (
                   <button key={s.id} onClick={() => setApSort(s.id)} className="text-[11px] font-medium px-3 py-1 rounded-full"
                     style={{ background: apSort === s.id ? mpAccent.primary : "transparent", color: apSort === s.id ? mpAccent.text : FAINT }}>
                     {s.label}
@@ -5811,7 +5870,8 @@ function DashboardApp({ onLogout }) {
                           <ChevronRight size={11} color={FAINT} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
                           <span className="text-[11.5px] flex-1 truncate min-w-0" style={{ color: INK }}>{p.produit}</span>
                           <span className="tabular-nums text-[11.5px] font-semibold w-20 text-right shrink-0" style={{ color: mpAccent.primary }}>{fmtEURk(p.ca)}</span>
-                          <span className="tabular-nums text-[10.5px] w-16 text-right shrink-0" style={{ color: FAINT }}>{fmtNum(p.qte)} u.</span>
+                          <span className={`tabular-nums text-[10.5px] w-16 text-right shrink-0 ${marges ? "hidden sm:inline" : ""}`} style={{ color: FAINT }}>{fmtNum(p.qte)} u.</span>
+                          {marges && <span className="w-12 text-right shrink-0"><MargeBadge v={marges.prod(p.produit)} compact /></span>}
                         </div>
                         {(p.destockage || p.catalogue || topFlopBadges[p.produit]) && (
                           <div className="pl-[23px] mt-1 flex items-center gap-1.5">
@@ -6015,7 +6075,7 @@ function DashboardApp({ onLogout }) {
             </div>
 
             <div className="mt-9">
-              <SectionHeader hint={t.top_produits_hint}>{t.top_produits}</SectionHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2"><SectionHeader hint={t.top_produits_hint}>{t.top_produits}</SectionHeader>{marges && <TriMarge on={triMarge} set={setTriMarge} />}</div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               {top3Prod.map((p, i) => (
@@ -6023,6 +6083,7 @@ function DashboardApp({ onLogout }) {
                   <div className="flex items-center justify-between mb-2"><span className="text-[12.5px] font-semibold truncate">{p.produit}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded shrink-0 ml-1" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                   <div className="tabular-nums text-[20px] font-bold">{fmtEURk(p.ca)}</div>
                   <div className="flex items-center justify-between mt-1.5"><span className="text-[11.5px]" style={{ color: MUTED }}>{p.qte !== null ? `${fmtNum(p.qte)} ${t.unites_vendues}` : t.qte_nd_mp}</span><YoyBadge pct={p.yoy_pct} naLabel={t.nd} lang={lang} /></div>
+                  {marges && <div className="mt-2"><MargeBadge v={p.marge} ca={p.ca} /></div>}
                 </TiltCard>
               ))}
             </div>
@@ -6034,11 +6095,13 @@ function DashboardApp({ onLogout }) {
                   <div className="hidden sm:block flex-1 h-4 rounded-full relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (p.ca / maxProdCa) * 100)}%`, background: FAINT, transition: "width 0.6s cubic-bezier(.22,1,.36,1)" }} /></div>
                   <span className="text-[11.5px] tabular-nums w-14 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(p.ca)}</span>
                   <span className="text-[11px] tabular-nums w-14 sm:w-16 text-right shrink-0 whitespace-nowrap" style={{ color: FAINT }}>{p.qte !== null ? `${fmtNum(p.qte)} u.` : t.nd}</span>
+                  {marges && <span className="w-12 text-right shrink-0"><MargeBadge v={p.marge} compact /></span>}
                   <span className="w-[76px] text-right shrink-0 whitespace-nowrap"><YoyBadge pct={p.yoy_pct} naLabel={t.nouveau} lang={lang} /></span>
                 </StaggerRow>
               ))}
             </GlassCard>
 
+            {marges && <div className="-mt-3 mb-5 px-1 text-[10.5px]" style={{ color: FAINT }}>Marge ≈ : marge nette de l’année à date (achats, commission, transport et pub moyens déduits), appliquée au CA de la période. Rouge &lt; 5 %, orange 5–10 %, vert ≥ 10 %. Visible seulement en accès propriétaire.</div>}
             <Eyebrow tone="quiet" hint={t.ca_mois_top6_hint}>{t.ca_mois_top6}</Eyebrow>
             <GlassCard className="p-4" scrollReveal>
               <div className="overflow-x-auto">

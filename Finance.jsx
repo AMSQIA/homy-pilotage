@@ -54,6 +54,13 @@ export function getFinanceKey() {
   } catch { /* stockage indisponible */ }
   return null;
 }
+// Données financières déchiffrées pour le reste de l'app (propriétaire uniquement) ; null sans clé.
+let _finCache = null;
+export function loadFinancePayload() {
+  const k = getFinanceKey(); if (!k) return Promise.resolve(null);
+  if (!_finCache || _finCache.k !== k) _finCache = { k, p: getBlob().then((b) => openData(b, unhex(k))).catch(() => null) };
+  return _finCache.p;
+}
 export function clearFinanceKey() {
   try { sessionStorage.removeItem(FK); localStorage.removeItem(FK); localStorage.removeItem(FK_UNTIL); } catch { /* ignoré */ }
 }
