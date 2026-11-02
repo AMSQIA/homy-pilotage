@@ -264,7 +264,7 @@ export function Refunds({ det }) {
 
 // =====================================================================================================
 // 3. PUBLICITÉ PAR MARKETPLACE ET PAR PRODUIT (avec les autres frais)
-export function AdsDetail({ d }) {
+export function AdsDetail({ d, cat = "Toutes" }) {
   const det = d.det, y1 = det.y1, y0 = det.y0;
   const mps = ["Leroy Merlin", "Amazon", "Cdiscount", "Castorama", "Site bestherm.fr"].filter((c) => det.mp[c]);
   const [mp, setMp] = useState("Leroy Merlin");
@@ -276,14 +276,14 @@ export function AdsDetail({ d }) {
   // produits : pub + commission + autres frais
   const prods = useMemo(() => {
     let rows = [];
-    if (mp === "Leroy Merlin") rows = (d.lm_products || []).map((p) => ({ nom: p.nom, sku: p.sku, sub: p.pays, v: p.v, q: p.q, pub: p.ptot ?? p.pub, com: p.com, oth: 0, roas: p.roas }));
-    if (mp === "Amazon") rows = (d.amz_products || []).map((p) => ({ nom: p.nom, sku: p.sku, sub: "FBA", v: p.v, q: p.q, pub: p.pub, com: p.com, oth: p.fba, roas: p.roas }));
-    if (mp === "Cdiscount") rows = (d.cd_products || []).map((p) => ({ nom: p.nom, sku: p.sku, sub: "", v: p.v, q: p.q, pub: p.pub, com: p.com, oth: 0, roas: null, est: true }));
-    rows = rows.filter((p) => p.v > 0 && (!q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())));
+    if (mp === "Leroy Merlin") rows = (d.lm_products || []).map((p) => ({ cat: p.cat, nom: p.nom, sku: p.sku, sub: p.pays, v: p.v, q: p.q, pub: p.ptot ?? p.pub, com: p.com, oth: 0, roas: p.roas }));
+    if (mp === "Amazon") rows = (d.amz_products || []).map((p) => ({ cat: p.cat, nom: p.nom, sku: p.sku, sub: "FBA", v: p.v, q: p.q, pub: p.pub, com: p.com, oth: p.fba, roas: p.roas }));
+    if (mp === "Cdiscount") rows = (d.cd_products || []).map((p) => ({ cat: p.cat, nom: p.nom, sku: p.sku, sub: "", v: p.v, q: p.q, pub: p.pub, com: p.com, oth: 0, roas: null, est: true }));
+    rows = rows.filter((p) => p.v > 0 && (cat === "Toutes" || p.cat === cat) && (!q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())));
     rows.forEach((p) => { p.ht = p.v / 1.2; p.tot = (p.pub || 0) + (p.com || 0) + (p.oth || 0); p.pct = p.tot / p.ht; p.pubPct = (p.pub || 0) / p.ht; });
     const key = { pub: (p) => -(p.pub || 0), pct: (p) => -p.pct, v: (p) => -p.v, roas: (p) => (p.roas == null ? 1e9 : p.roas) }[sort];
     return rows.sort((a, b) => key(a) - key(b));
-  }, [mp, q, sort]);
+  }, [mp, q, sort, cat]);
   const heat = (v) => (v >= 0.35 ? VZ.bad : v >= 0.2 ? "#FFB020" : VZ.good);
   const prodNote = { "Leroy Merlin": "Pub Sponsored Products imputée au produit + quote-part Video/Display, commission nette (lignes Mirakl), depuis sept. 2025.", Amazon: "Pub Sponsored Products France réelle par produit (rapport Amazon Ads), commission et FBA imputés, 1er août – 28 oct. 2026.", Cdiscount: "Commission et pub estimées au taux moyen du canal (Octopia ne donne pas la pub par produit), juil.–sept. 2026." }[mp];
   return (
@@ -470,16 +470,16 @@ export function TransportExplain({ det, log }) {
 
 // =====================================================================================================
 // 5. MARGE PAR PRODUIT (coût d'achat réel par référence)
-export function ProductMargin({ det, pl }) {
+export function ProductMargin({ det, pl, cat = "Toutes" }) {
   const [q, setQ] = useState(""); const [sort, setSort] = useState("ht"); const [n, setN] = useState(15);
   const scRate = pl && pl.t26 && pl.t26.sc != null ? -pl.t26.sc / pl.t26.ht : 0;
   const rows = useMemo(() => {
-    const r = (det.marg_prod || []).filter((p) => !q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).map((p) => ({
+    const r = (det.marg_prod || []).filter((p) => cat === "Toutes" || p.cat === cat).filter((p) => !q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).map((p) => ({
       ...p, pa: p.achat / p.ht, pf: p.frais / p.ht, pm: p.m / p.ht, pn: p.m / p.ht - scRate, pu: p.achat / Math.max(p.q, 1), pv: p.ht / Math.max(p.q, 1),
     }));
     const key = { ht: (p) => -p.ht, pm: (p) => p.pn, m: (p) => -p.m }[sort];
     return r.sort((a, b) => key(a) - key(b));
-  }, [q, sort, det]);
+  }, [q, sort, det, cat]);
   const tot = rows.reduce((t, p) => ({ ht: t.ht + p.ht, a: t.a + p.achat, f: t.f + p.frais, m: t.m + p.m }), { ht: 0, a: 0, f: 0, m: 0 });
   const losers = rows.filter((p) => p.pn < 0);
   const heat = (v) => toneMargin(v);
@@ -493,7 +493,7 @@ export function ProductMargin({ det, pl }) {
   );
   return (
     <Box>
-      <H sub={`${det.y1} à date, toutes marketplaces avec détail produit (Leroy Merlin, enseignes Mirakl, Amazon). Coût d’achat = ${det.ach_src || "prix FOB + approche"}. Frais marketplace directs = commission (et FBA pour Amazon). Transport et supply chain imputés au taux moyen (${pc(scRate)} des ventes HT) ; la publicité n’est pas déduite ici.`}>Marge par produit</H>
+      <H sub={`${det.y1} à date, toutes marketplaces avec détail produit (Leroy Merlin, enseignes Mirakl, Amazon). Coût d’achat = ${det.ach_src || "prix FOB + approche"}. Frais marketplace directs = commission (et FBA pour Amazon). Transport et supply chain imputés au taux moyen (${pc(scRate)} des ventes HT) ; la publicité n’est pas déduite ici.`}>{`Marge par produit${cat !== "Toutes" ? " · " + cat : ""}`}</H>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <Stat label="Ventes HT analysées" value={keu(tot.ht)} sub={`${rows.length} références`} />
         <Stat label="Coût d’achat" value={pc(tot.a / tot.ht)} sub={keu(tot.a)} />

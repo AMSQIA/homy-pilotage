@@ -270,11 +270,38 @@ function Dashboard({ d, onLogout, embedded }) {
               <button key={k} role="tab" aria-selected={sec === k} onClick={() => setSec(k)} className="px-4 py-2 rounded-lg whitespace-nowrap transition" style={{ background: sec === k ? C.orange : "transparent", color: sec === k ? "#fff" : C.muted, fontWeight: sec === k ? 600 : 400 }}>{l}</button>
             ))}
           </div>
+          <div className="mt-2 flex items-center gap-2 overflow-x-auto text-xs" role="tablist" aria-label="Grande catégorie">
+            <span className="uppercase tracking-wider whitespace-nowrap pl-1" style={{ color: C.dim }}>Catégorie</span>
+            {CATS.map((k) => (
+              <button key={k} role="tab" aria-selected={cat === k} onClick={() => setCat(k)} className="px-3 py-1.5 rounded-lg whitespace-nowrap transition border"
+                style={{ background: cat === k ? C.orange : "transparent", color: cat === k ? "#fff" : C.muted, borderColor: cat === k ? C.orange : C.line }}>{k}</button>
+            ))}
+          </div>
         </div>
+
+        {sec === "res" && cat !== "Toutes" && (() => {
+          const a = sumRows(aggCat(pers[pers.length - 1]), "c"), b = pers.length > 1 ? sumRows(aggCat(pers[pers.length - 2]), "c") : null;
+          const mp = ((d.det && d.det.marg_prod) || []).filter((x) => x.cat === cat).reduce((t, x) => ({ ht: t.ht + x.ht, achat: t.achat + x.achat, m: t.m + x.m, n: t.n + 1 }), { ht: 0, achat: 0, m: 0, n: 0 });
+          const allHt = ((d.det && d.det.marg_prod) || []).reduce((t, x) => t + x.ht, 0);
+          const sc = d.pl && d.pl.t26 && d.pl.t26.sc != null ? -d.pl.t26.sc / d.pl.t26.ht : 0;
+          return (
+            <Card>
+              <Title sub={`${pers[pers.length - 1]} vs ${pers[pers.length - 2] || "–"}. Ventes et frais : tous canaux sauf ManoMano (pas de détail par produit) ; Amazon et Cdiscount en partie estimés. Marge : produits avec coût d’achat connu, transport au taux moyen ; pub non déduite.`}>{`Résumé · ${cat}`}</Title>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Kpi icon={Store} label="Ventes nettes TTC" value={keur(a.v)} delta={b && b.v ? pct(a.v / b.v - 1) + " vs N-1" : null} deltaGood={!b || a.v >= b.v} sub="hors ManoMano" />
+                <Kpi icon={Percent} label="Frais de vente" value={pct(fr(a))} delta={b && b.v ? pts(fr(a) - fr(b)) + " vs N-1" : null} deltaGood={!b || fr(a) <= fr(b)} sub={`${keur(a.c + a.p + a.o)} · com. ${pct(a.v ? a.c / a.v : 0)}, pub ${pct(a.v ? a.p / a.v : 0)}`} />
+                <Kpi icon={Wallet} label="Marge après achat et commission" value={mp.ht ? pct(mp.m / mp.ht) : "–"} valueColor={mp.ht ? toneMargin(mp.m / mp.ht - sc) : undefined} sub={mp.ht ? `${keur(mp.m)} · achat ${pct(mp.achat / mp.ht)} · ${mp.n} réf.` : "pas de coût d’achat"} />
+                <Kpi icon={TrendingUp} label="Poids de la catégorie" value={allHt ? pct(mp.ht / allHt) : "–"} sub={mp.ht ? `${keur(mp.ht)} HT sur ${keur(allHt)} analysés` : ""} />
+              </div>
+              <p className="text-[11px] mt-3" style={{ color: C.dim }}>Les indicateurs du haut, « L’essentiel » et la cascade restent tous produits confondus. Le filtre s’applique aussi aux onglets Canaux, Coûts et Produits.</p>
+            </Card>
+          );
+        })()}
 
         {sec === "res" && d.pl && <Card><Waterfall pl={d.pl} ch="Total" /></Card>}
 
         {sec === "can" && (<>
+        {cat !== "Toutes" && <p className="text-xs rounded-xl px-3 py-2" style={{ color: C.amber, background: "rgba(255,176,32,.08)" }}>Filtre {cat} : le compte de résultat par marketplace reste tous produits (non ventilé par catégorie). Le filtre s’applique au coût par canal, à la répartition des frais et à la synthèse plus bas.</p>}
         {d.pl && d.det && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Vue</span>
@@ -459,15 +486,9 @@ function Dashboard({ d, onLogout, embedded }) {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold">Répartition des frais variables</h2>
-              <p className="text-xs mt-1" style={{ color: C.muted }}>Filtre par grande catégorie et période : s’applique au coût par canal, à la répartition des frais et à la synthèse.</p>
+              <p className="text-xs mt-1" style={{ color: C.muted }}>Période (la grande catégorie se choisit dans la barre en haut) : s’applique au coût par canal, à la répartition des frais et à la synthèse.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
-              <div className="flex flex-wrap rounded-xl p-1 text-xs gap-0.5" style={{ background: C.bg }} role="tablist" aria-label="Catégorie">
-                {CATS.map((k) => (
-                  <button key={k} onClick={() => setCat(k)} className="px-3 py-1.5 rounded-lg transition"
-                    style={{ background: cat === k ? C.orange : "transparent", color: cat === k ? "#fff" : C.muted }}>{k}</button>
-                ))}
-              </div>
               <div className="flex flex-wrap rounded-xl p-1 text-xs gap-0.5" style={{ background: C.bg }} role="tablist" aria-label="Période">
                 {pers.map((p) => (
                   <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 rounded-lg transition"
@@ -635,9 +656,9 @@ function Dashboard({ d, onLogout, embedded }) {
         <Refunds det={d.det} />
         </>)}
 
-        {sec === "prod" && d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} />}
+        {sec === "prod" && d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} cat={cat} />}
         {sec === "prod" && (<>
-        {d.det && <AdsDetail d={d} />}
+        {d.det && <AdsDetail d={d} cat={cat} />}
         {(d.disp || []).length > 0 && (
           <Card>
             <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
