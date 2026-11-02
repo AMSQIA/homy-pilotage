@@ -2613,10 +2613,10 @@ const CONNEXIONS = (() => {
       { nom: "Bricomarché", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
       { nom: "Maxeda Praxis", quoi: "Pays-Bas", via: "API Mirakl · mensuel", st: "actif" },
       { nom: "Maxeda Belgique", quoi: "Brico / Plan-It", via: "API Mirakl", st: "activer", info: "clé API Mirakl dédiée à créer" },
-      { nom: "Amazon France", quoi: "ventes, frais, FBA, Ads", via: "extraction navigateur", st: "manuel", info: "figé au 28/10 · à brancher sur l’API SP-API" },
+      { nom: "Amazon France", quoi: "ventes, frais, FBA, Ads, prix et stock", via: "extraction navigateur", st: "manuel", info: "finance au 28/10 · prix et stock relevés le 02/11 · à brancher sur l’API SP-API" },
       { nom: "Amazon Europe", quoi: "DE · IT · ES · BE · NL", via: "API SP-API", st: "activer", info: "≈ 150 k€ HT de ventes non suivies en finance" },
-      { nom: "Cdiscount", quoi: "ventes, frais, pub", via: "extraction navigateur", st: "manuel", info: "figé au 28/10 · à brancher sur l’API Octopia" },
-      { nom: "ManoMano", quoi: "ventes, frais, pub", via: "API ManoMano", st: "activer", info: "canal absent de l’analyse financière" },
+      { nom: "Cdiscount", quoi: "ventes, frais, pub, prix et stock", via: "extraction navigateur", st: "manuel", info: "finance au 28/10 · prix et stock relevés le 02/11 · à brancher sur l’API Octopia" },
+      { nom: "ManoMano", quoi: "ventes, frais, pub (9 contrats), prix et stock", via: "extraction navigateur", st: "manuel", info: "relevés de paiement jusqu’à sept. · prix et stock relevés le 02/11" },
       { nom: "Retail media Leroy Merlin", quoi: "SP · SV · SD (Valiuz)", via: "rapports e-mail · hebdo", st: "actif" },
     ]],
     ["Sites et Shopify", [
