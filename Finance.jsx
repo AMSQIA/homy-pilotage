@@ -6,14 +6,14 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
   BarChart, PieChart, Pie, Cell, LabelList,
 } from "recharts";
-import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search, Wallet } from "lucide-react";
+import { Download, Lock, TrendingUp, TrendingDown, AlertTriangle, Percent, Megaphone, Truck, Store, LogOut, Search, Wallet, RotateCcw } from "lucide-react";
 
 const C = {
   bg: "#0A0908", card: "#16140F", line: "#26221B", text: "#F5F1EA", muted: "#B8AF9F", dim: "#968E80",
   orange: "#FF5A1F", orange2: "#FF8A50", blue: "#4A9EFF", amber: "#FFB020", green: "#3DD68C", red: "#FF4D4F",
 };
 import { Waterfall, CostStructure, ChannelMap, MonthlyViz, VZ, toneMargin, toneFees } from "./FinanceViz.jsx";
-import { MarketplacePL, Refunds, AdsDetail, TransportExplain, ProductMargin, Essentiel, Chips as DChips } from "./FinanceDetail.jsx";
+import { MarketplacePL, Refunds, AdsDetail, adsChannels, TransportExplain, ProductMargin, Essentiel, Chips as DChips } from "./FinanceDetail.jsx";
 const CH_COLORS = VZ.series;
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -129,7 +129,12 @@ function Login({ onOk, inline, note }) {
   );
 }
 
-function Dashboard({ d, onLogout, embedded }) {
+function Dashboard({ d, onLogout, embedded, gmp = "Toutes" }) {
+  // filtre marketplace global de l'app (barre du haut) → nom du canal dans l'analyse financière
+  const FMAP = { "Amazon FR": "Amazon", "Site Web": "Site bestherm.fr", Technomat: "Leroy Merlin" };
+  const fmpRaw = gmp && gmp !== "Toutes" ? FMAP[gmp] || gmp : null;
+  const fmp = fmpRaw && d.pl && d.pl.ch.includes(fmpRaw) ? fmpRaw : null;
+  const fmpMissing = !!fmpRaw && !fmp;
   const pers = [...new Set(d.synth.map((s) => s.per))];
   const [period, setPeriod] = useState(pers[pers.length - 1]);
   const dm = d.cutoff.slice(0, 5);
@@ -149,6 +154,7 @@ function Dashboard({ d, onLogout, embedded }) {
   const [cat, setCat] = useState("Toutes");
   const SECTIONS = [["res", "Résumé"], ["can", "Canaux"], ["prod", "Produits"], ["cout", "Coûts"]];
   const [plv, setPlv] = useState("Consolidé");
+  const [plMode, setPlMode] = useState("s");
   React.useEffect(() => {   // libellés de colonnes pour l'affichage en cartes sur téléphone
     const label = () => document.querySelectorAll(".fin-root table.fin-cards").forEach((t) => {
       const hs = [...t.querySelectorAll("thead th")].map((h) => h.textContent.trim());
@@ -183,6 +189,18 @@ function Dashboard({ d, onLogout, embedded }) {
   const [mp, setMp] = useState("Global");
   const MPS = ["Global", ...((d.pl && d.pl.ch) || [])];
   const GLOBAL_TAGS = ["Global", "Données", "Publicité", "Logistique", "Canaux", "Catégories"];
+  React.useEffect(() => { setMp(fmp || "Global"); setPlv(fmp || "Consolidé"); }, [fmp]);
+  // taux de remboursement (ventes brutes TTC, par mois de commande) : mois en cours vs M-1, cumul à date vs N-1
+  const refS = (() => {
+    const R_ = d.det && d.det.ref_m; if (!R_) return null;
+    const chs = fmp ? (R_[fmp] ? [fmp] : []) : Object.keys(R_); if (!chs.length) return null;
+    const by = {}; chs.forEach((c) => R_[c].forEach((x) => { const o = (by[x.m] = by[x.m] || { g: 0, r: 0 }); o.g += x.g; o.r += x.r; }));
+    const [dd, mm, yy] = d.cutoff.split("/"); const cm = `${yy}-${mm}`;
+    const pm = +mm === 1 ? `${+yy - 1}-12` : `${yy}-${String(+mm - 1).padStart(2, "0")}`;
+    const rate = (ms) => { const t = ms.reduce((a, m) => ({ g: a.g + (by[m]?.g || 0), r: a.r + (by[m]?.r || 0) }), { g: 0, r: 0 }); return t.g ? t.r / t.g : null; };
+    const ytd = (y) => Array.from({ length: +mm }, (_, i) => `${y}-${String(i + 1).padStart(2, "0")}`);
+    return { cm, pm, m: rate([cm]), m1: rate([pm]), y: rate(ytd(yy)), y0: rate(ytd(+yy - 1)), r: ytd(yy).reduce((a, m) => a + (by[m]?.r || 0), 0), day: dd };
+  })();
   const matchMp = (canal) => mp === "Global" || (canal || "").includes(mp) || GLOBAL_TAGS.includes(canal);
   const CATS = ["Toutes", ...[...new Set((d.cats || []).map((x) => x.cat))].filter((x) => x !== "Non ventilé")];
   const nm = (n) => (n.startsWith("Leroy Merlin") ? "Leroy Merlin" : n);
@@ -196,12 +214,14 @@ function Dashboard({ d, onLogout, embedded }) {
     return Object.values(by).sort((a, b) => b.v - a.v);
   };
   const sumRows = (rows, label) => rows.reduce((t, r) => ({ ...t, v: t.v + r.v, c: t.c + r.c, p: t.p + r.p, o: t.o + r.o }), { name: label, v: 0, c: 0, p: 0, o: 0 });
-  const per = cat === "Toutes" ? d.synth.filter((s) => s.per === period && !s.sub && !s.name.startsWith("TOTAL")).map((s) => ({ ...s, est: false })) : aggCat(period);
-  const perTot = cat === "Toutes" ? d.synth.find((s) => s.per === period && s.name.startsWith("TOTAL")) : sumRows(per, "Total");
+  const per0 = cat === "Toutes" ? d.synth.filter((s) => s.per === period && !s.sub && !s.name.startsWith("TOTAL")).map((s) => ({ ...s, est: false })) : aggCat(period);
+  const per = fmp ? per0.filter((r) => r.name === fmp) : per0;
+  const perTot = fmp ? sumRows(per, fmp) : cat === "Toutes" ? d.synth.find((s) => s.per === period && s.name.startsWith("TOTAL")) : sumRows(per, "Total");
   const fr = (r) => (r && r.v ? (r.c + r.p + r.o) / r.v : 0);
-  const costBars = cat === "Toutes"
+  const costBars0 = cat === "Toutes"
     ? rowsG.map((g) => ({ name: g.name, "2025": g.f25, "2026": g.v26 ? (g.c26 + g.p26 + g.o26) / g.v26 : 0 }))
     : (() => { const a = aggCat(pers[1]), b = aggCat(pers[2]); return b.map((r) => ({ name: r.name, "2025": fr(a.find((x) => x.name === r.name)), "2026": fr(r) })); })();
+  const costBars = fmp ? costBars0.filter((r) => r.name === fmp) : costBars0;
   const mix = perTot ? [
     { name: "Commission", v: perTot.c, c: C.orange }, { name: "Publicité", v: perTot.p, c: C.blue }, { name: "Logistique marketplace", v: perTot.o, c: C.amber },
   ] : [];
@@ -239,16 +259,45 @@ function Dashboard({ d, onLogout, embedded }) {
       </header>}
 
       <main className={`fin-root ${embedded ? "space-y-6" : "max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6"}`}>
+        {(fmp || fmpMissing) && (
+          <div className="rounded-2xl px-4 py-3 text-sm flex flex-wrap items-center gap-x-3 gap-y-1" style={{ background: fmp ? "rgba(255,90,31,.10)" : "rgba(255,176,32,.08)", border: `1px solid ${fmp ? "rgba(255,90,31,.35)" : "rgba(255,176,32,.3)"}` }}>
+            {fmp ? <><span className="font-semibold" style={{ color: C.orange2 }}>Marketplace : {fmp}</span><span style={{ color: C.muted }}>tous les chiffres ci-dessous portent sur ce canal{gmp === "Technomat" ? " (Technomat est inclus dans Leroy Merlin)" : ""}. Choisir « Toutes » en haut pour revenir à la vue consolidée.</span></>
+              : <span style={{ color: C.amber }}>{gmp} : pas encore de données financières pour ce canal (non connecté à l’analyse). Affichage tous canaux.</span>}
+          </div>
+        )}
         {d.pl && (() => {
-          const T = d.pl.t26, O = d.pl.t25;
+          const nz = (x) => x && { ht: x.ht, fv: Math.abs(x.fv || 0), sc: Math.abs(x.sc || 0), pub: Math.abs(x.pub || 0) + Math.abs(x.pubnc || 0), pubnc: Math.abs(x.pubnc || 0), achat: Math.abs(x.achat || 0), contrib: x.contrib, pct: x.pct ?? (x.contrib != null && x.ht ? x.contrib / x.ht : null), mn: x.mn, mnpct: x.mnpct ?? (x.mn != null && x.ht ? x.mn / x.ht : null) };
+          const T = nz(fmp ? d.pl.p26[fmp] : d.pl.t26), O = nz(fmp ? d.det && d.det.mp[fmp] && d.det.mp[fmp].y0 : d.pl.t25) || { ht: 0, fv: 0 };
+          const RefKpi = () => (
+            <Card className="col-span-2 lg:col-span-1">
+              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs uppercase tracking-wide sm:tracking-wider leading-tight" style={{ color: C.muted }}><RotateCcw size={14} className="shrink-0" /> Remboursements</div>
+              {refS ? (<>
+                <div className="mt-2 sm:mt-3 text-[22px] sm:text-3xl font-bold leading-tight" style={{ fontFamily: GILROY, fontWeight: 800 }}>{pct(refS.y, 2)}</div>
+                <div className="mt-1 text-xs" style={{ color: C.dim }}>des ventes brutes, cumul {d.pl.y1} · {keur(refS.r)} TTC</div>
+                <div className="mt-2 grid gap-1 text-xs">
+                  {[["vs N-1 (cumul)", refS.y, refS.y0, `${d.pl.y0} : ${pct(refS.y0, 2)}`], [`${moisFR(refS.cm)} vs M-1`, refS.m, refS.m1, `${moisFR(refS.cm)} ${pct(refS.m, 2)} · ${moisFR(refS.pm)} ${pct(refS.m1, 2)}`]].map(([l, a, b, t]) => {
+                    const dv = a != null && b != null ? a - b : null; const good = dv != null && dv <= 0;
+                    return (
+                      <div key={l} className="flex items-center justify-between gap-2" title={t}>
+                        <span style={{ color: C.muted }}>{l}</span>
+                        <span className="font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ color: dv == null ? C.dim : good ? C.green : C.red, background: dv == null ? "transparent" : good ? "rgba(61,214,140,.12)" : "rgba(255,77,79,.12)" }}>{dv == null ? "–" : pts(dv)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 text-[10.5px] leading-snug" style={{ color: C.dim }}>{moisFR(refS.cm)} au {refS.day}/{refS.cm.slice(5)} : {pct(refS.m, 2)}. Rattachés au mois de commande, les derniers mois peuvent encore monter.</div>
+              </>) : <div className="mt-3 text-sm" style={{ color: C.dim }}>Pas de donnée de retour pour ce canal.</div>}
+            </Card>
+          );
           return (
-            <section className={`fin-kpis ${sec !== "res" ? "hidden" : "grid"} grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6 lg:gap-4`}>
-              <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={pct(T.ht / O.ht - 1) + " vs " + d.pl.y0} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}`} />
-              <Kpi icon={Percent} label="Frais de vente" value={pct(-T.fv / T.ht)} delta={pts(-T.fv / T.ht + O.fv / O.ht) + " vs " + d.pl.y0} deltaGood={-T.fv / T.ht <= -O.fv / O.ht} sub={`${keur(-T.fv)} · commission, pub, logistique marketplace`} />
-              <Kpi icon={Truck} label="Transport & supply chain" value={pct(-T.sc / T.ht)} sub={`${keur(-T.sc)} · livraison, entrepôt, stockage`} />
-              <Kpi icon={Megaphone} label="Publicité totale" value={pct(-(T.pub + T.pubnc) / T.ht)} sub={`${keur(-(T.pub + T.pubnc))} dont ${keur(-T.pubnc)} hors relevé`} />
+            <section className={`fin-kpis ${sec !== "res" ? "hidden" : "grid"} grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4`}>
+              <Kpi icon={Store} label={`Ventes HT ${d.pl.y1} à date`} value={keur(T.ht)} delta={O.ht ? pct(T.ht / O.ht - 1) + " vs " + d.pl.y0 : null} deltaGood={T.ht >= O.ht} sub={`1er janv. – ${dLong}${fmp ? " · " + fmp : ""}`} />
+              <Kpi icon={Percent} label="Frais de vente" value={pct(T.fv / T.ht)} delta={O.ht ? pts(T.fv / T.ht - O.fv / O.ht) + " vs " + d.pl.y0 : null} deltaGood={!O.ht || T.fv / T.ht <= O.fv / O.ht} sub={`${keur(T.fv)} · commission, pub, logistique marketplace`} />
+              <Kpi icon={Truck} label="Transport & supply chain" value={pct(T.sc / T.ht)} sub={`${keur(T.sc)} · livraison, entrepôt, stockage`} />
+              <Kpi icon={Megaphone} label="Publicité totale" value={pct(T.pub / T.ht)} sub={T.pubnc ? `${keur(T.pub)} dont ${keur(T.pubnc)} hors relevé` : keur(T.pub)} />
               <Kpi icon={TrendingUp} label="Contribution" value={keur(T.contrib)} sub={`${pct(T.pct)} des ventes HT, avant achats produits`} />
-              {T.mn != null && <Kpi icon={Wallet} label="Marge nette" valueColor={toneMargin(T.mnpct)} value={keur(T.mn)} sub={`${pct(T.mnpct)} des ventes HT · achats ${pct(-T.achat / T.ht)}, avant frais fixes`} />}
+              {T.mn != null && <Kpi icon={Wallet} label="Marge nette" valueColor={toneMargin(T.mnpct)} value={keur(T.mn)} sub={`${pct(T.mnpct)} des ventes HT · achats ${pct(T.achat / T.ht)}, avant frais fixes`} />}
+              <RefKpi />
             </section>
           );
         })()}
@@ -262,9 +311,9 @@ function Dashboard({ d, onLogout, embedded }) {
           </section>
         )}
 
-        {d.pl && d.pl.t26 && <div className={sec !== "res" ? "hidden" : ""}><Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} /></div>}
+        {d.pl && d.pl.t26 && <div className={sec !== "res" || fmp ? "hidden" : ""}><Essentiel d={d} onGo={(k) => { setSec(k); window.scrollTo({ top: 0, behavior: "smooth" }); }} /></div>}
 
-        <div className="sticky z-[5] -mx-1 px-1 py-2" style={{ top: embedded ? 0 : 72, background: embedded ? "rgba(10,9,8,.94)" : C.bg }}>
+        <div className={`sticky z-[5] -mx-1 px-1 py-2 ${embedded ? "top-[52px] md:top-0 backdrop-blur" : ""}`} style={{ top: embedded ? undefined : 72, background: embedded ? "rgba(10,9,8,.97)" : C.bg }}>
           <div className="flex gap-1 overflow-x-auto rounded-xl p-1 text-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} role="tablist" aria-label="Sections">
             {SECTIONS.map(([k, l]) => (
               <button key={k} role="tab" aria-selected={sec === k} onClick={() => setSec(k)} className="px-4 py-2 rounded-lg whitespace-nowrap transition" style={{ background: sec === k ? C.orange : "transparent", color: sec === k ? "#fff" : C.muted, fontWeight: sec === k ? 600 : 400 }}>{l}</button>
@@ -298,7 +347,7 @@ function Dashboard({ d, onLogout, embedded }) {
           );
         })()}
 
-        {sec === "res" && d.pl && <Card><Waterfall pl={d.pl} ch="Total" /></Card>}
+        {sec === "res" && d.pl && <Card><Waterfall pl={d.pl} ch={fmp || "Total"} /></Card>}
 
         {sec === "can" && (<>
         {cat !== "Toutes" && <p className="text-xs rounded-xl px-3 py-2" style={{ color: C.amber, background: "rgba(255,176,32,.08)" }}>Filtre {cat} : le compte de résultat par marketplace reste tous produits (non ventilé par catégorie). Le filtre s’applique au coût par canal, à la répartition des frais et à la synthèse plus bas.</p>}
@@ -329,44 +378,98 @@ function Dashboard({ d, onLogout, embedded }) {
           const key = new Set(["ht", "fv", "mfv", "tfv", "contrib", "mn"]);
           const neg = (k) => !["ttc", "ht", "mfv", "contrib", "pct", "mn", "mnpct"].includes(k);
           const share = (t, k) => (t[k] != null && t.ht && !["ttc", "tva", "pct", "mnpct"].includes(k) ? pct(t[k] / t.ht) : "");
+          // vue simple : une ligne par canal, cinq chiffres qui se lisent de gauche à droite
+          const y0of = (c) => (d.det && d.det.mp[c] && d.det.mp[c].y0 ? d.det.mp[c].y0.ht : null);
+          const row = (name, x, h0) => ({ name, ht: x.ht, ev: h0 ? x.ht / h0 - 1 : null, fv: -x.fv, sc: -(x.sc || 0), ach: x.achat != null ? -x.achat : null, mn: x.mn, mnp: x.mnpct });
+          const rows = cols.map((c) => row(c, P.p26[c], y0of(c))).sort((a, b) => b.ht - a.ht);
+          const T = row("Total", P.t26, P.t25 && P.t25.ht);
+          const Cell = ({ v, e, tone }) => (
+            <td className="py-3 px-3 text-right whitespace-nowrap align-middle">
+              <div className="font-semibold tabular-nums" style={{ color: tone || C.text }}>{v}</div>
+              {e && <div className="text-[11px] tabular-nums" style={{ color: C.dim }}>{e}</div>}
+            </td>
+          );
+          const Bar = ({ r }) => {
+            const seg = [[r.fv, C.orange, "Frais de vente"], [r.sc, C.amber, "Transport"], [r.ach || 0, "#9085e9", "Achats"], [Math.max(r.mn || 0, 0), C.green, "Marge"]];
+            return <div className="flex h-2.5 w-28 rounded-full overflow-hidden" style={{ background: C.bg }} title={seg.map(([v, , l]) => `${l} ${pct(v / r.ht)}`).join(" · ")}>{seg.map(([v, c, l]) => <span key={l} style={{ width: `${Math.max(v / r.ht, 0) * 100}%`, background: c }} />)}</div>;
+          };
+          const Line = ({ r, total }) => (
+            <tr className="border-t" style={{ borderColor: C.line, background: total ? "rgba(255,90,31,.06)" : "transparent" }}>
+              <td className={`py-3 px-3 ${total ? "font-bold" : "font-medium"}`}>{r.name}</td>
+              <Cell v={keur(r.ht)} e={r.ev != null ? `${r.ev >= 0 ? "+" : ""}${pct(r.ev, 0)} vs ${P.y0}` : null} />
+              <Cell v={pct(r.fv / r.ht)} e={keur(r.fv)} tone={toneFees ? toneFees(r.fv / r.ht) : undefined} />
+              <Cell v={pct(r.sc / r.ht)} e={keur(r.sc)} />
+              <Cell v={r.ach != null ? pct(r.ach / r.ht) : "n.d."} e={r.ach != null ? keur(r.ach) : null} />
+              <Cell v={r.mn != null ? pct(r.mnp) : "n.d."} e={r.mn != null ? keur(r.mn) : null} tone={r.mn != null ? toneMargin(r.mnp) : C.dim} />
+              <td className="hidden lg:table-cell py-3 px-3 align-middle"><Bar r={r} /></td>
+            </tr>
+          );
           return (
             <Card>
-              <Title sub={`Du chiffre d’affaires à la contribution, 1er janv. – ${dLong} ${P.y1}. Montants HT, frais en négatif. Transport et supply chain réels jusqu’à ${moisFR(P.sup_last)}, prolongés au même ratio ensuite ; pub hors relevé estimée sur budget.`}>Compte d’exploitation des canaux</Title>
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
-                      <th className="py-2 px-3 text-left font-medium sticky left-0 z-[1]" style={{ background: C.card }}>Poste</th>
-                      <th className="py-2 px-3 text-right font-medium whitespace-nowrap" style={{ color: C.orange2 }}>Total {P.y1}</th>
-                      <th className="py-2 px-2 text-right font-medium">% HT</th>
-                      <th className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">Total {P.y0}</th>
-                      <th className="hidden sm:table-cell py-2 px-2 text-right font-medium">% HT</th>
-                      {cols.map((c) => <th key={c} className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">{c}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {P.lines.map(([lab, k]) => {
-                      const strong = key.has(k);
-                      return (
-                        <tr key={k} className="border-t" style={{ borderColor: C.line, background: strong ? "rgba(255,90,31,.05)" : "transparent" }}>
-                          <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: C.text, minWidth: 220 }}>{lab}</td>
-                          <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: ["mn", "mnpct"].includes(k) ? toneMargin(P.t26.mnpct) : C.text }}>{fmtv(k, P.t26[k])}</td>
-                          <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.muted }}>{share(P.t26, k)}</td>
-                          <td className="hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
-                          <td className="hidden sm:table-cell py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
-                          {cols.map((c) => {
-                            const v = P.p26[c][k];
-                            return <td key={c} className={`hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "mnpct" || k === "mn" ? toneMargin(P.p26[c].mnpct) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
+                <Title sub={`1er janv. – ${dLong} ${P.y1}, montants HT. Chaque pourcentage est rapporté aux ventes HT du canal : ventes − frais de vente − transport − achats = marge nette (avant frais fixes).`}>Compte d’exploitation des canaux</Title>
+                <div className="flex rounded-xl p-1 text-xs shrink-0" style={{ background: C.bg }} role="tablist" aria-label="Niveau de détail">
+                  {[["s", "Simple"], ["d", "Détail ligne à ligne"]].map(([k, l]) => (
+                    <button key={k} role="tab" aria-selected={plMode === k} onClick={() => setPlMode(k)} className="px-3 py-1.5 rounded-lg whitespace-nowrap transition" style={{ background: plMode === k ? C.orange : "transparent", color: plMode === k ? "#fff" : C.muted }}>{l}</button>
+                  ))}
+                </div>
               </div>
+              {plMode === "s" ? (<>
+                <div className="overflow-x-auto -mx-1">
+                  <table className="fin-cards w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>
+                        {["Canal", "Ventes HT", "Frais de vente", "Transport", "Achats", "Marge nette"].map((h, i) => <th key={h} className={`py-2 px-3 font-medium ${i ? "text-right" : "text-left"}`}>{h}</th>)}
+                        <th className="hidden lg:table-cell py-2 px-3 font-medium text-left">Répartition</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => <Line key={r.name} r={r} />)}
+                      <Line r={T} total />
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px]" style={{ color: C.muted }}>
+                  {[["Frais de vente", C.orange], ["Transport", C.amber], ["Achats", "#9085e9"], ["Marge nette", C.green]].map(([l, c]) => <span key={l} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: c }} />{l}</span>)}
+                  <span style={{ color: C.dim }}>Frais de vente = commission + publicité + logistique marketplace + abonnements. Clique sur un canal dans « Vue » pour son compte détaillé.</span>
+                </div>
+              </>) : (<>
+              <div className="overflow-x-auto -mx-1">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                        <th className="py-2 px-3 text-left font-medium sticky left-0 z-[1]" style={{ background: C.card }}>Poste</th>
+                        <th className="py-2 px-3 text-right font-medium whitespace-nowrap" style={{ color: C.orange2 }}>Total {P.y1}</th>
+                        <th className="py-2 px-2 text-right font-medium">% HT</th>
+                        <th className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">Total {P.y0}</th>
+                        <th className="hidden sm:table-cell py-2 px-2 text-right font-medium">% HT</th>
+                        {cols.map((c) => <th key={c} className="hidden sm:table-cell py-2 px-3 text-right font-medium whitespace-nowrap">{c}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {P.lines.map(([lab, k]) => {
+                        const strong = key.has(k);
+                        return (
+                          <tr key={k} className="border-t" style={{ borderColor: C.line, background: strong ? "rgba(255,90,31,.05)" : "transparent" }}>
+                            <td className={`py-2 px-3 sticky left-0 z-[1] ${strong ? "font-semibold" : ""} ${neg(k) ? "pl-6" : ""}`} style={{ background: strong ? "#1d1812" : C.card, color: C.text, minWidth: 220 }}>{lab}</td>
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: ["mn", "mnpct"].includes(k) ? toneMargin(P.t26.mnpct) : C.text }}>{fmtv(k, P.t26[k])}</td>
+                            <td className="py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.muted }}>{share(P.t26, k)}</td>
+                            <td className="hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap" style={{ color: C.muted }}>{fmtv(k, P.t25[k])}</td>
+                            <td className="hidden sm:table-cell py-2 px-2 text-right whitespace-nowrap text-xs" style={{ color: C.dim }}>{share(P.t25, k)}</td>
+                            {cols.map((c) => {
+                              const v = P.p26[c][k];
+                              return <td key={c} className={`hidden sm:table-cell py-2 px-3 text-right whitespace-nowrap ${strong ? "font-semibold" : ""}`} style={{ color: k === "mnpct" || k === "mn" ? toneMargin(P.p26[c].mnpct) : v === 0 ? C.dim : C.text }}>{v === 0 ? "–" : fmtv(k, v)}</td>;
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               <p className="sm:hidden text-xs mt-3" style={{ color: C.muted }}>Détail par canal : choisis un canal dans « Vue » en haut de l’onglet.</p>
+              </>)}
               <p className="text-[11px] mt-3 leading-relaxed" style={{ color: C.dim }}>
-                Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. ManoMano non inclus (non connecté). Coût d’achat : prix FOB 2026 + coût logistique d’approche par référence (Base produits ONLINE de la supply chain), exact par ligne de commande pour Leroy Merlin et les enseignes Mirakl{P.ach_est ? " ; " + Object.entries(P.ach_est).map(([k, v]) => `${k} : ${v}`).join(" ; ") : ""}. Les prix 2026 sont aussi appliqués à {P.y0}. Marge nette = avant frais fixes (salaires, loyers, SAV).
+                Pub non comptée estimée : {Object.entries(P.nc).map(([k, v]) => `${k} ${keur(v)}`).join(", ")}. {P.y0} : pas de données de transport, contribution non calculée. Coût d’achat : prix FOB 2026 + coût logistique d’approche par référence (Base produits ONLINE de la supply chain), exact par ligne de commande pour Leroy Merlin et les enseignes Mirakl{P.ach_est ? " ; " + Object.entries(P.ach_est).map(([k, v]) => `${k} : ${v}`).join(" ; ") : ""}. Les prix 2026 sont aussi appliqués à {P.y0}. Marge nette = avant frais fixes (salaires, loyers, SAV).
               </p>
             </Card>
           );
@@ -594,7 +697,7 @@ function Dashboard({ d, onLogout, embedded }) {
         {d.det && <TransportExplain det={d.det} log={d.log} />}
         {d.log && (() => {
           const L = d.log; const supT = L.sup.reduce((t, x) => t + x.tot, 0);
-          const rows = (cat === "Toutes" ? L.ch : L.cat.filter((x) => x.cat === cat)).slice().sort((a, b) => b.cout - a.cout);
+          const rows = (cat === "Toutes" ? L.ch : L.cat.filter((x) => x.cat === cat)).filter((x) => !fmp || x.name === fmp).slice().sort((a, b) => b.cout - a.cout);
           const trT = rows.reduce((t, x) => t + x.cout, 0), trQ = rows.reduce((t, x) => t + x.q, 0);
           const mo = (m) => moisFR(m);
           const sup = L.sup.map((x) => ({ m: mo(x.m), Livraison: x.liv, "Logistique entrepôt": x.log, Stockage: x.stock }));
@@ -603,7 +706,7 @@ function Dashboard({ d, onLogout, embedded }) {
             <Card>
               <Title sub={`Coûts hors frais marketplace : livraison, entrepôt et stockage (${mo(L.sup[0].m)} – ${mo(L.sup[L.sup.length - 1].m)}), transport facturé par DPD, Chronopost, Géodis et ManoMano rapproché aux commandes (${mo(L.periode[0])} – ${mo(L.periode[1])}).`}>Logistique et transport{cat !== "Toutes" ? " · " + cat : ""}</Title>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                {[["Supply chain", keur(supT), pct(supT / L.v_sup) + " des ventes"], ["Transport", keur(trT), cat === "Toutes" ? "tous canaux" : cat], ["Coût moyen / pièce", eur(trQ ? trT / trQ : 0, 2), trQ.toLocaleString("fr-FR") + " pièces"], ["Incidents transport", keur(L.trp.reduce((t, x) => t + x.inc, 0)), pct(L.trp.reduce((t, x) => t + x.inc, 0) / L.trp.reduce((t, x) => t + x.cout, 0)) + " du transport"]].map(([l, v, sub]) => (
+                {[fmp && d.pl ? ["Transport & supply chain", keur(Math.abs(d.pl.p26[fmp].sc)), pct(Math.abs(d.pl.p26[fmp].sc) / d.pl.p26[fmp].ht) + " des ventes HT · " + fmp] : ["Supply chain", keur(supT), pct(supT / L.v_sup) + " des ventes"], ["Transport", keur(trT), [fmp, cat !== "Toutes" && cat].filter(Boolean).join(" · ") || "tous canaux"], ["Coût moyen / pièce", eur(trQ ? trT / trQ : 0, 2), trQ.toLocaleString("fr-FR") + " pièces"], ["Incidents transport", keur(L.trp.reduce((t, x) => t + x.inc, 0)), pct(L.trp.reduce((t, x) => t + x.inc, 0) / L.trp.reduce((t, x) => t + x.cout, 0)) + " du transport"]].map(([l, v, sub]) => (
                   <div key={l} className="rounded-xl p-3" style={{ background: C.bg }}>
                     <div className="text-[11px] uppercase tracking-wider" style={{ color: C.muted }}>{l}</div>
                     <div className="text-lg font-bold mt-1">{v}</div>
@@ -653,12 +756,12 @@ function Dashboard({ d, onLogout, embedded }) {
         </>)}
 
         {sec === "cout" && d.det && (<>
-        <Refunds det={d.det} />
+        <Refunds key={fmp || "all"} det={d.det} only={fmp} />
         </>)}
 
-        {sec === "prod" && d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} cat={cat} />}
+        {sec === "prod" && d.det && d.det.marg_prod && d.det.marg_prod.length > 0 && <ProductMargin det={d.det} pl={d.pl} cat={cat} ch={fmp} />}
         {sec === "prod" && (<>
-        {d.det && <AdsDetail d={d} cat={cat} />}
+        {d.det && (!fmp || adsChannels(d).includes(fmp)) && <AdsDetail key={fmp || "all"} d={d} cat={cat} only={fmp} />}
         {(d.disp || []).length > 0 && (
           <Card>
             <Title sub="Tous les dispositifs payants repérés (contrats, budgets et échanges e-mail) et leur prise en compte dans les chiffres ci-dessus. Budget en TTC, réel en HT.">Dispositifs publicitaires par canal</Title>
@@ -703,7 +806,7 @@ function Dashboard({ d, onLogout, embedded }) {
 }
 
 // Onglet intégré à l'app : lit la clé mémorisée ; si elle manque ou ne correspond plus, redemande le code.
-export function FinanceTab() {
+export function FinanceTab({ mp = "Toutes" }) {
   const [d, setD] = useState(null); const [err, setErr] = useState(false); const [k, setK] = useState(() => getFinanceKey());
   React.useEffect(() => {
     if (!k) return; let ok = true;
@@ -712,7 +815,7 @@ export function FinanceTab() {
   }, [k]);
   if (!k) return <div className="rounded-3xl overflow-hidden"><Login onOk={(nk) => { setErr(false); setK(nk); }} inline note={err ? "Les données ont été mises à jour : saisis à nouveau ton code." : null} /></div>;
   if (!d) return <div className="py-24 text-center text-sm" style={{ color: C.muted }}>Déchiffrement des données…</div>;
-  return <Dashboard d={d} embedded />;
+  return <Dashboard d={d} embedded gmp={mp} />;
 }
 
 export default function Finance() {

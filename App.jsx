@@ -2612,7 +2612,10 @@ const CONNEXIONS = (() => {
       { nom: "Boulanger", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
       { nom: "Bricomarché", quoi: "France", via: "API Mirakl · mensuel", st: "actif" },
       { nom: "Maxeda Praxis", quoi: "Pays-Bas", via: "API Mirakl · mensuel", st: "actif" },
-      { nom: "Maxeda Belgique", quoi: "Brico / Plan-It", via: "API Mirakl", st: "activer", info: "clé API Mirakl dédiée à créer" },
+      { nom: "Maxeda Belgique", quoi: "Brico / Plan-It", via: "API Mirakl", st: "activer", info: "même clé que Praxis : aucune commande Belgique visible pour l’instant" },
+      { nom: "Vente-unique", quoi: "France", via: "API Mirakl · mensuel", st: "actif", info: "ventes, commissions, remboursements, abonnement" },
+      { nom: "Fnac Darty", quoi: "France", via: "API", st: "activer", info: "clé reçue : adresse de l’API à confirmer" },
+      { nom: "Brico Dépôt Espagne", quoi: "Espagne", via: "API Mirakl", st: "activer", info: "clé reçue, refusée par l’API (401)" },
       { nom: "Amazon France", quoi: "ventes, frais, FBA, Ads, prix et stock", via: "extraction navigateur", st: "manuel", info: "finance au 28/10 · prix et stock relevés le 02/11 · à brancher sur l’API SP-API" },
       { nom: "Amazon Europe", quoi: "DE · IT · ES · BE · NL", via: "API SP-API", st: "activer", info: "≈ 150 k€ HT de ventes non suivies en finance" },
       { nom: "Cdiscount", quoi: "ventes, frais, pub, prix et stock", via: "extraction navigateur", st: "manuel", info: "finance au 28/10 · prix et stock relevés le 02/11 · à brancher sur l’API Octopia" },
@@ -7332,7 +7335,7 @@ function DashboardApp({ onLogout }) {
           </>
         )}
 
-        {tab === "finance" && <FinanceTab />}
+        {tab === "finance" && <FinanceTab mp={globalMp} />}
 
         {tab === "data" && (
           <>

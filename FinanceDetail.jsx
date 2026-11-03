@@ -134,16 +134,16 @@ export function MarketplacePL({ det, ch, y1, y0 }) {
 
 // =====================================================================================================
 // 2. REMBOURSEMENTS
-export function Refunds({ det }) {
+export function Refunds({ det, only }) {
   const y1 = det.y1, y0 = det.y0;
-  const chans = Object.keys(det.mp).filter((c) => det.mp[c].ref_ok);
+  const chans = Object.keys(det.mp).filter((c) => det.mp[c].ref_ok && (!only || c === only));
   const G1 = chans.reduce((t, c) => t + det.mp[c].y1.gross, 0), R1 = chans.reduce((t, c) => t + det.mp[c].y1.ref, 0);
   const G0 = chans.reduce((t, c) => t + det.mp[c].y0.gross, 0), R0 = chans.reduce((t, c) => t + det.mp[c].y0.ref, 0);
   const comR = chans.filter((c) => det.mp[c].comref_ok).reduce((t, c) => t + (det.mp[c].y1.com_r || 0), 0);
   const refHTcomOK = chans.filter((c) => det.mp[c].comref_ok).reduce((t, c) => t + det.mp[c].y1.ref / 1.2, 0);
   // décomposition du taux global : contribution de chaque canal (points de %)
   const decomp = chans.map((c, i) => ({ name: c, pt: det.mp[c].y1.ref / G1, rate: det.mp[c].y1.ref / det.mp[c].y1.gross, rate0: det.mp[c].y0.gross ? det.mp[c].y0.ref / det.mp[c].y0.gross : null, ref: det.mp[c].y1.ref, color: VZ.series[Object.keys(det.mp).indexOf(c) % 8] })).sort((a, b) => b.pt - a.pt);
-  const [ch, setCh] = useState("Tous");
+  const [ch, setCh] = useState(only && chans.includes(only) ? only : "Tous");
   const months = useMemo(() => {
     const src = ch === "Tous" ? chans : [ch];
     const byM = {};
@@ -264,10 +264,12 @@ export function Refunds({ det }) {
 
 // =====================================================================================================
 // 3. PUBLICITÉ PAR MARKETPLACE ET PAR PRODUIT (avec les autres frais)
-export function AdsDetail({ d, cat = "Toutes" }) {
+export const adsChannels = (d) => ["Leroy Merlin", "Amazon", "Cdiscount", "Castorama", "ManoMano", "Site bestherm.fr"].filter((c) => d.det.mp[c] && d.det.mp[c].dev && d.det.mp[c].dev.length);
+export function AdsDetail({ d, cat = "Toutes", only = null }) {
   const det = d.det, y1 = det.y1, y0 = det.y0;
-  const mps = ["Leroy Merlin", "Amazon", "Cdiscount", "Castorama", "Site bestherm.fr"].filter((c) => det.mp[c]);
-  const [mp, setMp] = useState("Leroy Merlin");
+  const mps0 = adsChannels(d);
+  const mps = only && mps0.includes(only) ? [only] : mps0;
+  const [mp, setMp] = useState(mps[0]);
   const [q, setQ] = useState(""); const [sort, setSort] = useState("pub");
   const M = det.mp[mp];
   const ht1 = M.y1.ht, ht0 = M.y0.ht;
@@ -470,16 +472,21 @@ export function TransportExplain({ det, log }) {
 
 // =====================================================================================================
 // 5. MARGE PAR PRODUIT (coût d'achat réel par référence)
-export function ProductMargin({ det, pl, cat = "Toutes" }) {
+export function ProductMargin({ det, pl, cat = "Toutes", ch = null }) {
   const [q, setQ] = useState(""); const [sort, setSort] = useState("ht"); const [n, setN] = useState(15);
   const scRate = pl && pl.t26 && pl.t26.sc != null ? -pl.t26.sc / pl.t26.ht : 0;
   const rows = useMemo(() => {
-    const r = (det.marg_prod || []).filter((p) => cat === "Toutes" || p.cat === cat).filter((p) => !q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).map((p) => ({
+    const src = (det.marg_prod || []).map((p) => {
+      if (!ch) return p;
+      const b = p.by && p.by[ch]; if (!b) return null;
+      return { ...p, ht: b[0], q: b[1], achat: b[2], frais: b[3], m: b[0] - b[2] - b[3], canaux: [ch] };
+    }).filter((p) => p && p.ht > 0);
+    const r = src.filter((p) => cat === "Toutes" || p.cat === cat).filter((p) => !q || `${p.nom} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).map((p) => ({
       ...p, pa: p.achat / p.ht, pf: p.frais / p.ht, pm: p.m / p.ht, pn: p.m / p.ht - scRate, pu: p.achat / Math.max(p.q, 1), pv: p.ht / Math.max(p.q, 1),
     }));
     const key = { ht: (p) => -p.ht, pm: (p) => p.pn, m: (p) => -p.m }[sort];
     return r.sort((a, b) => key(a) - key(b));
-  }, [q, sort, det, cat]);
+  }, [q, sort, det, cat, ch]);
   const tot = rows.reduce((t, p) => ({ ht: t.ht + p.ht, a: t.a + p.achat, f: t.f + p.frais, m: t.m + p.m }), { ht: 0, a: 0, f: 0, m: 0 });
   const losers = rows.filter((p) => p.pn < 0);
   const heat = (v) => toneMargin(v);
@@ -493,7 +500,7 @@ export function ProductMargin({ det, pl, cat = "Toutes" }) {
   );
   return (
     <Box>
-      <H sub={`${det.y1} à date, toutes marketplaces avec détail produit (Leroy Merlin, enseignes Mirakl, Amazon). Coût d’achat = ${det.ach_src || "prix FOB + approche"}. Frais marketplace directs = commission (et FBA pour Amazon). Transport et supply chain imputés au taux moyen (${pc(scRate)} des ventes HT) ; la publicité n’est pas déduite ici.`}>{`Marge par produit${cat !== "Toutes" ? " · " + cat : ""}`}</H>
+      <H sub={`${det.y1} à date, toutes marketplaces avec détail produit (Leroy Merlin, enseignes Mirakl, Amazon). Coût d’achat = ${det.ach_src || "prix FOB + approche"}. Frais marketplace directs = commission (et FBA pour Amazon). Transport et supply chain imputés au taux moyen (${pc(scRate)} des ventes HT) ; la publicité n’est pas déduite ici.`}>{`Marge par produit${ch ? " · " + ch : ""}${cat !== "Toutes" ? " · " + cat : ""}`}</H>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <Stat label="Ventes HT analysées" value={keu(tot.ht)} sub={`${rows.length} références`} />
         <Stat label="Coût d’achat" value={pc(tot.a / tot.ht)} sub={keu(tot.a)} />
