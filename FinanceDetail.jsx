@@ -391,7 +391,7 @@ export function TransportExplain({ det, log }) {
   const steps = [
     ["1", "Ce qu’on paie", `${keu(T.sup_tot)} HT de supply chain de ${mois(T.sup_m[1])} à ${mois(T.sup_m[2])} : livraison (${pc(T.liv_sh, 0)}), logistique entrepôt et stockage. Source : coûts supply mensuels de l’app logistique.`],
     ["2", "Les factures transporteurs", `${keu(T.tr_tot)} HT facturés par DPD, Chronopost, Géodis et ManoMano, rapprochés à plus de 99 % d’une commande. Le coût de chaque colis est réparti entre les produits au prorata de leur volume.`],
-    ["3", "La part de chaque canal", `Chaque canal reçoit une part de la supply chain égale à sa part du transport facturé (${mois(T.periode[0])} – ${mois(T.periode[1])}). ${keu(hors)} de transport concernent des canaux hors analyse (ManoMano, Darty, Bricoman…).`],
+    ["3", "La part de chaque canal", `Les coûts Dometrans (stockage, préparation, transport) sont répartis au prorata du transport facturé par canal (${mois(T.periode[0])} – ${mois(T.periode[1])}). Les factures Amazon (expédition et logistique), ManoMano Fulfilment (stockage et dispatch) et Fulfilment Leroy Merlin (références « -FLM », expédiées par Leroy Merlin) vont directement à leur canal. ${keu(hors)} de transport concernent des canaux hors analyse (ManoMano, Darty, Bricoman…).`],
     ["4", "Les mois sans données", `Après ${mois(T.sup_m[2])}, le coût est prolongé au même % des ventes pour chaque canal : ${keu(T.est_tot)} estimés au total.`],
     ["5", "Ce qui n’est pas ici", "Les envois Amazon FBA sont dans « Logistique marketplace » (facturés par Amazon), pas dans le transport. Le prix d’achat des produits n’est pas compté."],
   ];
