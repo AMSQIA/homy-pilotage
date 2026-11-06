@@ -36,19 +36,19 @@ export function lireCsv(texte) {
   return { idx, rows: lignes.slice(1).filter((r) => r.length > 3) };
 }
 
-const cle = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-const MP_ALIAS = {
+export const cle = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+export const MP_ALIAS = {
   amazon: "Amazon FR", amazonfr: "Amazon FR", autre: "Autre", bol: "Bol.com", bolcom: "Bol.com", boulanger: "Boulanger",
   bricobravo: "Brico Bravo", bricomarche: "Bricomarché", bricoman: "Technomat", but: "But", castorama: "Castorama",
   cdiscount: "Cdiscount", darty: "Darty", leroymerlin: "Leroy Merlin", manomano: "ManoMano", maxeda: "Maxeda",
   siteweb: "Site Web", worten: "Worten",
 };
-const isoDate = (s) => {
+export const isoDate = (s) => {
   const t = String(s).trim();
   let m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   m = t.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 };
-const num = (s) => { const v = parseFloat(String(s).replace(",", ".")); return Number.isFinite(v) ? v : 0; };
+export const num = (s) => { const v = parseFloat(String(s).replace(",", ".")); return Number.isFinite(v) ? v : 0; };
 const r2 = (x) => Math.round(x * 100) / 100;
 
 function constante(src, nom) {

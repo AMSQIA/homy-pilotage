@@ -21,6 +21,8 @@ date identique. Tous les chiffres s'arrêtent donc au même jour, `DMAX` (en gé
 | `scripts/extension/site_query.mjs` | Lecture de la boutique du site par le relais en lecture seule `api/mcp-site.mjs` |
 | `repartitions.js` | Module pur de l'onglet Marques › Répartitions : pays, marque, catégorie, sous-catégorie × marketplace × mois, en CA HT et en quantités ; palette validée (voir plus bas) |
 | `scripts/extension/preparer_repartitions.mjs` | Ajoute `SKU_MARQUE` et la quantité des lignes pays 2026 (`PAYS_MONTHLY`, 6e élément) aux constantes de `App.jsx` depuis l'export « LIGNES ODP 2026 » ; refuse d'écrire si le CA ne retombe pas |
+| `data/produits_pays.json` | Ventes ODP 2026 par produit × pays × marketplace × mois (CA HT au 1/10 000 €) : liste « Produits vendus » de Répartitions › Pays. `extension.js` y ajoute les ventes Shopify |
+| `scripts/extension/preparer_produits_pays.mjs` | Reconstruit `data/produits_pays.json` depuis l'export « LIGNES ODP 2026 » ; refuse d'écrire si le CSV ne retombe pas sur `SKU_MONTHLY` et `PAYS_MONTHLY` |
 | `scripts/extension/selftest.mjs` | Contrôle de cohérence sur les vraies données du dépôt (à lancer avant toute publication) |
 | `scripts/extension/smoke.mjs` | Test d'affichage sur le build (`dist/`) dans Chromium ; `--repartitions` ne lance que l'onglet Répartitions ; `--navigation` ne lance que la navigation mobile (barres du haut et du bas figées, filtres, sous-onglets, saisie, 4 langues) |
 | `scripts/extension/test_mcp_site.mjs` | Test du relais (Shopify simulé, sans réseau) ; ne fait pas partie de l'actualisation du matin |
@@ -106,6 +108,9 @@ quantités, 2025 et 2026. `repartitions.js` les calcule depuis les constantes de
 - Palette de 8 teintes (`PALETTE`), couleur fixe par entité (`COULEURS_FIXES`), « Autres » en gris (`GRIS`). Validation : `node <dataviz>/scripts/validate_palette.js "#F75212,#3F93F4,#0DAC79,#987CE9,#E66162,#00A4BA,#C28408,#DD5DA2" --mode dark`
   sur le fond #0A0908 puis #161514 ; à refaire si une teinte change.
 - Après un nouvel export ODP : `node scripts/extension/preparer_repartitions.mjs <LIGNES ODP 2026.csv> [--ecrire]` (voir `INSTRUCTIONS_DEPLOIEMENT.md`).
+- **Produits vendus par pays** : `PRODUITS_PAYS` (lignes `[produit, pays, marketplace, mois, CA HT, quantité]`, des noms) est décodé de `data/produits_pays.json` au chargement (`decoderProduitsPays`), prolongé par
+  `extension.js` comme `PAYS_MONTHLY` (CA au 1/10 000 €), puis lu par `produitsPays(lignes, { pays, mp, exclure })` et `classerProduits(lignes, mesure)`. Après un nouvel export ODP :
+  `node scripts/extension/preparer_produits_pays.mjs <LIGNES ODP 2026.csv> [--ecrire]`.
 
 ## Garde-fous
 
@@ -173,6 +178,7 @@ Toutes les commandes se lancent depuis la racine du dépôt.
    des jours sont à réextraire. Les jours déjà dans l'ODP sont écartés tout seuls : l'application reste juste même sans cette étape.
 4. `data/n1_2025.json` : à reconstruire (`build_n1.mjs`) seulement si l'export 2025 change.
 5. Si les constantes ont été régénérées, `PAYS_MONTHLY` n'a plus la quantité des lignes 2026 et `SKU_MARQUE` peut manquer : `node scripts/extension/preparer_repartitions.mjs <export LIGNES ODP 2026.csv> --ecrire`.
+6. Puis `node scripts/extension/preparer_produits_pays.mjs <export LIGNES ODP 2026.csv> --ecrire` (liste « Produits vendus » par pays : sans cela `selftest.mjs` échoue).
 
 ## Codes de sortie
 
@@ -183,7 +189,7 @@ inattendue, total du jour, couverture, régression) · **3** résultats manquant
 
 `site_query.mjs` : 0 réussi · 1 erreur d'utilisation (clé absente, option inconnue) · 2 refus ou erreur du relais ou de Shopify.
 
-`selftest.mjs` : 0 cohérent · 1 contrôle en échec. `smoke.mjs` : 0 ok · 2 échec d'affichage · 77 test impossible. `preparer_repartitions.mjs` : 0 ok · 2 erreur d'utilisation ou rapprochement impossible (rien n'est écrit).
+`selftest.mjs` : 0 cohérent · 1 contrôle en échec. `smoke.mjs` : 0 ok · 2 échec d'affichage · 77 test impossible. `preparer_repartitions.mjs` : 0 ok · 2 erreur d'utilisation ou rapprochement impossible (rien n'est écrit). `preparer_produits_pays.mjs` : 0 ok · 1 écart avec `SKU_MONTHLY` / `PAYS_MONTHLY` ou produit hors application (rien n'est écrit) · 2 erreur d'utilisation.
 
 ## Limites connues
 

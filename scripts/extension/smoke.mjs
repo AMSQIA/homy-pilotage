@@ -23,6 +23,9 @@
  *     sous-catégorie), par mois et par marketplace — total, classement, légende, bulle, vue tableau, parts, « hors France », entité et marketplace choisies,
  *     détail case par case (montant ou part), quantités par pays absentes en 2025 (repli sur le CA annoncé), couleurs des marques, lien depuis « Marque »,
  *     filtre marketplace global verrouillé, 4 langues, mobile 390 et 360 px (total collé au nom, détail défilable) ; chiffres recalculés dans le test ;
+ *   - la carte « Produits vendus » de Répartitions › Pays (6 novembre 2026) : noms, quantités et CA HT des produits du pays choisi (ou de tous), classés par la mesure de
+ *     l'onglet ; total = classement du pays ; pays choisi dans la carte (liste native) ou dans le classement ; « hors France » ; marketplace choisie ou filtre global ;
+ *     2025 expliqué sans chiffre inventé ; absente hors du découpage par pays ; 4 langues ; mobile 390 et 360 px (aucun nom coupé, liste défilable) ;
  *   - la navigation mobile (24 octobre 2026) : sur téléphone (390 et 360 px), barre du haut (logo, période, marketplace — une seule ligne de 53 px) et barre du bas
  *     (7 onglets, nom court de l'onglet actif) réellement collées à l'écran avant et après un long défilement ; un appui change d'onglet et remonte en haut de page,
  *     un appui sur l'onglet actif aussi ; filtres de période et de marketplace (croix de remise à zéro, dates personnalisées, champs en 16 px contre le zoom d'iOS) ;
@@ -61,7 +64,7 @@ function chargerPlaywright() {
 
 const norm = (s) => String(s).replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
 const contient = (texte, motif) => norm(texte).toLowerCase().includes(norm(motif).toLowerCase());
-const PLACEHOLDERS = /\{(odp|du|au|date|n|dmax|mp|site|an|plage)\}/;
+const PLACEHOLDERS = /\{(odp|du|au|date|n|dmax|mp|site|an|plage|a|x)\}/;
 const fmtNum = (n) => norm(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(n)));
 const jour = (iso, lang) => new Date(iso + "T12:00:00").toLocaleDateString(lang === "zh" ? "zh-CN" : lang, { day: "numeric", month: "short" });
 
@@ -861,6 +864,171 @@ function repVerifierGrille(etiquette, S, X, an, dim, mesure, opts = {}) {
   verifier(lignes.every((l, i, a) => i === 0 || a[i - 1].cle === "Site Web" || l.cle === "Site Web" || A.mp[a[i - 1].cle].base.reduce((s, x) => s + x, 0) >= A.mp[l.cle].base.reduce((s, x) => s + x, 0) - 1e-6), `${etiquette} : marketplaces non classées par total décroissant`);
   return A;
 }
+// ---- Répartitions › Pays : carte « Produits vendus » (27 octobre → 6 novembre 2026) ----
+// Attendu recalculé ici, depuis PRODUITS_PAYS du tableau de bord prolongé (ODP + Shopify), sans repartitions.js
+function ppAttendu(X, { pays = null, mp = null, exclure = [] } = {}) {
+  const par = new Map();
+  let ca = 0, qte = 0;
+  for (const [nom, p, m, , c, q] of X.C.PRODUITS_PAYS) {
+    if (pays !== null && p !== pays) continue;
+    if (exclure.includes(p)) continue;
+    if (mp !== null && m !== mp) continue;
+    const a = par.get(nom) || { nom, ca: 0, qte: 0 };
+    a.ca += c; a.qte += q; par.set(nom, a); ca += c; qte += q;
+  }
+  return { lignes: [...par.values()], ca, qte };
+}
+const ppClasse = (lignes, mesure) => { const a = mesure, b = a === "qte" ? "ca" : "qte"; return [...lignes].sort((x, y) => y[a] - x[a] || y[b] - x[b] || (x.nom < y.nom ? -1 : x.nom > y.nom ? 1 : 0)); };
+const lireProduits = (page) => page.evaluate(() => {
+  const q = (s) => document.querySelector(s), all = (s) => [...document.querySelectorAll(s)];
+  const carte = q('[data-rep="produits"]'), tot = q('[data-rep="produits-total"]'), sel = q('[data-rep="produits-choix"] select');
+  const cellules = all('[data-rep="produits-liste"] [data-rep-produit]').map((r) => r.querySelector('[role="cell"]'));
+  return {
+    present: Boolean(carte), dispo: Boolean(carte) && carte.dataset.dispo === "1", pays: carte ? carte.dataset.pays : null, an: carte ? Number(carte.dataset.annee) : null,
+    texte: carte ? carte.innerText : "",
+    lignes: all('[data-rep="produits-liste"] [data-rep-produit]').map((r) => ({ nom: r.dataset.repProduit, qte: Number(r.dataset.qte), ca: Number(r.dataset.ca), texte: r.innerText })),
+    totalQte: tot ? Number(tot.dataset.qte) : null, totalCa: tot ? Number(tot.dataset.ca) : null, totalTexte: tot ? tot.innerText : "",
+    choix: sel ? sel.value : null, options: sel ? [...sel.options].map((o) => o.value) : [], choixTexte: q('[data-rep="produits-choix"]') ? q('[data-rep="produits-choix"]').innerText : "",
+    indispo: Boolean(q('[data-rep="produits-indispo"]')), vide: Boolean(q('[data-rep="produits-vide"]')), ecart: Boolean(q('[data-rep="produits-ecart"]')), astuce: Boolean(q('[data-rep="produits-astuce"]')),
+    nomsCoupes: cellules.filter((c) => c.scrollWidth - c.clientWidth > 1).length, nbCellules: cellules.length,
+    liste: (() => { const el = q('[data-rep="produits-liste"]'); return el ? { sh: el.scrollHeight, ch: el.clientHeight, oy: getComputedStyle(el).overflowY } : null; })(),
+    debordement: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+// la carte retombe sur l'attendu : liste (noms, quantités, CA), ordre, total
+function ppVerifier(etiquette, P, att, mesure) {
+  const lignes = ppClasse(att.lignes, mesure);
+  verifier(P.present && P.dispo, `${etiquette} : carte « Produits vendus » absente ou indisponible`);
+  verifier(P.lignes.length === lignes.length, `${etiquette} : ${P.lignes.length} produits affichés au lieu de ${lignes.length}`);
+  verifier(P.lignes.every((l, i) => lignes[i] && l.nom === lignes[i].nom && l.qte === lignes[i].qte && proche(l.ca, lignes[i].ca, 0.011)), `${etiquette} : produits, quantités ou CA différents de l'attendu (ou ordre : ${P.lignes.slice(0, 3).map((l) => l.nom).join(",")} vs ${lignes.slice(0, 3).map((l) => l.nom).join(",")})`);
+  verifier(P.lignes.every((l) => contient(l.texte, fmtNum(l.qte)) && contient(l.texte, `${fmtNum(l.ca)} €`)), `${etiquette} : quantité ou CA mal affiché`);
+  verifier(P.totalQte === att.qte && proche(P.totalCa, att.ca, 0.011) && contient(P.totalTexte, fmtNum(att.qte)) && contient(P.totalTexte, `${fmtNum(att.ca)} €`), `${etiquette} : total ${P.totalQte} u / ${P.totalCa} € ≠ ${att.qte} u / ${att.ca.toFixed(2)} €`);
+  verifier(!P.ecart && !P.indispo && !P.vide, `${etiquette} : avertissement ou message inattendu (écart ${P.ecart}, indisponible ${P.indispo}, vide ${P.vide})`);
+}
+async function verifierProduitsPays(browser, base, E, X) {
+  const dmax = E.rap.dmax, AN = Number(dmax.slice(0, 4));
+  const rangPays = (mesure, exclure = []) => Object.entries(X.R[AN].pays).filter(([n]) => !exclure.includes(n)).map(([n, e]) => [n, e[mesure]]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  // ===== bureau, français =====
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base);
+    // 1) tous les pays : tous les produits, classés par CA ; le total est celui du tableau de bord
+    let P = await lireProduits(page);
+    const tout = ppAttendu(X);
+    ppVerifier("Produits vendus (tous pays, CA)", P, tout, "ca");
+    verifier(P.pays === "" && P.choix === "" && contient(P.choixTexte, "Tous les pays") && P.astuce && P.an === AN, `Produits vendus : état initial pays « ${P.pays} », choix « ${P.choix} », astuce ${P.astuce}`);
+    verifier(proche(P.totalCa, X.C.DATA.kpi.ca_total_2026, 0.5) && P.totalQte === X.C.DATA.kpi.qte_total_2026, `Produits vendus : total ${P.totalCa} € / ${P.totalQte} u ≠ KPI ${X.C.DATA.kpi.ca_total_2026} € / ${X.C.DATA.kpi.qte_total_2026} u`);
+    verifier(P.options.length === 1 + rangPays("ca").length && P.options[0] === "" && rangPays("ca").every(([n], i) => P.options[i + 1] === n), `Produits vendus : liste des pays ${P.options.slice(0, 4)}… ≠ classement`);
+    verifier(!/''/.test(P.texte), "Produits vendus : apostrophe doublée affichée (« HOM''Y »)");
+    verifier(contient((await lireRep(page)).texte, "voir les produits qui s'y vendent"), "Produits vendus : l'astuce du classement ne parle pas des produits");
+    if (shotsDir) { fs.mkdirSync(shotsDir, { recursive: true }); await page.locator('[data-rep="produits"]').screenshot({ path: path.join(shotsDir, "produits-pays-tous.png") }); }
+    // 2) un pays choisi dans la carte : sa liste, son total = son rang dans le classement, le classement et le détail le suivent
+    await page.selectOption('[data-rep="produits-choix"] select', "Belgique");
+    await page.waitForTimeout(380);
+    P = await lireProduits(page);
+    let S = await lireRep(page);
+    ppVerifier("Produits vendus (Belgique, CA)", P, ppAttendu(X, { pays: "Belgique" }), "ca");
+    const bel = S.classement.find((c) => c.nom === "Belgique");
+    verifier(P.pays === "Belgique" && P.choix === "Belgique" && contient(P.choixTexte, "Belgique") && !P.astuce, `Produits vendus : pays « ${P.pays} », choix « ${P.choix} »`);
+    verifier(bel && bel.actif && proche(P.totalCa, bel.v, 0.5) && contient(S.filtreEntite, "Belgique"), `Produits vendus : total ${P.totalCa} ≠ classement Belgique ${bel && bel.v}, ou classement/détail non synchronisés`);
+    verifier(P.lignes.length < tout.lignes.length && P.lignes.length > 10, `Produits vendus Belgique : ${P.lignes.length} produits`);
+    if (shotsDir) await page.locator('[data-rep="produits"]').screenshot({ path: path.join(shotsDir, "produits-pays-belgique.png") });
+    // 3) un pays choisi dans le classement : la carte suit (et la puce de la carte aussi)
+    await repCliquer(page, '[data-rep="classement"] [data-rep-ligne="Espagne"]');
+    P = await lireProduits(page);
+    ppVerifier("Produits vendus (Espagne via le classement)", P, ppAttendu(X, { pays: "Espagne" }), "ca");
+    verifier(P.choix === "Espagne" && contient(P.choixTexte, "Espagne"), `Produits vendus : la puce affiche « ${P.choixTexte} » après un clic dans le classement`);
+    // 4) quantités : même liste, classée par quantités, total en unités
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="qte"]');
+    P = await lireProduits(page); S = await lireRep(page);
+    ppVerifier("Produits vendus (Espagne, quantités)", P, ppAttendu(X, { pays: "Espagne" }), "qte");
+    verifier(P.totalQte === S.classement.find((c) => c.nom === "Espagne").v, `Produits vendus : total ${P.totalQte} u ≠ classement Espagne en quantités`);
+    // 5) hors France : sans pays choisi, tous les pays sauf la France ; la France disparaît de la liste des pays
+    await repCliquer(page, '[data-rep="classement"] [data-rep-ligne="Espagne"]'); // retire le choix
+    await repCliquer(page, '[data-rep="hors-france"]');
+    P = await lireProduits(page);
+    ppVerifier("Produits vendus (hors France, quantités)", P, ppAttendu(X, { exclure: ["France"] }), "qte");
+    verifier(P.pays === "" && contient(P.choixTexte, "Hors France") && !P.options.includes("France") && P.options.length === rangPays("qte", ["France"]).length + 1, `Produits vendus hors France : choix « ${P.choixTexte} », France dans la liste ${P.options.includes("France")}`);
+    await repCliquer(page, '[data-rep="hors-france"]');
+    // 6) la France seule = le plus gros pays
+    await page.selectOption('[data-rep="produits-choix"] select', "France");
+    await page.waitForTimeout(380);
+    P = await lireProduits(page);
+    ppVerifier("Produits vendus (France, quantités)", P, ppAttendu(X, { pays: "France" }), "qte");
+    verifier(P.lignes.length > 100, `Produits vendus France : ${P.lignes.length} produits seulement`);
+    verifier(P.liste && P.liste.oy === "auto" && P.liste.sh > P.liste.ch, `Produits vendus France : liste non défilable (${JSON.stringify(P.liste)})`);
+    // 7) la marketplace choisie dans le détail filtre aussi la liste
+    await repCliquer(page, '[data-rep="mesure"] button[data-k="ca"]');
+    await repCliquer(page, '[data-rep="grille-mp"] tr[data-rep-ligne="Amazon FR"] th button');
+    P = await lireProduits(page);
+    ppVerifier("Produits vendus (France × Amazon FR)", P, ppAttendu(X, { pays: "France", mp: "Amazon FR" }), "ca");
+    verifier(contient(P.texte, "Amazon FR"), "Produits vendus : la marketplace choisie n'est pas rappelée dans la carte");
+    await repCliquer(page, 'button[data-rep="filtre-mp"]');
+    // 8) 2025 : pas de chiffre inventé, une explication
+    await repCliquer(page, '[data-rep="annee"] button[data-k="2025"]');
+    P = await lireProduits(page);
+    verifier(P.present && !P.dispo && P.indispo && P.lignes.length === 0 && P.totalQte === null && P.choix === null && contient(P.texte, `n'existe que pour ${AN}`) && !/undefined|NaN|\{a\}/.test(P.texte), `Produits vendus 2025 : explication absente ou chiffres affichés (${norm(P.texte).slice(0, 120)})`);
+    await repCliquer(page, '[data-rep="annee"] button[data-k="2026"]');
+    // 9) seul le découpage par pays porte la carte
+    await repCliquer(page, '[data-rep="lentille"] button[data-k="marque"]');
+    verifier(!(await lireProduits(page)).present, "Produits vendus : carte affichée hors du découpage par pays");
+    await repCliquer(page, '[data-rep="lentille"] button[data-k="pays"]');
+    verifier((await lireProduits(page)).present, "Produits vendus : carte absente au retour sur le découpage par pays");
+    verifier(erreurs.length === 0, `erreurs JavaScript (Produits vendus bureau) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== filtre marketplace global (adresse directe) =====
+  {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base, { marketplace: "Maxeda" });
+    let P = await lireProduits(page);
+    ppVerifier("Produits vendus (filtre global Maxeda)", P, ppAttendu(X, { mp: "Maxeda" }), "ca");
+    verifier(contient(P.texte, "Maxeda"), "Produits vendus : filtre global non rappelé");
+    // la liste des pays ne propose que ceux qui ont vendu sur Maxeda (Belgique d'abord, un peu de Pays-Bas et de France) : on choisit le premier pays étranger
+    const etranger = P.options.find((o) => o && o !== "France");
+    verifier(Boolean(etranger) && P.options.every((o) => o === "" || ppAttendu(X, { pays: o, mp: "Maxeda" }).qte > 0), `Produits vendus (filtre global Maxeda) : pays proposés ${P.options.join(",")}`);
+    await page.selectOption('[data-rep="produits-choix"] select', etranger);
+    await page.waitForTimeout(380);
+    P = await lireProduits(page);
+    ppVerifier(`Produits vendus (${etranger} × filtre global Maxeda)`, P, ppAttendu(X, { pays: etranger, mp: "Maxeda" }), "ca");
+    verifier(erreurs.length === 0, `erreurs JavaScript (Produits vendus, filtre global) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== quatre langues =====
+  const L = { fr: "Produits vendus", en: "Products sold", es: "Productos vendidos", zh: "已售产品" };
+  for (const [lang, titre] of Object.entries(L)) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+    await ouvrirRep(page, base, { lang });
+    await page.selectOption('[data-rep="produits-choix"] select', "Belgique");
+    await page.waitForTimeout(380);
+    let P = await lireProduits(page);
+    verifier(contient(P.texte, titre) && P.lignes.length > 10 && P.pays === "Belgique", `${lang.toUpperCase()} · Produits vendus : titre « ${titre} » ou liste absents`);
+    verifier(!/\{(a|n|x)\}|undefined|NaN/.test(P.texte), `${lang.toUpperCase()} · Produits vendus : variable de modèle, undefined ou NaN affiché`);
+    verifier(!/'' |''/.test(P.texte), `${lang.toUpperCase()} · Produits vendus : apostrophe doublée`);
+    await repCliquer(page, '[data-rep="annee"] button[data-k="2025"]');
+    P = await lireProduits(page);
+    verifier(P.indispo && contient(P.texte, String(AN)) && !/\{(a|n|x)\}/.test(P.texte), `${lang.toUpperCase()} · Produits vendus 2025 : explication absente ou variable non remplacée (${norm(P.texte).slice(0, 100)})`);
+    verifier(erreurs.length === 0, `erreurs JavaScript (Produits vendus ${lang}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+  // ===== mobile : pas de débordement, aucun nom coupé, liste défilable =====
+  for (const largeur of [390, 360]) {
+    const { ctx, page, erreurs } = await ouvrir(browser, { largeur, hauteur: 844, tactile: true });
+    await ouvrirRep(page, base);
+    await page.selectOption('[data-rep="produits-choix"] select', "Belgique");
+    await page.waitForTimeout(380);
+    const P = await lireProduits(page);
+    ppVerifier(`mobile ${largeur} px · Produits vendus (Belgique)`, P, ppAttendu(X, { pays: "Belgique" }), "ca");
+    verifier(P.debordement <= 1, `mobile ${largeur} px · Produits vendus : débordement horizontal de ${P.debordement}px`);
+    verifier(P.nbCellules > 10 && P.nomsCoupes === 0, `mobile ${largeur} px · Produits vendus : ${P.nomsCoupes} nom(s) de produit coupé(s) sur ${P.nbCellules}`);
+    verifier(P.liste && P.liste.oy === "auto" && P.liste.sh > P.liste.ch, `mobile ${largeur} px · Produits vendus : liste non défilable (${JSON.stringify(P.liste)})`);
+    const pastille = await page.locator('[data-rep="produits-choix"]').boundingBox();
+    verifier(pastille && pastille.height >= 28 && pastille.width >= 80 && pastille.x >= 0 && pastille.x + pastille.width <= largeur, `mobile ${largeur} px · Produits vendus : sélecteur de pays mal dimensionné (${JSON.stringify(pastille)})`);
+    if (shotsDir && largeur === 390) await page.locator('[data-rep="produits"]').screenshot({ path: path.join(shotsDir, "produits-pays-mobile.png") });
+    verifier(erreurs.length === 0, `erreurs JavaScript (Produits vendus mobile ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
+    await ctx.close();
+  }
+}
 async function verifierRepartitions(browser, base, E) {
   const X = repAttendu();
   const dmax = E.rap.dmax, AN = Number(dmax.slice(0, 4));
@@ -882,7 +1050,8 @@ async function verifierRepartitions(browser, base, E) {
     verifier(contient(S.legende, "France") && contient(S.legende, "Belgique") && contient(S.legende, `Autres (${A.ents.length - 6})`), `Répartitions pays : légende « ${norm(S.legende)} »`);
     verifier(S.barres >= 12 && S.couleursGraphique.includes("#F75212"), `Répartitions pays : graphique vide (${S.barres} barres, couleurs ${S.couleursGraphique.join(",")})`);
     verifier(S.notes.enCours && !S.notes.qte && !S.notes.site, `Répartitions pays : notes ${JSON.stringify(S.notes)} (mois en cours oui, quantités non, site 2025 non)`);
-    verifier(S.entetes.some((h) => /oct\.\s*•/.test(h)), `Répartitions pays : mois en cours non marqué (${S.entetes.join("|")})`);
+    const moisCourt = new Date(`${dmax}T12:00:00`).toLocaleDateString("fr-FR", { month: "short" }); // « oct. », « nov. »… : le mois de la dernière donnée
+    verifier(S.entetes.some((h) => new RegExp(`${moisCourt.replace(".", "\\.")}\\s*•`).test(h)), `Répartitions pays : mois en cours (${moisCourt}) non marqué (${S.entetes.join("|")})`);
     verifier(!S.qteDesactive && S.horsFrance, "Répartitions pays : bouton « Quantités » désactivé ou « Hors France » absent");
     repVerifierGrille("Répartitions pays 2026 CA", S, X, AN, "pays", "ca");
     verifier(S.grille.every((l) => l.mix) && /France/.test(S.grille.find((l) => l.cle === "Leroy Merlin").mix) && /France/.test(S.grille.find((l) => l.cle === "__total").mix), `Répartitions pays : barre de répartition absente ou sans France (${S.grille.filter((l) => !l.mix).map((l) => l.cle).join(",")})`);
@@ -1038,6 +1207,7 @@ async function verifierRepartitions(browser, base, E) {
     verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions mobile ${largeur}) : ${erreurs.slice(0, 3).join(" | ")}`);
     await ctx.close();
   }
+  await verifierProduitsPays(browser, base, E, X);
 }
 // ---- Navigation mobile (24 octobre 2026) : barre du haut et barre du bas figées à l'écran, filtres compacts, sous-onglets sur une ligne ----
 const ONGLETS = ["apercu", "marketplaces", "marques", "prix", "ads", "concurrence", "data"];

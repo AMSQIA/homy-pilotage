@@ -15,6 +15,8 @@
  *   3 bis. les répartitions de l'onglet Marques › Répartitions (repartitions.js) : pays, marque, catégorie et sous-catégorie × marketplace × mois
  *      retombent sur les totaux du tableau de bord (CA et quantités), les marques sur monthly_by_brand, les catégories sur category_by_mp,
  *      le détail par pays sur le détail par produit, couleurs stables par entité, « hors France », quantités par pays absentes en 2025 ;
+ *   3 ter. les produits vendus par pays (data/produits_pays.json + ventes Shopify) : le fichier de l'ODP retombe sur SKU_MONTHLY et PAYS_MONTHLY du
+ *      socle, puis, après prolongement, sur ceux de l'application ; la liste d'un pays, d'une marketplace ou « hors France » retombe sur le classement ;
  *   4. la chaîne d'extraction (selftest_pipeline.mjs, résultats ShopifyQL synthétiques) : fenêtre de dates, passerelles →
  *      marketplaces, CA HT, contrôles de cohérence, indépendance des deux boutiques, fusion avec l'extraction précédente.
  *
@@ -22,13 +24,14 @@
  */
 import { etendre, validerExtension, dmaxEffectif, excelWeekOf, lignesExtension } from "../../extension.js";
 import { lireApp, lireJson, copie } from "./lib_app.mjs";
-import { construireRepartitions, vue as repVue, matrice as repMatrice, partsParMarketplace, dispoQte, replier, attribuerCouleurs, infoMois, PALETTE, GRIS, COULEURS_FIXES, AUTRES_PRODUITS, NB_SERIES } from "../../repartitions.js";
+import { construireRepartitions, vue as repVue, matrice as repMatrice, partsParMarketplace, dispoQte, replier, attribuerCouleurs, infoMois, decoderProduitsPays, produitsPays, classerProduits, PALETTE, GRIS, COULEURS_FIXES, AUTRES_PRODUITS, NB_SERIES } from "../../repartitions.js";
 
 const echecs = [];
 let controles = 0;
 const ok = (cond, msg) => { controles++; if (!cond) echecs.push(msg); };
 const proche = (a, b, tol = 0.1) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tol;
 const r2 = (x) => Math.round(x * 100) / 100;
+const r4 = (x) => Math.round(x * 10000) / 10000;
 const S = (a) => (a || []).reduce((s, v) => s + (v || 0), 0);
 
 // Chaîne d'extraction (données synthétiques) : fenêtre, passerelles, contrôles, indépendance des boutiques, fusion
@@ -219,6 +222,76 @@ ok(Object.values(D.category_by_mp.categories.Toutes || []).every((c) => c.ca >= 
     ok(v2.ents.length === 1 && v2.ents[0].nom === AUTRES_PRODUITS && proche(v2.total, CA[AN], 0.5), "sans SKU_MARQUE : tout devait tomber dans « Autres produits » sans erreur");
     const C3 = copie(C), i = C3.PAYS_MONTHLY.findIndex((r) => r[2] === AN); C3.PAYS_MONTHLY[i] = C3.PAYS_MONTHLY[i].slice(0, 5);
     ok(dispoQte(construireRepartitions(C3), "pays", AN) === false, "une ligne pays sans quantité : l'année ne doit plus afficher de quantités"); }
+}
+
+/* ---------------------------------------------------------------------------------------------- 3 ter. produits vendus par pays */
+{
+  const J = lireJson("data/produits_pays.json");
+  const cle3 = (a, b, c) => `${a}|${b}|${c}`;
+  // (a) le fichier : schéma, dictionnaires, index, doublons
+  ok(J.schema === 1 && J.an === AN && J.du === `${AN}-01-01` && J.au === DMAX_ODP, `produits_pays.json : schéma/année/couverture inattendus (${J.schema}, ${J.an}, ${J.du} → ${J.au}, ODP → ${DMAX_ODP})`);
+  ok(["produits", "pays", "mp"].every((d) => Array.isArray(J[d]) && J[d].length > 0 && new Set(J[d]).size === J[d].length), "produits_pays.json : dictionnaire vide ou avec doublons");
+  ok(J.lignes.every((l) => l.length === 6 && l[0] >= 0 && l[0] < J.produits.length && l[1] >= 0 && l[1] < J.pays.length && l[2] >= 0 && l[2] < J.mp.length
+    && Number.isInteger(l[3]) && l[3] >= 1 && l[3] <= 12 && Number.isFinite(l[4]) && l[4] >= 0 && Number.isInteger(l[5]) && l[5] >= 0), "produits_pays.json : ligne mal formée (index, mois, CA ou quantité)");
+  ok(new Set(J.lignes.map((l) => l.slice(0, 4).join("|"))).size === J.lignes.length, "produits_pays.json : produit × pays × marketplace × mois en double");
+  ok(J.lignes.every((l, i, a) => i === 0 || a[i - 1][0] < l[0] || (a[i - 1][0] === l[0] && (a[i - 1][1] < l[1] || (a[i - 1][1] === l[1] && (a[i - 1][2] < l[2] || (a[i - 1][2] === l[2] && a[i - 1][3] < l[3])))))), "produits_pays.json : lignes non triées (diffs Git illisibles)");
+  ok(decoderProduitsPays(null).length === 0 && decoderProduitsPays({ schema: 2, lignes: [] }).length === 0 && decoderProduitsPays({ ...J, produits: undefined }).length === 0, "decoderProduitsPays : un fichier absent ou d'un autre schéma doit donner aucune ligne");
+
+  // (b) avant prolongement : le fichier de l'ODP retombe, au centime et à l'unité, sur les tableaux du socle
+  const S0 = app.constantes(["SKU_PRODUIT", "SKU_MPS", "SKU_MONTHLY", "PAYS_MONTHLY"]);
+  const decode = decoderProduitsPays(J);
+  const compare = (nom, lignesPP, cible, cleLigne, cleCible) => {
+    const a = new Map(), b = new Map();
+    for (const r of lignesPP) { const c = cleLigne(r), o = a.get(c) || [0, 0]; o[0] += r[4]; o[1] += r[5]; a.set(c, o); }
+    for (const r of cible) { const c = cleCible(r); if (c === null) continue; const o = b.get(c) || [0, 0]; o[0] += r[4]; o[1] += r[5] || 0; b.set(c, o); }
+    const ecarts = [...new Set([...a.keys(), ...b.keys()])].filter((c) => { const x = a.get(c) || [0, 0], y = b.get(c) || [0, 0]; return !proche(x[0], y[0], 0.011) || x[1] !== y[1]; });
+    ok(ecarts.length === 0, `${nom} : ${ecarts.length} cellule(s) en écart, par ex. ${ecarts.slice(0, 3).join(" ; ")}`);
+  };
+  compare("produits_pays.json ≠ PAYS_MONTHLY du socle", decode, S0.PAYS_MONTHLY, (r) => cle3(r[1], r[2], r[3]), (r) => (r[2] === AN ? cle3(r[0], r[1], r[3]) : null));
+  compare("produits_pays.json ≠ SKU_MONTHLY du socle", decode, S0.SKU_MONTHLY, (r) => cle3(r[0], r[2], r[3]), (r) => (r[2] === AN ? cle3(S0.SKU_PRODUIT[r[0]], S0.SKU_MPS[r[1]], r[3]) : null));
+
+  // (c) après prolongement : les ventes Shopify sont ajoutées aux deux tableaux, qui restent égaux
+  const PP = C.PRODUITS_PAYS;
+  ok(Array.isArray(PP) && PP.length >= decode.length, "PRODUITS_PAYS : le prolongement n'a rien ajouté");
+  compare("PRODUITS_PAYS ≠ PAYS_MONTHLY après prolongement", PP, C.PAYS_MONTHLY, (r) => cle3(r[1], r[2], r[3]), (r) => (r[2] === AN ? cle3(r[0], r[1], r[3]) : null));
+  compare("PRODUITS_PAYS ≠ SKU_MONTHLY après prolongement", PP, C.SKU_MONTHLY, (r) => cle3(r[0], r[2], r[3]), (r) => (r[2] === AN ? cle3(C.SKU_PRODUIT[r[0]], C.SKU_MPS[r[1]], r[3]) : null));
+  ok(proche(S(PP.map((r) => r[4])), k.ca_total_2026, 0.5) && S(PP.map((r) => r[5])) === k.qte_total_2026, "PRODUITS_PAYS : CA ou quantités ≠ KPI");
+  ok(PP.every((r) => C.SKU_PRODUIT.includes(r[0]) && C.SKU_MPS.includes(r[2])), "PRODUITS_PAYS : produit ou marketplace absent de l'application");
+  ok(PP.every((r) => Number.isInteger(r[5]) && r[5] >= 0 && Number.isFinite(r[4]) && r[4] >= 0 && r[4] === r4(r[4])), "PRODUITS_PAYS : CA non arrondi au 1/10 000 €, ou quantité non entière");
+  ok(new Set(PP.map((r) => r.slice(0, 4).join("|"))).size === PP.length, "PRODUITS_PAYS : produit × pays × marketplace × mois en double après prolongement");
+
+  // (d) la liste d'un pays, d'une marketplace ou « hors France » retombe sur le classement (cube des répartitions). Les quantités sont
+  // égales à l'unité ; le CA à 0,5 € près (le socle arrondit chaque pays × marketplace × mois au centime, le fichier chaque produit au 1/10 000 €)
+  const R = construireRepartitions(C);
+  for (const mp of [null, "Leroy Merlin", "Site Web", "Technomat", "Amazon FR"]) {
+    const vCa = repVue(R, { dim: "pays", an: AN, mesure: "ca", mp }), vQ = repVue(R, { dim: "pays", an: AN, mesure: "qte", mp });
+    const tout = produitsPays(PP, { mp });
+    ok(proche(tout.ca, vCa.total, 0.5) && tout.qte === vQ.total, `produits vendus (${mp || "toutes marketplaces"}) : ${r2(tout.ca)} € / ${tout.qte} u ≠ classement ${r2(vCa.total)} € / ${vQ.total} u`);
+    ok(proche(S(tout.lignes.map((l) => l.ca)), tout.ca, 0.01) && S(tout.lignes.map((l) => l.qte)) === tout.qte, `produits vendus (${mp || "toutes"}) : lignes ≠ totaux`);
+    for (const e of vCa.ents) {
+      const q = vQ.ents.find((x) => x.nom === e.nom), p = produitsPays(PP, { pays: e.nom, mp });
+      ok(proche(p.ca, e.total, 0.5) && p.qte === (q ? q.total : 0), `produits vendus ${e.nom} (${mp || "toutes"}) : ${r2(p.ca)} € / ${p.qte} u ≠ classement ${r2(e.total)} € / ${q ? q.total : 0} u`);
+    }
+    const hors = produitsPays(PP, { mp, exclure: ["France"] }), fr = produitsPays(PP, { mp, pays: "France" });
+    ok(proche(hors.ca + fr.ca, tout.ca, 0.01) && hors.qte + fr.qte === tout.qte && !hors.lignes.some((l) => false), `produits vendus (${mp || "toutes"}) : hors France + France ≠ tous les pays`);
+  }
+  ok(produitsPays(PP, { pays: "Atlantide" }).lignes.length === 0 && produitsPays(PP, { mp: "Marketplace Inconnue" }).qte === 0 && produitsPays([], {}).ca === 0 && produitsPays(null, {}).qte === 0, "produits vendus : pays ou marketplace inconnu, ou liste vide, doivent donner une liste vide");
+  { // classement : mesure choisie, puis l'autre, puis nom — déterministe
+    const l = produitsPays(PP, { pays: "Belgique" }).lignes;
+    const parQ = classerProduits(l, "qte"), parCa = classerProduits(l, "ca");
+    ok(parQ.every((x, i, a) => i === 0 || a[i - 1].qte > x.qte || (a[i - 1].qte === x.qte && (a[i - 1].ca > x.ca || (a[i - 1].ca === x.ca && a[i - 1].nom < x.nom)))), "classement des produits par quantités non déterministe");
+    ok(parCa.every((x, i, a) => i === 0 || a[i - 1].ca > x.ca || (a[i - 1].ca === x.ca && (a[i - 1].qte > x.qte || (a[i - 1].qte === x.qte && a[i - 1].nom < x.nom)))), "classement des produits par CA non déterministe");
+    ok(JSON.stringify(classerProduits([...l].reverse(), "qte")) === JSON.stringify(parQ) && parQ.length === l.length, "classement des produits : dépend de l'ordre d'entrée");
+  }
+  // (e) pas de pays orphelin : chaque pays de PAYS_MONTHLY 2026 a ses produits, et inversement
+  const paysPM = new Set(C.PAYS_MONTHLY.filter((r) => r[2] === AN).map((r) => r[0])), paysPP = new Set(PP.map((r) => r[1]));
+  ok([...paysPM].every((p) => paysPP.has(p)) && [...paysPP].every((p) => paysPM.has(p)), "pays de PRODUITS_PAYS ≠ pays de PAYS_MONTHLY 2026");
+  // (f) sans PRODUITS_PAYS (ou avec une liste vide) le prolongement fonctionne comme avant, et ne crée rien
+  { const C2 = app.constantes(), sans = { ...C2 }; delete sans.PRODUITS_PAYS;
+    const r = etendre(sans, ext, n1, { dmaxOdp: DMAX_ODP });
+    ok(r.appliquee && sans.PRODUITS_PAYS === undefined, "sans PRODUITS_PAYS : le prolongement doit s'appliquer sans rien créer");
+    const vide = { ...app.constantes(), PRODUITS_PAYS: [] };
+    ok(etendre(vide, ext, n1, { dmaxOdp: DMAX_ODP }).appliquee && vide.PRODUITS_PAYS.length > 0 && proche(S(vide.PRODUITS_PAYS.map((r) => r[4])), attendu.ca, 0.5), "PRODUITS_PAYS vide : doit recevoir les seules ventes Shopify"); }
 }
 
 /* ---------------------------------------------------------------------------------------------- 4. robustesse */

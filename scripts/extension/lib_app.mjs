@@ -5,13 +5,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { decoderProduitsPays } from "../../repartitions.js";
 
 export const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// PRODUITS_PAYS n'est pas une constante de App.jsx : App.jsx la décode de data/produits_pays.json au chargement (voir repartitions.js)
 export const CONSTANTES_EXTENSION = [
   "DATA", "SKU_PRODUIT", "SKU_MPS", "SKU_MONTHLY", "SKU_DESTOCKAGE", "SKU_FAMILLE", "SKU_WIFI", "SKU_PLINTHE", "SKU_VERTICAL",
   "SKU_SOUS_FAMILLE", "SKU_SOUS_SOUS_FAMILLE", "SKU_MARQUE", "PRODUCT_TO_CATEGORY", "PAYS_MONTHLY", "SKU_CUT_N1",
-  "WEEKLY_TOTALS", "WEEKLY_BY_MP", "WEEKLY_BY_PROD",
+  "WEEKLY_TOTALS", "WEEKLY_BY_MP", "WEEKLY_BY_PROD", "PRODUITS_PAYS",
 ];
 
 export function lireApp(chemin = path.join(RACINE, "App.jsx")) {
@@ -23,7 +25,7 @@ export function lireApp(chemin = path.join(RACINE, "App.jsx")) {
     if (!m) throw new Error(`App.jsx : constante ${nom} introuvable`);
     try { return JSON.parse(m[1]); } catch { return new Function(`return (${m[1]});`)(); }
   };
-  return { src, dmin: dates[1], dmaxOdp: dates[2], constante, constantes: (noms = CONSTANTES_EXTENSION) => Object.fromEntries(noms.map((n) => [n, constante(n)])) };
+  return { src, dmin: dates[1], dmaxOdp: dates[2], constante, constantes: (noms = CONSTANTES_EXTENSION) => Object.fromEntries(noms.map((n) => [n, n === "PRODUITS_PAYS" ? decoderProduitsPays(lireJson("data/produits_pays.json")) : constante(n)])) };
 }
 
 export const lireJson = (relatif) => JSON.parse(fs.readFileSync(path.join(RACINE, relatif), "utf8"));

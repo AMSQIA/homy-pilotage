@@ -32,6 +32,7 @@ const SEUIL_LIGNE_PAR_UNITE = 0.99; // lignes ODP ÷ unités à partir de laquel
 const r0 = Math.round;
 const r1 = (x) => Math.round(x * 10) / 10;
 const r2 = (x) => Math.round(x * 100) / 100;
+const r4 = (x) => Math.round(x * 10000) / 10000; // PRODUITS_PAYS : CA au 1/10 000 € (voir scripts/extension/preparer_produits_pays.mjs)
 const somme = (a) => { let s = 0; for (const v of a || []) s += v || 0; return s; };
 const avant = (a, n) => { let s = 0; for (let i = 0; i < n; i++) s += (a && a[i]) || 0; return s; };
 const zeros = () => Array(12).fill(0);
@@ -138,6 +139,9 @@ function ajouter(W, lignes, rap) {
   const sku = new Map(), pays = new Map(), wTot = new Map(), wMp = new Map(), wProd = new Map();
   for (const r of W.SKU_MONTHLY) if (r[2] === AN) sku.set(`${r[0]}|${r[1]}|${r[3]}`, r);
   for (const r of W.PAYS_MONTHLY) if (r[2] === AN) pays.set(`${r[0]}|${r[1]}|${r[3]}`, r);
+  // PRODUITS_PAYS (facultatif) : [produit, pays, marketplace, mois, CA HT, quantité] — noms, pas d'index (voir repartitions.js)
+  const prodPays = new Map();
+  if (W.PRODUITS_PAYS) for (const r of W.PRODUITS_PAYS) prodPays.set(`${r[0]}|${r[1]}|${r[2]}|${r[3]}`, r);
   for (const r of W.WEEKLY_TOTALS) wTot.set(r[0], r);
   for (const r of W.WEEKLY_BY_MP) wMp.set(`${r[0]}|${r[1]}`, r);
   for (const r of W.WEEKLY_BY_PROD) wProd.set(`${r[0]}|${r[1]}`, r);
@@ -190,6 +194,13 @@ function ajouter(W, lignes, rap) {
     if (!rp) { rp = [x.pays, x.mp, AN, mo, 0, 0]; W.PAYS_MONTHLY.push(rp); pays.set(kp, rp); }
     rp[4] += x.ca;
     if (rp.length >= 6) rp[5] += x.qte;
+    // PRODUITS_PAYS : le même pays, avec le produit en plus (les deux tableaux restent égaux au centime et à l'unité)
+    if (W.PRODUITS_PAYS) {
+      const kpp = `${x.produit}|${x.pays}|${x.mp}|${mo}`;
+      let rpp = prodPays.get(kpp);
+      if (!rpp) { rpp = [x.produit, x.pays, x.mp, mo, 0, 0]; W.PRODUITS_PAYS.push(rpp); prodPays.set(kpp, rpp); }
+      rpp[4] += x.ca; rpp[5] += x.qte;
+    }
     // semaines : [semaine, CA HT, quantité] · [semaine, marketplace, CA HT, quantité] · [semaine, produit, CA HT, quantité]
     let t = wTot.get(wk); if (!t) { t = [wk, 0, 0]; W.WEEKLY_TOTALS.push(t); wTot.set(wk, t); } t[1] += x.ca; t[2] += x.qte;
     const kw = `${wk}|${x.mp}`;
@@ -224,6 +235,7 @@ function ajouter(W, lignes, rap) {
   // arrondis au centime des cellules touchées (comme le socle)
   for (const r of sku.values()) { r[4] = r2(r[4]); }
   for (const r of pays.values()) { r[4] = r2(r[4]); }
+  for (const r of prodPays.values()) { r[4] = r4(r[4]); }
   for (const r of wTot.values()) { r[1] = r2(r[1]); }
   for (const r of wMp.values()) { r[2] = r2(r[2]); }
   for (const r of wProd.values()) { r[2] = r2(r[2]); }
@@ -411,7 +423,8 @@ function recalculer(W, A, ctx) {
 /* ------------------------------------------------------------------------------------------------ point d'entrée */
 /**
  * Prolonge les constantes de l'application avec les ventes Shopify.
- *  C    : { DATA, SKU_PRODUIT, SKU_MPS, SKU_MONTHLY, …} — les constantes de App.jsx (modifiées en place)
+ *  C    : { DATA, SKU_PRODUIT, SKU_MPS, SKU_MONTHLY, …} — les constantes de App.jsx (modifiées en place), et facultativement
+ *         PRODUITS_PAYS (lignes [produit, pays, marketplace, mois, CA HT, quantité] : voir repartitions.js)
  *  ext  : contenu de shopify_extension.json     n1 : contenu de data/n1_2025.json
  *  opts : { dmaxOdp } dernier jour du fichier ODP
  * Renvoie un rapport { appliquee, dmax, dmaxOdp, du, au, jours, lignes, ca, qte, nouveauxProduits, avertissements, erreurs }.
@@ -426,6 +439,7 @@ export function etendre(C, ext, n1, opts = {}) {
   try {
     const W = {};
     for (const n of CONSTANTES) W[n] = copie(C[n]);
+    if (Array.isArray(C.PRODUITS_PAYS)) W.PRODUITS_PAYS = copie(C.PRODUITS_PAYS); // facultatif : produits vendus par pays (onglet Répartitions)
     W.SKU_MPS = C.SKU_MPS;
     const lignes = lignesExtension(ext).filter((x) => x.d > dmaxOdp && x.d <= au && x.d.slice(0, 4) === String(AN));
     const attrs = new Map(ext.produits.filter((p) => p[3]).map((p) => [p[0], p[3]]));
@@ -453,6 +467,7 @@ export function etendre(C, ext, n1, opts = {}) {
     const ctx = { cur: Number(au.slice(5, 7)), dmax: au, coupe: coupeN1(n1, au), avert: rap.avertissements };
     recalculer(W, A, ctx);
     for (const n of CONSTANTES) remplacer(C[n], W[n]);
+    if (W.PRODUITS_PAYS) remplacer(C.PRODUITS_PAYS, W.PRODUITS_PAYS);
     Object.assign(rap, {
       appliquee: true, dmax: au, du: [...A.jours].sort()[0] ?? null, au, jours: A.jours.size, lignes: lignes.length,
       ca: r2(A.ca), qte: A.qte,

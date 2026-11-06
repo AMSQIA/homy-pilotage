@@ -8,6 +8,9 @@
  *   - categorie : SKU_MONTHLY × PRODUCT_TO_CATEGORY (les 5 catégories du catalogue ; le reste = « Autres produits »)
  *   - sous      : SKU_MONTHLY × SKU_SOUS_SOUS_FAMILLE (« sous-catégories » du catalogue, comme l'onglet Normes / Catégories)
  *
+ * S'y ajoute la liste des produits vendus dans un pays (produitsPays) : le seul croisement produit × pays vient des lignes de commandes de
+ * l'ODP (data/produits_pays.json, préparé par scripts/extension/preparer_produits_pays.mjs), prolongé comme PAYS_MONTHLY par les ventes Shopify.
+ *
  * Les tableaux d'entrée sont ceux de App.jsx APRÈS le prolongement Shopify (extension.js) : les ventes Shopify y sont déjà ajoutées,
  * aux mêmes lignes que le fichier ODP. Le cube est donc toujours aligné sur les KPI du tableau de bord.
  *
@@ -239,6 +242,44 @@ export function replier(ents, n = NB_SERIES) {
   const mois = zeros(12); let total = 0;
   for (const x of reste) { for (let i = 0; i < 12; i++) mois[i] += x.mois[i]; total += x.total; }
   return { visibles, autres: { nom: null, mois, total, nb: reste.length } };
+}
+
+/* ------------------------------------------------------------------------------------------------ produits vendus par pays */
+/**
+ * Lignes [produit, pays, marketplace, mois (1-12), CA HT, quantité] — des NOMS, pas des index, pour ne dépendre ni de l'ordre de SKU_PRODUIT
+ * ni de SKU_MPS — décodées du fichier data/produits_pays.json (schéma 1 : dictionnaires `produits`, `pays`, `mp` + `lignes` indexées).
+ * Fichier absent, vide ou d'un autre schéma : aucune ligne (la carte « Produits vendus » dit alors que le détail n'est pas disponible).
+ */
+export function decoderProduitsPays(j) {
+  if (!j || j.schema !== 1 || !Array.isArray(j.lignes) || !Array.isArray(j.produits) || !Array.isArray(j.pays) || !Array.isArray(j.mp)) return [];
+  return j.lignes.map(([p, c, m, mo, ca, q]) => [j.produits[p], j.pays[c], j.mp[m], mo, ca, q]);
+}
+
+/**
+ * Produits vendus : cumul par produit des ventes d'un pays (pays = null : tous les pays), d'une marketplace (mp = null : toutes, site web compris)
+ * et d'une année — celle des `lignes` ; l'appelant vérifie qu'elle est bien l'année affichée.
+ *  exclure : pays écartés du calcul (ex. ["France"]), comme dans les autres vues.
+ * Renvoie { lignes: [{ nom, ca, qte }] (non classées), ca, qte } — ca et qte = totaux de la sélection, égaux à ceux du classement par pays.
+ */
+export function produitsPays(lignes, { pays = null, mp = null, exclure = null } = {}) {
+  const ex = exclusion(exclure);
+  const par = new Map();
+  let ca = 0, qte = 0;
+  for (const [nom, p, m, , c, q] of lignes || []) {
+    if (pays !== null && p !== pays) continue;
+    if (ex && ex.has(p)) continue;
+    if (mp !== null && m !== mp) continue;
+    let a = par.get(nom);
+    if (!a) { a = { nom, ca: 0, qte: 0 }; par.set(nom, a); }
+    a.ca += c; a.qte += q; ca += c; qte += q;
+  }
+  return { lignes: [...par.values()], ca, qte };
+}
+
+/** Classe les produits par la mesure choisie (« ca » ou « qte »), puis par l'autre mesure, puis par nom : l'ordre est déterministe. */
+export function classerProduits(lignes, mesure) {
+  const a = mesure === "qte" ? "qte" : "ca", b = a === "qte" ? "ca" : "qte";
+  return [...lignes].sort((x, y) => y[a] - x[a] || y[b] - x[b] || (x.nom < y.nom ? -1 : x.nom > y.nom ? 1 : 0));
 }
 
 /** Mois en cours d'après le dernier jour de données : { an, mois (1-12), jour, joursDuMois, partiel }. */

@@ -1,5 +1,31 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 6 novembre 2026 — « Produits vendus » par pays (Répartitions › Pays)
+
+**Demande** : « voir les noms des produits vendus + quantités par pays ».
+
+**Ce qui change** : une carte **Produits vendus** s'ajoute au découpage **Pays** de Marques & Produits › Répartitions, entre le graphique/classement et le détail par marketplace. Elle liste les produits du pays
+choisi — nom, **quantités**, **CA HT** et part — classés par la mesure de l'onglet (CA HT ou Quantités). Sans pays choisi : tous les pays (ou « Hors France » quand ce bouton est actif).
+
+- Le pays se choisit dans la carte (liste native : roue sur iPhone, liste sur Android) **ou** en touchant sa ligne dans le classement : les deux restent synchronisés, et le détail par marketplace suit aussi.
+- La carte suit le filtre marketplace global et la marketplace touchée dans le détail (France × Amazon FR, Belgique × Maxeda…). Les noms sont écrits en entier (retour à la ligne sur téléphone, rien n'est coupé) ;
+  la liste défile (420 px max). Le total retombe sur le classement du pays (quantités exactes, CA à quelques centimes près) ; si ce n'était plus le cas, une ligne orange le dirait.
+- **2026 seulement.** Les lignes de commandes 2025 n'existent que pour 178 des 220 cellules pays × marketplace × mois du socle 2025 (Cdiscount, par exemple, y manque) : rien n'est estimé, la carte
+  l'explique. Pour avoir 2025, il faut l'export complet des lignes 2025.
+
+**Données** : `data/produits_pays.json` (nouveau, 169 Ko, une ligne par enregistrement) — les lignes de l'ODP 2026 par **produit × pays × marketplace × mois**, CA HT au 1/10 000 € (la somme de 6 266 cellules arrondies
+au centime dériverait de plusieurs dizaines de centimes). Les constantes de `App.jsx` ne croisaient jamais produit et pays. Préparé par `node scripts/extension/preparer_produits_pays.mjs <export LIGNES ODP 2026.csv> [--ecrire]`,
+qui **refuse d'écrire** si les cumuls ne retombent pas, au centime et à l'unité, sur `SKU_MONTHLY` (produit × marketplace × mois : 4 863 cellules) et sur `PAYS_MONTHLY` (pays × marketplace × mois : 341 lignes) :
+au 3 octobre, 74 632 lignes, 7 509 325,69 € HT, 80 787 unités, **0 écart**. Au chargement, `decoderProduitsPays` (`repartitions.js`) en fait des lignes `[produit, pays, marketplace, mois, CA HT, quantité]` (des noms,
+pas des index : le fichier ne dépend pas de l'ordre de `SKU_PRODUIT`) et `extension.js` y ajoute les ventes Shopify comme à `PAYS_MONTHLY` (même atomicité). `produitsPays` / `classerProduits` (`repartitions.js`) calculent la liste.
+
+**Après un nouvel export ODP** (constantes de `App.jsx` régénérées) : relancer `node scripts/extension/preparer_produits_pays.mjs <export LIGNES ODP 2026.csv> --ecrire`. Sans cela, `selftest.mjs` échoue
+(« produits_pays.json ≠ PAYS_MONTHLY du socle ») et la carte affiche son avertissement orange tant que les totaux diffèrent de plus de 1 €.
+
+**Fichiers** : `data/produits_pays.json` (nouveau), `scripts/extension/preparer_produits_pays.mjs` (nouveau), `repartitions.js`, `extension.js`, `App.jsx` (carte `RepProduitsPays`, textes en 4 langues),
+`scripts/extension/lib_app.mjs`, `build_n1.mjs` (exporte ses petits utilitaires), `selftest.mjs` (§ 3 ter : 94 contrôles, dont chaque pays × chaque marketplace retombe sur le classement), `smoke.mjs`
+(carte : pays choisi dans la carte et dans le classement, quantités, hors France, marketplace, 2025, 4 langues, mobile 390 et 360 px ; le contrôle du « mois en cours » du tableau n'est plus figé sur octobre).
+
 ## Mise à jour du 24 octobre 2026 (soir) — navigation mobile allégée et figée
 
 **Demande** : « La barre de navigation est insupportable sur mobile, peux-tu optimiser et figer. »
