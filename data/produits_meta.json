@@ -4,7 +4,10 @@
   "skus": {
     "HR10-CV05W": "ARIA VERTICAL 1500W",
     "HR-T17W-PACK": "PACK MILLA (3 radiateurs)",
-    "HT15-24FERL": "STELLINA 1500W"
+    "HT15-24FERL": "STELLINA 1500W",
+    "HR10-T09FJW": "ARYNA 1000W",
+    "HR15-T09FJW": "ARYNA 1500W",
+    "HR20-T09FJW": "ARYNA 2000W"
   },
   "produits": {
     "ALBA 1000W": ["Bestherm","CE"],
@@ -179,9 +182,15 @@
     "WIND NOIR": ["Bestherm",null],
     "ZOE 1000W": ["Bestherm",null],
     "ZOE 1500W": ["Bestherm","CE"],
-    "ZOE 2000W": ["Bestherm","CE"]
+    "ZOE 2000W": ["Bestherm","CE"],
+    "ARYNA 1000W": ["Bestherm","NF"],
+    "ARYNA 1500W": ["Bestherm","NF"],
+    "ARYNA 2000W": ["Bestherm","NF"]
   },
   "attributs": {
-    "STELLINA 1500W": {"destockage":false,"famille":"Fixe heater","wifi":false,"plinthe":false,"vertical":false,"sous_famille":"Céramique","sous_sous_famille":"Céramique  + PIR + Lumière","categorie":"Radiateur électrique fixe"}
+    "STELLINA 1500W": {"destockage":false,"famille":"Fixe heater","wifi":false,"plinthe":false,"vertical":false,"sous_famille":"Céramique","sous_sous_famille":"Céramique  + PIR + Lumière","categorie":"Radiateur électrique fixe"},
+    "ARYNA 1000W": {"destockage":false,"famille":"Fixe heater","wifi":true,"plinthe":false,"vertical":false,"sous_famille":"Connecté","sous_sous_famille":"Connecté","categorie":"Radiateur électrique fixe"},
+    "ARYNA 1500W": {"destockage":false,"famille":"Fixe heater","wifi":true,"plinthe":false,"vertical":false,"sous_famille":"Connecté","sous_sous_famille":"Connecté","categorie":"Radiateur électrique fixe"},
+    "ARYNA 2000W": {"destockage":false,"famille":"Fixe heater","wifi":true,"plinthe":false,"vertical":false,"sous_famille":"Connecté","sous_sous_famille":"Connecté","categorie":"Radiateur électrique fixe"}
   }
 }
