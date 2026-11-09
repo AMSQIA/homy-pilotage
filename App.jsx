@@ -1320,6 +1320,7 @@ function suiviDonnees() {
     n1Connait: (mp) => n1Mps.has(mp) && mp !== "Autre", // « Autre » 2025 (ODP) regroupe des marketplaces désormais nommées une à une : pas comparable
     parcourir: (d, f) => { for (const l of jour.get(d) || []) { const p = E.produits[l[2]]; f(E.mp[l[1]], p[0], p[1], l[4], l[5]); } },
     parcourirPays: (d, f) => { for (const l of jour.get(d) || []) f(E.pays[l[3]] || null, E.mp[l[1]], l[5]); },
+    parcourirMpPays: (d, f) => { for (const l of jour.get(d) || []) f(E.mp[l[1]], E.pays[l[3]] || null, l[4], l[5]); }, // marketplace × pays de livraison : quantité, CA
     parcourirN1: (d, f) => { for (const l of an1.get(d) || []) f(N.mp[l[1]], N.produits[l[2]], N.marques[l[3]], l[4], l[5]); },
     parcourirPaysN1: null, // le fichier 2025 n'a pas de détail par pays
     // séries journalières (CA HT du périmètre) dont on tire le poids habituel de chaque jour de la semaine : 2026 d'après les lignes Shopify, 2025 d'après
@@ -1420,7 +1421,12 @@ function suiviCalc(S, du, au, mpF, semaine = false) { // semaine : l'an dernier 
       const site = mp === SUIVI_SITE;
       if (site) cSite += ca; else cMp += ca;
       cumuler(prod, nom, marque, qte, ca, site);
-      const cn = canaux.get(mp); if (cn) { cn.ca += ca; cn.qte += qte; } else canaux.set(mp, { nom: mp, ca, qte });
+    });
+    // canaux de vente du top 10 : chaque marketplace est découpée par pays de livraison (Leroy Merlin Espagne, Amazon Italie…) ; le site web reste entier
+    S.parcourirMpPays(d, (mp, pn, qte, ca) => {
+      if (!garde(mp)) return;
+      const site = mp === SUIVI_SITE, cle = site || !pn ? mp : `${mp} · ${pn}`;
+      const cn = canaux.get(cle); if (cn) { cn.ca += ca; cn.qte += qte; } else canaux.set(cle, { nom: cle, mp, pays: site ? null : pn, ca, qte });
     });
     S.parcourirPays(d, (pn, mp, ca) => { if (garde(mp)) pays.set(pn, (pays.get(pn) || 0) + ca); });
     const dN1 = decale(d);
@@ -1449,9 +1455,10 @@ function suiviCalc(S, du, au, mpF, semaine = false) { // semaine : l'an dernier 
   // (le site web : depuis sa première vente Shopify ; une marketplace : si le fichier de l'an dernier la connaît) — jamais sur une base incomplète
   const topMp = [...canaux.values()].sort((a, b) => b.ca - a.ca).slice(0, SUIVI_MP_VISIBLES).map((c) => {
     const site = c.nom === SUIVI_SITE;
-    const comparable = mode !== "aucun" && (site ? siteOk : S.debutN1 !== null && n1Du >= S.debutN1 && S.n1Connait(c.nom));
-    const ref = comparable ? canauxN1.get(c.nom) || 0 : null;
-    return { nom: c.nom, site, ca: c.ca, qte: c.qte, part: totAll > 0 ? (c.ca / totAll) * 100 : 0,
+    // le fichier 2025 n'a pas de détail par pays : pas de comparaison pour un canal découpé par pays (pays non nul)
+    const comparable = mode !== "aucun" && (site ? siteOk : !c.pays && S.debutN1 !== null && n1Du >= S.debutN1 && S.n1Connait(c.mp));
+    const ref = comparable ? canauxN1.get(c.mp) || 0 : null;
+    return { nom: c.nom, mp: c.mp, pays: c.pays, site, ca: c.ca, qte: c.qte, part: totAll > 0 ? (c.ca / totAll) * 100 : 0,
       delta: suiviVariation(c.ca, ref), deltaEur: ref === null || (ref === 0 && c.ca === 0) ? null : c.ca - ref, nouveau: ref === 0 && c.ca > 0 };
   });
   const somme = (m) => { let s = 0; for (const v of m.values()) s += v; return s; };
@@ -1568,7 +1575,7 @@ function SuiviQuotidien({ t, lang, mpF, accent }) {
   const ongletVu = onglet === "mp" && !montrerMp ? "top" : onglet;
   const maxCaMp = R.topMp.length ? R.topMp[0].ca : 0;
   const colVarMp = R.topMp.some((c) => c.delta !== null || c.nouveau), colEcartMp = R.topMp.some((c) => c.deltaEur !== null);
-  const libelleCanal = (c) => (c.site ? t.donnees_site : c.nom === "Autre" ? t.suivi_autres : c.nom);
+  const libelleCanal = (c) => (c.site ? t.donnees_site : c.mp === "Autre" ? (c.pays ? `${t.suivi_autres} · ${c.pays}` : t.suivi_autres) : c.nom);
 
   const bulle = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;

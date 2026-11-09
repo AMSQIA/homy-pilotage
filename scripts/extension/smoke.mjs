@@ -168,8 +168,8 @@ function suiviAttendu(E, n, jourSel, mpF, semaine = false) {
     const site = ext.mp[im] === "Site Web", nom = ext.produits[ip][0];
     if (site) r.site += c; else { r.mp += c; cumul(r.prodMp, nom, c); }
     cumul(r.prod, nom, c);
-    cumul(r.canal, ext.mp[im], c); cumul(r.canalQte, ext.mp[im], q);
-    const pa = ext.pays[ipa] ?? null; r.pays[pa] = (r.pays[pa] || 0) + c;
+    const pa = ext.pays[ipa] ?? null, cle = site || !pa ? ext.mp[im] : `${ext.mp[im]} · ${pa}`; // canal = marketplace × pays de livraison (le site web reste entier)
+    cumul(r.canal, cle, c); cumul(r.canalQte, cle, q); r.pays[pa] = (r.pays[pa] || 0) + c;
   }
   const a = semaine ? addJ(du, -364) : jourAn(du), b = semaine ? addJ(au, -364) : jourAn(au); // semaine : même jour de la semaine l'an dernier
   for (const [d, im, ip, , , c] of N1.lignes) if (d >= a && d <= b && N1.mp[im] !== "Site Web" && garde(N1.mp[im])) { r.n1.mp += c; cumul(r.prodN1, N1.produits[ip], c); cumul(r.prodN1Mp, N1.produits[ip], c); cumul(r.canalN1, N1.mp[im], c); }
@@ -179,7 +179,8 @@ function suiviAttendu(E, n, jourSel, mpF, semaine = false) {
   if (r.mode === "aucun") r.n1.mp = 0;
   r.total = r.mp + r.site;
   // canal comparable avec l'an dernier : le site web non (pas d'historique l'an dernier), « Autre » non (autre définition), une marketplace absente de 2025 non
-  r.comparable = (nom) => r.mode !== "aucun" && nom !== "Site Web" && nom !== "Autre" && N1.mp.includes(nom);
+  // un canal découpé par pays (« Leroy Merlin · Espagne ») n'a pas de comparaison : le fichier 2025 n'a pas de détail par pays
+  r.comparable = (nom) => r.mode !== "aucun" && nom !== "Site Web" && nom !== "Autre" && !nom.includes(" · ") && N1.mp.includes(nom);
   return r;
 }
 
@@ -236,7 +237,7 @@ function comparerCanaux(s, A, etiquette) {
     ok(l && l.nom === nom && proche(l.ca, ca, 1.5), `top 10 marketplaces, rang ${i + 1} : « ${l && l.nom} » ${l && l.ca} € ≠ « ${nom} » ${Math.round(ca)} €`);
     if (!l) return;
     const txt = norm(l.texte), cur = ca, ref = A.canalN1[nom] || 0;
-    ok(contient(txt, libelle[nom] || nom), `top 10 marketplaces, « ${nom} » : libellé absent (${txt})`);
+    ok(contient(txt, nom.startsWith("Autre · ") ? nom.replace("Autre", "Autres") : libelle[nom] || nom), `top 10 marketplaces, « ${nom} » : libellé absent (${txt})`);
     ok(contient(txt, `${fmtNum(ca)} €`), `top 10 marketplaces, « ${nom} » : montant ${fmtNum(ca)} € absent (${txt})`);
     ok(contient(txt, `${((ca / A.total) * 100).toFixed(1)} %`), `top 10 marketplaces, « ${nom} » : part ${((ca / A.total) * 100).toFixed(1)} % absente (${txt})`);
     ok(contient(txt, `${fmtNum(A.canalQte[nom] || 0)} u.`), `top 10 marketplaces, « ${nom} » : ${fmtNum(A.canalQte[nom] || 0)} u. absentes (${txt})`);
