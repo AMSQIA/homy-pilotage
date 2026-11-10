@@ -1346,6 +1346,8 @@ const SUIVI_SITE = "Site Web";
 const SUIVI_LIGNE_N1 = "#EDE7DB";
 const SUIVI_COULEURS_PAYS = ["#FF5A1F", "#4A9EFF", "#34D399", "#FFB020", "#A78BFA", "#F472B6"];
 const SUIVI_PAYS_VISIBLES = 6;
+// Outil collaboratif « Sélection prix promo » (onglet Suivi Prix) : conservé mais retiré de l'app en ligne le 10/11/2026 — true pour le réafficher
+const PROMO_OUTIL_VISIBLE = false;
 const SUIVI_INTL_VISIBLES = 5; // top 5 des marketplaces internationales (bloc « Part du CA par pays »)
 const SUIVI_MP_VISIBLES = 10; // top 10 des canaux de vente : marketplaces, site web compris
 const suiviJour = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
@@ -6824,7 +6826,7 @@ function DashboardApp({ onLogout }) {
           <>
             <SectionHeader hint={t.suivi_prix_hint}>{t.suivi_prix}</SectionHeader>
 
-            <GlassCard className="p-5 mb-4 text-center" scrollReveal>
+            {PROMO_OUTIL_VISIBLE && (<GlassCard className="p-5 mb-4 text-center" scrollReveal>
               <div className="w-11 h-11 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: `${ORANGE}18` }}>
                 <ExternalLink size={18} color={ORANGE} />
               </div>
@@ -6835,7 +6837,7 @@ function DashboardApp({ onLogout }) {
                 style={{ background: `linear-gradient(135deg, ${ORANGE}, ${ORANGE_SOFT})`, color: "#0A0908" }}>
                 {t.promo_ouvrir_outil} <ExternalLink size={13} />
               </a>
-            </GlassCard>
+            </GlassCard>)}
 
             <GlassCard className="p-4 mb-4 flex flex-wrap items-center gap-3" quiet>
               <div className="flex items-center gap-2 flex-1 min-w-[180px]">
