@@ -586,9 +586,11 @@ export function Essentiel({ d, onGo }) {
   // fraîcheur
   const fresh = [
     ["Leroy Merlin + enseignes Mirakl", `API · au ${d.cutoff}`, "ok"],
-    ["Amazon", "navigateur · figé au 28/10", "warn"],
+    ["Amazon", "rapport de transactions · au 09/11", "warn"],
     ["Cdiscount", "navigateur · figé au 28/10", "warn"],
+    ["ManoMano", "relevés · figés à fin septembre", "warn"],
     ["Site bestherm.fr", `app de pilotage · au ${d.cutoff}`, "ok"],
+    ["Autres canaux (Darty, Maxeda BE, Bol.com…)", `ventes Shopify au ${d.cutoff} · commission estimée`, "warn"],
     ["Transport & supply chain", `réel jusqu’à ${P.sup_last ? moisFR(P.sup_last) : "?"}, prolongé ensuite`, "warn"],
     ["Prix d’achat", "base produits supply chain · 27/10", "ok"],
   ];
