@@ -202,3 +202,15 @@ inattendue, total du jour, couverture, régression) · **3** résultats manquant
   moyen peut s'écarter d'un à deux euros d'un recalcul complet sur un nouvel export ODP, qui le remplace.
 - La coupe N-1 des 2 ans en arrière (2024) n'est plus affichée une fois l'application prolongée.
 - `data/n1_2025.json` couvre octobre → décembre 2025 ; l'extension est limitée à l'année 2026 (changement d'année : mise à jour à prévoir).
+
+## Corrections d'après les back-offices marketplaces
+
+Shopify ne voit pas les commandes annulées ou refusées côté marketplace. Le fichier `data/corrections_marketplaces.json`
+liste des **plafonds** `[jour, marketplace, produit, pays, quantité max]` relevés dans les back-offices (Mirakl ADEO,
+Toolbox ManoMano). Ils sont réappliqués à chaque écriture de `shopify_extension.json` (`apply` comme `corriger`) :
+la quantité est ramenée au plafond, le CA HT et le nombre de lignes au prorata. Une référence brute restée sans produit
+est aussi rattachée à son produit dès qu'elle figure dans la table.
+
+    node scripts/extension/refresh_extension.mjs corriger [--dry-run]   # réapplique les corrections sans nouvelle extraction
+
+Amazon : les commandes expédiées par Amazon (FBA) ne sont pas visibles dans Seller Central, donc aucun plafond.

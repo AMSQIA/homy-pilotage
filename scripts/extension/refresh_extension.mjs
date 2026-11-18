@@ -41,6 +41,7 @@ const APP = path.join(RACINE, "App.jsx");
 const FICHIER = path.join(RACINE, "shopify_extension.json");
 const META = path.join(RACINE, "data", "produits_meta.json");
 const N1 = path.join(RACINE, "data", "n1_2025.json");
+const CORRECTIONS = path.join(RACINE, "data", "corrections_marketplaces.json");
 
 /* ------------------------------------------------------------------ réglages */
 export const CFG = {
@@ -171,6 +172,7 @@ export function lireApp() {
     src, dmaxOdp: dm[2], meta, codes, enFr, precedent,
     produits: new Set(grabConst(src, "SKU_PRODUIT")), mps: new Set(grabConst(src, "SKU_MPS")),
     n1: fs.existsSync(N1) ? JSON.parse(fs.readFileSync(N1, "utf8")) : null,
+    corrections: fs.existsSync(CORRECTIONS) ? lire(CORRECTIONS, "corrections marketplaces") : null,
   };
 }
 
@@ -616,7 +618,7 @@ export function fusionner(app, precedent, blocs, today, garderOdp = false) {
     if (b && l.d >= b.plan.du && l.d <= b.plan.au) continue; // jour (re)extrait : remplacé
     garde.push(l);
   }
-  let toutes = [...garde, ...nouvelles];
+  let toutes = corriger([...garde, ...nouvelles], app);
   if (!garderOdp) toutes = toutes.filter((l) => l.d > app.dmaxOdp);
   toutes.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.mp < b.mp ? -1 : a.mp > b.mp ? 1 : a.produit < b.produit ? -1 : a.produit > b.produit ? 1 : a.pays < b.pays ? -1 : a.pays > b.pays ? 1 : 0));
   // dictionnaires
@@ -647,6 +649,34 @@ export function fusionner(app, precedent, blocs, today, garderOdp = false) {
     mp, pays, produits,
     lignes: toutes.map((l) => [l.d, iMp.get(l.mp), iProd.get(l.produit), iPays.get(l.pays), l.qte, r2(l.ca), l.nl]),
   };
+}
+
+/*
+ * Corrections issues des back-offices marketplaces (data/corrections_marketplaces.json), réappliquées à chaque écriture :
+ *  1. une référence brute restée sans produit (référence ajoutée depuis à la table) est rattachée à son produit ;
+ *  2. « plafonds » [jour, marketplace, produit, pays, quantité max] : commandes annulées ou refusées sur la marketplace,
+ *     que Shopify continue de compter. La quantité est ramenée au plafond, le CA et le nombre de lignes au prorata.
+ * Idempotent : un plafond déjà respecté ne change rien.
+ */
+export function corriger(lignes, app) {
+  const m = new Map();
+  for (const l0 of lignes) {
+    let l = l0;
+    const nom = app.codes?.get(normaliserSku(String(l.produit)).toUpperCase());
+    if (nom && nom !== l.produit) l = { ...l, produit: nom };
+    const k = `${l.d}\u0000${l.mp}\u0000${l.produit}\u0000${l.pays}`;
+    const a = m.get(k);
+    if (a) { a.qte += l.qte; a.ca += l.ca; a.nl += l.nl; } else m.set(k, { ...l });
+  }
+  for (const [d, mp, produit, pays, max] of app.corrections?.plafonds ?? []) {
+    const k = `${d}\u0000${mp}\u0000${produit}\u0000${pays}`;
+    const a = m.get(k);
+    if (!a || a.qte <= max) continue;
+    if (max <= 0) { m.delete(k); continue; }
+    const f = max / a.qte;
+    a.ca = r2(a.ca * f); a.nl = Math.max(1, Math.round(a.nl * f)); a.qte = max;
+  }
+  return [...m.values()];
 }
 
 function decoderAncien(ext) {
@@ -786,7 +816,18 @@ async function main() {
     if (erreurs.length) { console.error(`Boutique(s) en échec, chiffres de la veille conservés : ${erreurs.join(" | ")}`); return 0; }
     return 0;
   }
-  console.error("Commandes : check | plan | apply | status   (voir scripts/extension/README.md)");
+  if (cmd === "corriger") {
+    if (!app.precedent) throw new Echec("Extraction vide : rien à corriger", 1);
+    const neuf = fusionner(app, app.precedent, {}, app.precedent.extrait_le);
+    neuf.extrait_a = app.precedent.extrait_a; // la date d'extraction Shopify ne change pas
+    const v = validerExtension(neuf, app.dmaxOdp);
+    if (!v.ok) throw new Echec(`Extraction corrigée invalide : ${v.erreurs.join(" ; ")}`, 1);
+    console.log(resume(neuf, app));
+    const n = ecrire(neuf, o.out ?? FICHIER, o.dry);
+    console.log(`OK · corrections appliquées · ${path.relative(RACINE, o.out ?? FICHIER)} ${n ? "mis à jour" : "inchangé"}.`);
+    return 0;
+  }
+  console.error("Commandes : check | plan | apply | status | corriger   (voir scripts/extension/README.md)");
   return 1;
 }
 
