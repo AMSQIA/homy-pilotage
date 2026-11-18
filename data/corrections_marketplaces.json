@@ -1,0 +1,243 @@
+{
+ "schema": 1,
+ "description": "Corrections des ventes Shopify d'après les back-offices marketplaces (commandes annulées ou refusées que Shopify compte encore). Plafonds : [jour, marketplace, produit, pays, quantité max]. Réappliquées à chaque actualisation par refresh_extension.mjs.",
+ "verifie_le": "2026-11-18",
+ "sources": {
+  "Leroy Merlin / Technomat": "back-office Mirakl ADEO, commandes du 04/10 au 16/11/2026",
+  "ManoMano": "Toolbox ManoMano, commandes du 04/10 au 16/11/2026",
+  "Amazon": "Seller Central (expédiées par le vendeur) : totaux conformes à Shopify sur la période, aucun plafond (les commandes FBA n'y sont pas visibles)"
+ },
+ "plafonds": [
+  [
+   "2026-10-04",
+   "Leroy Merlin",
+   "ARIA 1500W NOIR",
+   "France",
+   4
+  ],
+  [
+   "2026-10-10",
+   "Leroy Merlin",
+   "MILLA 1000W BLANC",
+   "France",
+   22
+  ],
+  [
+   "2026-10-12",
+   "Leroy Merlin",
+   "MOTU 1000W",
+   "France",
+   2
+  ],
+  [
+   "2026-10-13",
+   "Leroy Merlin",
+   "ARIA 1500W",
+   "France",
+   10
+  ],
+  [
+   "2026-10-14",
+   "Leroy Merlin",
+   "TANIN 1000W",
+   "France",
+   39
+  ],
+  [
+   "2026-10-15",
+   "Leroy Merlin",
+   "ALBA 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-15",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-17",
+   "Leroy Merlin",
+   "HESTIA 500+ B 500W+1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-19",
+   "Leroy Merlin",
+   "ALBA 1500W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-19",
+   "Leroy Merlin",
+   "ARIA 1000W NOIR",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-19",
+   "Leroy Merlin",
+   "ARIA 500W BLANC",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-20",
+   "Leroy Merlin",
+   "ARIA PLINTHE 1500W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-10-23",
+   "Leroy Merlin",
+   "ARIA VERTICAL 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-02",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-03",
+   "Leroy Merlin",
+   "ALBA 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-06",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "France",
+   20
+  ],
+  [
+   "2026-11-06",
+   "Leroy Merlin",
+   "ARIA 500W BLANC",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-06",
+   "Leroy Merlin",
+   "ARIA VERTICAL 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-06",
+   "Leroy Merlin",
+   "CALISTA BLANC",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-08",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-08",
+   "Leroy Merlin",
+   "ARIA 500W BLANC",
+   "France",
+   38
+  ],
+  [
+   "2026-11-09",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-09",
+   "Leroy Merlin",
+   "ARIA 500W BLANC",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-11",
+   "Leroy Merlin",
+   "ARIA 1000W",
+   "Espagne",
+   3
+  ],
+  [
+   "2026-11-11",
+   "Leroy Merlin",
+   "ILLO 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-11",
+   "Leroy Merlin",
+   "ILLO 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-12",
+   "Leroy Merlin",
+   "ILLO 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-13",
+   "Leroy Merlin",
+   "ILLO 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-14",
+   "Leroy Merlin",
+   "ILLO 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-15",
+   "Leroy Merlin",
+   "ARIA 2000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-15",
+   "Leroy Merlin",
+   "HESTIA NOIR 500W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-15",
+   "Leroy Merlin",
+   "ILLO 1000W",
+   "Pologne",
+   0
+  ],
+  [
+   "2026-11-16",
+   "Leroy Merlin",
+   "ARIA 1000W",
+   "France",
+   118
+  ]
+ ]
+}
