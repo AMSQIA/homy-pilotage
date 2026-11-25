@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { FinanceTab, unlockFinance, storeFinanceKey, getFinanceKey, clearFinanceKey, loadFinancePayload } from "./Finance.jsx";
 import { toneMargin } from "./FinanceViz.jsx"; // onglet « Analyse financière », visible seulement après connexion avec le code dédié (données chiffrées)
+import { AdsDetailMarketplace, aDetailAds } from "./AdsMarketplace.jsx"; // Campagnes Ads › détail par marketplace (mois, produits, mots-clés, jour par jour) — données data/ads/*.json
 import { etendre } from "./extension.js"; // prolongement du tableau de bord par les ventes Shopify (voir « PROLONGEMENT SHOPIFY »)
 import SHOPIFY_EXT from "./shopify_extension.json"; // ventes des deux boutiques Shopify après la dernière ligne ODP (actualisé chaque matin)
 import STOCK from "./data/stock.json"; // inventaire mensuel (quantités par lieu, sans valeur) — couverture de stock
@@ -381,7 +382,7 @@ function EntryGate({ onUnlock }) {
 }
 
 /* ============================================================================ MOTION + 3D */
-function TiltCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, index = 0, scrollReveal = false }) {
+function TiltCard({ children, className = "", glow = false, glowColor, quiet = false, style = {}, index = 0, scrollReveal = false, onClick, ariaLabel }) {
   const accent = useContext(AccentContext);
   const effectiveGlow = glowColor || accent.primary;
   const ref = useRef(null);
@@ -396,7 +397,8 @@ function TiltCard({ children, className = "", glow = false, glowColor, quiet = f
   const onLeave = () => setTilt({ x: 0, y: 0 });
   return (
     <div ref={scrollReveal ? setRefs : ref} onMouseMove={onMove} onMouseLeave={onLeave}
-      className={`relative rounded-2xl backdrop-blur-xl tilt-card ${scrollReveal ? `scroll-reveal ${isVisible ? "is-visible" : ""}` : "card-reveal"} ${className}`}
+      {...(onClick ? { onClick, role: "button", tabIndex: 0, "aria-label": ariaLabel, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } } : {})}
+      className={`relative rounded-2xl backdrop-blur-xl tilt-card ${onClick ? "cursor-pointer" : ""} ${scrollReveal ? `scroll-reveal ${isVisible ? "is-visible" : ""}` : "card-reveal"} ${className}`}
       style={{
         background: quiet ? PANEL_QUIET : PANEL, border: `1px solid ${quiet ? PANEL_BORDER_QUIET : PANEL_BORDER}`,
         boxShadow: glow
@@ -655,8 +657,9 @@ function YoyBadge({ pct, size = "normal", naLabel = "non comparable", lang = "fr
   );
 }
 /* ligne de liste avec entrée en cascade (rejoue à chaque montage, donc à chaque changement d'onglet) */
-function StaggerRow({ children, index, style = {}, className = "" }) {
-  return <div className={`stagger-row ${className}`} style={{ animationDelay: `${index * 35}ms`, ...style }}>{children}</div>;
+function StaggerRow({ children, index, style = {}, className = "", onClick, ariaLabel }) {
+  const clic = onClick ? { onClick, role: "button", tabIndex: 0, "aria-label": ariaLabel, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } } : {};
+  return <div {...clic} className={`stagger-row ${onClick ? "cursor-pointer" : ""} ${className}`} style={{ animationDelay: `${index * 35}ms`, ...style }}>{children}</div>;
 }
 
 // correspondance entre les noms canoniques (ventes) et les noms utilisés côté ads,
@@ -4500,6 +4503,7 @@ function DashboardApp({ onLogout }) {
   });
   const [demoMode, setDemoMode] = useState(false);
   const [demoFactorValue, setDemoFactorValue] = useState(1);
+  const [adsOuvert, setAdsOuvert] = useState(null); // ligne DATA.ads de la marketplace ouverte en détail (onglet Campagnes Ads)
   // réassignation synchrone de la variable de module fmtEUR/fmtNum lisent —
   // se produit en tout début du rendu, donc déjà à jour pour tout le JSX qui
   // suit dans cette même passe (voir commentaire près de la déclaration)
@@ -7116,13 +7120,19 @@ function DashboardApp({ onLogout }) {
             <div className="mb-2">
               <SectionHeader hint={t.budget_pub_mp_hint}>{t.budget_pub_mp}</SectionHeader>
             </div>
+            <div className="flex items-center gap-1.5 mb-3 text-[11px]" style={{ color: FAINT }}>
+              <Info size={11} /> {lang === "en" ? "Tap a marketplace to open its detail. “Detail”: monthly, products, keywords and daily figures from the ad platform reports."
+                : lang === "es" ? "Toca un marketplace para abrir su detalle. «Detalle»: mes a mes, productos, palabras clave y día a día según los informes de la plataforma publicitaria."
+                : lang === "zh" ? "点击平台查看明细。“明细”：来自广告平台报告的按月、产品、关键词和按天数据。"
+                : "Touchez une marketplace pour ouvrir son détail. « Détail » : mois par mois, produits, mots-clés et jour par jour d'après les rapports de la régie."}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               {adsWithRemaining.map((a, i) => {
                 const pct = Math.min(100, (a.spend / a.budget_annuel) * 100);
                 const r = 34, circ = 2 * Math.PI * r;
                 const color = pct > 80 ? RED : pct > 50 ? AMBER : GREEN;
                 return (
-                  <TiltCard key={a.marketplace} className={`p-4 flex items-center gap-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} scrollReveal>
+                  <TiltCard key={a.marketplace} className={`p-4 flex items-center gap-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} scrollReveal onClick={() => setAdsOuvert(a)} ariaLabel={a.marketplace}>
                     <svg viewBox="0 0 80 80" width="72" height="72" className="shrink-0">
                       <circle cx="40" cy="40" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
                       <circle cx="40" cy="40" r={r} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
@@ -7130,12 +7140,13 @@ function DashboardApp({ onLogout }) {
                         style={{ transition: "stroke-dasharray 0.9s cubic-bezier(.22,1,.36,1)" }} />
                       <text x="40" y="45" textAnchor="middle" fontSize="17" fontWeight="700" fill={INK} fontFamily="'Inter', sans-serif" letterSpacing="-0.02em">{pct.toFixed(0)}%</text>
                     </svg>
-                    <div className="min-w-0">
-                      <div className="text-[12.5px] font-semibold truncate">{a.marketplace}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0"><span className="text-[12.5px] font-semibold truncate">{a.marketplace}</span>{aDetailAds(a.marketplace) && <span className="text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: `${ORANGE}22`, color: ORANGE }}>{lang === "en" ? "Detail" : lang === "es" ? "Detalle" : lang === "zh" ? "明细" : "Détail"}</span>}</div>
                       <div className="text-[11px] mt-1" style={{ color: MUTED }}>{t.depense_lbl} <span className="tabular-nums">{fmtEURk(a.spend)}</span></div>
                       <div className="text-[11px]" style={{ color: MUTED }}>{t.budget_lbl} <span className="tabular-nums">{fmtEURk(a.budget_annuel)}</span></div>
                       <div className="text-[11px] font-semibold" style={{ color: GREEN }}>{t.restant_lbl} <span className="tabular-nums">{fmtEURk(a.remaining)}</span></div>
                     </div>
+                    <ChevronRight size={15} className="shrink-0" style={{ color: FAINT }} />
                   </TiltCard>
                 );
               })}
@@ -7147,8 +7158,8 @@ function DashboardApp({ onLogout }) {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {top3Ads.map((a, i) => (
-                <TiltCard key={a.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} glow={i === 0} glowColor={mpAccent.primary} scrollReveal>
-                  <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-semibold">{a.marketplace}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
+                <TiltCard key={a.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} glow={i === 0} glowColor={mpAccent.primary} scrollReveal onClick={() => setAdsOuvert(a)} ariaLabel={a.marketplace}>
+                  <div className="flex items-center justify-between mb-2"><span className="flex items-center gap-1.5 min-w-0"><span className="text-[13px] font-semibold truncate">{a.marketplace}</span>{aDetailAds(a.marketplace) && <span className="text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: `${ORANGE}22`, color: ORANGE }}>{lang === "en" ? "Detail" : lang === "es" ? "Detalle" : lang === "zh" ? "明细" : "Détail"}</span>}</span><span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded" style={{ background: `${mpAccent.primary}22`, color: mpAccent.primary }}>#{i+1}</span></div>
                   <div className="tabular-nums text-[20px] font-bold">{fmtEURk(a.ca_genere)}</div>
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[11.5px]" style={{ color: MUTED }}>{fmtEURk(a.spend)} {t.depense_lbl.toLowerCase()}</span>
@@ -7163,7 +7174,7 @@ function DashboardApp({ onLogout }) {
                 <Eyebrow tone="quiet" hint={t.a_surveiller_hint}><span className="flex items-center gap-1.5" style={{ color: RED }}><AlertTriangle size={12} /> {t.a_surveiller}</span></Eyebrow>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                   {atRiskAds.map((a, i) => (
-                    <TiltCard key={a.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} style={{ borderColor: "rgba(248,113,113,0.25)" }} scrollReveal>
+                    <TiltCard key={a.marketplace} className={`p-4 ${i === 1 ? "reveal-d1" : i >= 2 ? "reveal-d2" : ""}`} style={{ borderColor: "rgba(248,113,113,0.25)" }} scrollReveal onClick={() => setAdsOuvert(a)} ariaLabel={a.marketplace}>
                       <div className="flex items-center justify-between"><span className="text-[13px] font-semibold">{a.marketplace}</span><span className="tabular-nums font-bold text-[15px]" style={{ color: RED }}>{a.roas}x</span></div>
                       <div className="text-[11.5px] mt-1" style={{ color: MUTED }}>{fmtEURplain(a.spend)} / {fmtEURplain(a.ca_genere)} {a.acos > 100 && <span style={{ color: RED }}> — {t.perte_nette} {a.acos}%)</span>}</div>
                     </TiltCard>
@@ -7175,7 +7186,7 @@ function DashboardApp({ onLogout }) {
             <Eyebrow tone="quiet" hint={t.reste_mp_ads_hint}>{t.reste_mp_ads}</Eyebrow>
             <GlassCard className="p-1.5" quiet scrollReveal>
               {restAdsList.map((a, i) => (
-                <StaggerRow key={a.marketplace} index={i} className="flex items-center gap-2 sm:gap-3 px-3 py-2.5" style={{ borderBottom: i < restAdsList.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }}>
+                <StaggerRow key={a.marketplace} index={i} className="flex items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.03]" style={{ borderBottom: i < restAdsList.length - 1 ? `1px solid ${PANEL_BORDER_QUIET}` : "none" }} onClick={() => setAdsOuvert(a)} ariaLabel={a.marketplace}>
                   <span className="text-[12.5px] min-w-0 flex-1 sm:flex-none sm:w-28 truncate" style={{ color: MUTED }}>{a.marketplace}</span>
                   <span className="text-[11.5px] tabular-nums w-14 sm:w-16 text-right shrink-0" style={{ color: FAINT }}>{fmtEURk(a.spend)}</span>
                   <span className="text-[11.5px] tabular-nums w-14 sm:w-16 text-right shrink-0" style={{ color: MUTED }}>{fmtEURk(a.ca_genere)}</span>
@@ -7184,12 +7195,14 @@ function DashboardApp({ onLogout }) {
                     {a.pct_budget !== null && <div className="h-full rounded-full" style={{ width: `${Math.min(100, a.pct_budget)}%`, background: a.pct_budget > 60 ? RED : a.pct_budget > 35 ? AMBER : GREEN, transition: "width 0.8s cubic-bezier(.22,1,.36,1)" }} />}
                   </div>
                   <span className="text-[10.5px] tabular-nums w-10 text-right shrink-0" style={{ color: FAINT }}>{a.pct_budget !== null ? `${a.pct_budget.toFixed(0)}%` : "n/d"}</span>
+                  <ChevronRight size={13} className="shrink-0" style={{ color: FAINT }} />
                 </StaggerRow>
               ))}
             </GlassCard>
             {SOUS_INFOS && (<div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: FAINT }}><Info size={11} /> {t.pas_budget_n1}</div>)}
             </>
             )}
+            {adsOuvert && <AdsDetailMarketplace nom={adsOuvert.marketplace} ligne={adsOuvert} lang={lang} facteur={demoFactor} onClose={() => setAdsOuvert(null)} />}
           </>
         )}
         {tab === "concurrence" && (

@@ -1,5 +1,30 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 25 novembre 2026 — Campagnes Ads : détail par marketplace (Leroy Merlin France)
+
+**Demande** : « l'ajouter à l'app dans la partie advertising afin quand cliquant sur chaque marketplace j'ai ce niveau de détail » (analyse Sponsored Products Leroy Merlin France faite le même jour).
+
+**Ce qui change** : dans **Campagnes Ads**, chaque marketplace (anneaux de budget, top 3, « à surveiller », liste du bas) s'ouvre au toucher, ou au clavier avec Entrée, dans un panneau plein écran (fermeture : croix, Échap ou fond).
+Un repère **Détail** signale les marketplaces qui ont leurs rapports de régie importés : aujourd'hui **Leroy Merlin France** (Sponsored Products 3P + 1P, données au 22/11/2026).
+
+- Leroy Merlin France : périmètre Total | 3P | 1P ; dépense, CA attribué, ROAS, ACoS (% dépense / CA attribué), ROAS marginal, conversions, CPC, panier, comparés aux mêmes mois de 2025 ;
+  constats et plan d'action **recalculés sur les données à chaque import** (budget restant et rallonge, efficacité sur un an, produits à ROAS < 2, mois en cours vs mêmes jours 2025, Black Friday 2025, gamme locomotive,
+  catégories hors saison, mots-clés sans conversion, jour de la semaine) ; graphiques mensuels, ROAS année sur année, tableau mensuel complet ; dépense et ROAS par catégorie × mois ; produits de l'année avec action
+  (Accélérer, Maintenir, Optimiser, Couper, Volume faible) et ROAS mensuel des 15 plus financés ; jour par jour aligné sur le Black Friday (2025 vs 2026) ; 40 mots-clés les plus financés ; budgets ; méthode.
+- Les autres marketplaces affichent leur ligne du fichier budget marketing et ce qu'il faut importer pour avoir le même détail.
+- 2026 au 22/11 : 118 612 € dépensés, 834 393 € de CA attribué (ROAS 7,0). Le CA attribué est le « CA Web » de la régie (toute la marque, 15 jours après clic), pas le CA total de la marketplace.
+- Aucune marge ni rentabilité dans ce détail (dépense, CA attribué, ROAS : mêmes informations que le reste de l'onglet) ; le mode démo s'y applique.
+
+**Données** : `data/ads/leroy_merlin_fr.json` (79 Ko), préparé par `python3 scripts/ads/preparer_sp_leroy_merlin.py <dossier des rapports .xlsx> [--rallonge 17000 --rallonge-date 2026-10-30] [--ecrire]`.
+Le script lit les rapports mensuels (un par campagne) et les hebdomadaires du mois en cours, reconstitue le mois partiel, et **refuse d'écrire** si le cumul ne retombe pas sur le cumul officiel du rapport
+(tolérance : 5 € ou 0,01 % du cumul ; au 22/11 : 3P 108 830,88 € à +1,17 €, 1P 9 780,40 € à 0 €).
+
+**Mettre à jour** : télécharger les nouveaux rapports (mail de la régie Retail Media Leroy Merlin), relancer le script avec `--ecrire`, commiter sur `main`. **Ajouter une marketplace** : produire un fichier au même format
+dans `data/ads/` et l'ajouter à `DETAILS` dans `AdsMarketplace.jsx` (clé = nom de la ligne du fichier budget, ex. `"LEROY MERLIN ES"`).
+
+**Fichiers** : `AdsMarketplace.jsx` (nouveau, textes en 4 langues), `data/ads/leroy_merlin_fr.json` (nouveau), `scripts/ads/preparer_sp_leroy_merlin.py` (nouveau), `scripts/ads/test_detail_ads.mjs` (nouveau : ouverture depuis chaque
+emplacement, clavier, chiffres recalculés depuis le fichier, filtres, 4 langues, 1280/390/360 px sans débordement, fermeture), `App.jsx` (cartes et lignes cliquables, repère « Détail », `TiltCard` et `StaggerRow` acceptent un clic).
+
 ## Mise à jour du 6 novembre 2026 — « Produits vendus » par pays (Répartitions › Pays)
 
 **Demande** : « voir les noms des produits vendus + quantités par pays ».
@@ -486,6 +511,7 @@ ne s'affichent plus.
   marque, norme et attributs des produits, correspondances de références.
 - `scripts/extension/` — actualisation (`refresh_extension.mjs`), relais du site (`site_query.mjs`), tests (`selftest.mjs`,
   `smoke.mjs`, `test_mcp_site.mjs`), construction du fichier N-1 (`build_n1.mjs`) et mode d'emploi (`README.md`).
+- `AdsMarketplace.jsx` et `data/ads/` — détail Campagnes Ads par marketplace (voir la note du 25 novembre) ; `scripts/ads/` — préparation des données et test d'affichage.
 - `api/mcp-site.mjs` — relais MCP en lecture seule de la boutique Shopify du site web (voir la note du 15 octobre).
 - `api/marketplaces.mjs` — relais en lecture seule des API vendeur d'Octopia (Cdiscount) et de ManoMano (voir la note du 28 octobre) ; inactif tant que ses variables Vercel ne sont pas saisies.
 - `api/chat.mjs` — relais de l'assistant IA (le texte de contexte ne fige plus aucune date : il suit `donnees_jusqu_au`).
