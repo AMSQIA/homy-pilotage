@@ -4255,6 +4255,7 @@ function TriMarge({ on, set }) {
 // Rentabilité de la pub (propriétaire) : ROAS réel face au ROAS minimum = 1,2 ÷ marge avant pub (ventes attribuées TTC, marge HT)
 function PubRentabilite({ fin, marges }) {
   const [vue, setVue] = useState("perte");
+  const [ouvert, setOuvert] = useState(false); // replié par défaut : résumé en une ligne, détail au toucher
   const rows = useMemo(() => {
     const out = [];
     (fin.lm_products || []).forEach((p) => out.push({ canal: "Leroy Merlin", pays: p.pays, nom: p.nom, sku: String(p.sku || "").split(",")[0], pub: p.ptot ?? p.pub, roas: p.roas }));
@@ -4274,9 +4275,20 @@ function PubRentabilite({ fin, marges }) {
   const canaux = ["Leroy Merlin", "Amazon"].filter((c) => marges.mbCanal[c] != null).map((c) => [c, marges.mbCanal[c]]);
   return (
     <GlassCard className="p-4 sm:p-5 mb-4" scrollReveal>
+      <button type="button" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} className="w-full flex items-center gap-3 text-left">
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${gainTot >= 0 ? GREEN : RED}1A`, color: gainTot >= 0 ? GREEN : RED }}><Wallet size={16} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold" style={{ color: INK }}>Rentabilité de la pub par produit</span>
+          <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] tabular-nums mt-0.5" style={{ color: MUTED }}>
+            <span>Résultat net <b style={{ color: gainTot >= 0 ? GREEN : RED }}>{eur(gainTot)}</b></span>
+            <span><b style={{ color: perte.length ? RED : GREEN }}>{perte.length}</b> produit{perte.length > 1 ? "s" : ""} sous le seuil{perte.length ? <> · <b style={{ color: RED }}>{eur(perteTot)}</b></> : null}</span>
+          </span>
+        </span>
+        <ChevronDown size={18} className="shrink-0 transition-transform" style={{ color: MUTED, transform: ouvert ? "rotate(180deg)" : "none" }} />
+      </button>
+      {ouvert && <div className="mt-4">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
         <div>
-          <div className="text-[14px] font-semibold" style={{ color: INK }}>Rentabilité de la pub par produit</div>
           <div className="text-[11.5px] mt-0.5 max-w-[640px]" style={{ color: MUTED }}>Une campagne est rentable si son ROAS dépasse le ROAS minimum = 1,2 ÷ marge avant pub du produit (ventes attribuées TTC, marge HT après achat, commission et transport). En dessous, chaque euro de pub coûte plus qu’il ne rapporte.</div>
         </div>
         <div className="inline-flex rounded-full p-0.5 text-[11px]" style={{ background: PANEL_QUIET, border: `1px solid ${PANEL_BORDER_QUIET}` }}>
@@ -4309,6 +4321,7 @@ function PubRentabilite({ fin, marges }) {
         {liste.length === 0 && <div className="text-[12px] p-3" style={{ color: FAINT }}>Aucun produit sous le seuil.</div>}
       </div>
       <div className="text-[10.5px] mt-2" style={{ color: FAINT }}>Leroy Merlin : pub Sponsored Products imputée par produit depuis sept. 2025 · Amazon : Sponsored Products 1er août – 28 oct. 2026. Visible seulement en accès propriétaire.</div>
+      </div>}
     </GlassCard>
   );
 }

@@ -1,5 +1,18 @@
 # HOM'Y Pilotage — instructions et notes de mise à jour
 
+## Mise à jour du 25 novembre 2026 (après-midi) — Campagnes Ads : entrée de l'analyse en synthèse, sections repliées
+
+**Demande** : « que les onglets ajoutés sur la rentabilité soient ouvrables mais masqués ; pour l'entrée dans l'analyse, ça doit être plus smart, plus design et plus lisible ».
+
+- **Entrée du détail marketplace** (Leroy Merlin France) : une synthèse remplace les 8 tuiles et la grille de constats — pastilles d'alerte calculées (« Croissance chère », budgets à plus de 90 %),
+  phrase principale « En 2026, 1 € de pub a rapporté 7,03 € de CA attribué » avec la comparaison aux mêmes mois 2025, trois chiffres (dépense, CA attribué, ACoS) avec leur évolution, courbe du ROAS mois par mois,
+  puis ROAS marginal, conversion, CPC et panier. Dessous : les 3 constats les plus graves (les autres au toucher) et **À faire maintenant** (3 premières actions, lien vers le plan complet).
+- **Sections repliées** : Mois par mois, Catégories, Produits, Jour par jour, Mots-clés, Budgets, Plan d'action, Méthode s'ouvrent au toucher ; chacune affiche fermée un résumé d'une ligne calculé
+  (meilleur mois, catégorie dominante et la plus faible, nombre de produits par action, Black Friday, mots-clés sans conversion, budgets consommés…). « Tout ouvrir » / « Tout fermer ». Le contenu n'est rendu qu'à l'ouverture.
+- **Rentabilité de la pub par produit** (onglet Campagnes Ads, accès propriétaire seulement) : repliée par défaut sur une ligne (résultat net de la pub, nombre de produits sous le seuil et perte) ; le détail s'ouvre au toucher.
+
+**Fichiers** : `AdsMarketplace.jsx`, `App.jsx` (`PubRentabilite`), `scripts/ads/test_detail_ads.mjs` (entrée, sections repliées puis ouvertes une à une et toutes, « Plan complet », constats dépliés, mobile sections ouvertes).
+
 ## Mise à jour du 25 novembre 2026 — Campagnes Ads : détail par marketplace (Leroy Merlin France)
 
 **Demande** : « l'ajouter à l'app dans la partie advertising afin quand cliquant sur chaque marketplace j'ai ce niveau de détail » (analyse Sponsored Products Leroy Merlin France faite le même jour).

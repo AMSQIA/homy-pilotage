@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, Cell, ReferenceArea } from "recharts";
 import { VZ } from "./FinanceViz.jsx";
+import { Activity, AlertCircle, AlertTriangle, ArrowRight, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Layers, ListChecks, Package, Search, Sparkles, Target, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import LM_FR from "./data/ads/leroy_merlin_fr.json";
 
 const ORANGE = "#FF5A1F";
@@ -223,9 +224,26 @@ function lecture(D, A, lang, f) {
 }
 
 // ------------------------------------------------------------------ petits éléments d'interface
-const Box = ({ children, className = "", style }) => <div className={`rounded-2xl border p-4 sm:p-5 ${className}`} style={{ background: VZ.card, borderColor: VZ.line, ...style }}>{children}</div>;
+const Box = ({ children, className = "", style }) => <div className={`rounded-2xl border p-4 sm:p-5 ${className}`} style={{ background: "rgba(255,255,255,0.025)", borderColor: VZ.line, ...style }}>{children}</div>;
 const H = ({ children, sub }) => (<div className="mb-3"><h3 className="text-[13.5px] font-semibold">{children}</h3>{sub && <p className="text-[11.5px] mt-1 leading-relaxed" style={{ color: VZ.muted }}>{sub}</p>}</div>);
 const Zone = ({ children }) => (<div className="flex items-center gap-3 mt-8 mb-3"><span className="text-[10px] uppercase tracking-[0.22em] font-bold shrink-0" style={{ color: ORANGE }}>{children}</span><span className="flex-1 h-px" style={{ background: VZ.line }} /></div>);
+// section de l'analyse : repliée par défaut, un résumé d'une ligne, ouverte au toucher (contenu rendu seulement une fois ouverte)
+const SECTIONS = ["mois", "categories", "produits", "jours", "mots", "budgets", "plan", "methode"];
+function Section({ id, icone: Icone, titre, resume, ouvert, onToggle, children }) {
+  return (
+    <section id={`sec-${id}`} className="rounded-2xl border transition-colors" style={{ background: VZ.card, borderColor: ouvert ? "rgba(255,90,31,0.35)" : VZ.line, scrollMarginTop: 84 }}>
+      <button type="button" onClick={onToggle} aria-expanded={ouvert} aria-controls={`sec-${id}-c`} className="w-full flex items-center gap-3 px-3.5 sm:px-5 py-3.5 text-left">
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: ouvert ? ORANGE : "rgba(255,90,31,0.12)", color: ouvert ? "#0A0908" : ORANGE }}><Icone size={16} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold">{titre}</span>
+          {resume && <span className="block text-[12px] mt-0.5 leading-snug" style={{ color: VZ.muted }}>{resume}</span>}
+        </span>
+        <ChevronDown size={18} className="shrink-0 transition-transform duration-200" style={{ color: VZ.muted, transform: ouvert ? "rotate(180deg)" : "none" }} />
+      </button>
+      {ouvert && <div id={`sec-${id}-c`} className="px-3 sm:px-5 pb-4 sm:pb-5 pt-1">{children}</div>}
+    </section>
+  );
+}
 function Stat({ label, value, sub, color }) {
   return (
     <div className="rounded-xl p-3.5 min-w-0 border" style={{ background: VZ.card, borderColor: VZ.line }}>
@@ -279,6 +297,12 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
   }, [loc, facteur, lang]);
   const [scope, setScope] = useState("Total");
   const [act, setAct] = useState("tous");
+  const [ouverts, setOuverts] = useState(() => new Set()); // sections de l'analyse ouvertes (toutes repliées à l'entrée)
+  const [voirConstats, setVoirConstats] = useState(false);
+  const basculer = (id) => setOuverts((o) => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toutBasculer = () => setOuverts((o) => (o.size === SECTIONS.length ? new Set() : new Set(SECTIONS)));
+  const ouvrirEtAller = (id) => { setOuverts((o) => new Set(o).add(id)); setTimeout(() => { const el = document.getElementById(`sec-${id}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 60); };
+  const L = (fr, en, es, zh) => (lang === "fr" ? fr : lang === "es" ? es : lang === "zh" ? zh : en);
 
   useEffect(() => {
     const k = (e) => { if (e.key === "Escape") onClose(); };
@@ -323,6 +347,7 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
     const C = A.comparables(rows);
     const marg = C.prev.spend && C.cur.spend > C.prev.spend ? (C.cur.sales - C.prev.sales) / (C.cur.spend - C.prev.spend) : null;
     const per = C.mm.length ? `${f.mois(C.mm[0])}–${f.mois(C.mm[C.mm.length - 1])} ${anP}` : "";
+    const perCur = C.mm.length ? `${f.mois(C.mm[0])}–${f.mois(C.mm[C.mm.length - 1])} ${an}` : "";
     const cmp = (v) => (C.mm.length ? `${t.vs} ${per} : ${v}` : null);
     const graphe = rows.filter((r) => r.spend > 0 || r.sales > 0).map((r) => ({ ...r, lab: f.moisCourt(r.mois), partiel: r.mois === D.mois_partiel }));
     const roasAnnee = Array.from({ length: 12 }, (_, i) => {
@@ -347,36 +372,154 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
     const semData = Lx.semaine.map((s) => ({ j: t.jours_sem[s.d], roas: s.roas ? +s.roas.toFixed(2) : 0, spend: s.spend, cvr: s.cvr }));
     const K = D.mots_cles_resume;
 
+    // ---------- résumés d'une ligne des sections repliées (calculés, suivent chaque import)
+    const complets = rows.filter((r) => r.mois.startsWith(String(an)) && r.mois !== D.mois_partiel && r.spend > 0);
+    const meilleur = complets.reduce((a, r) => (!a || r.roas > a.roas ? r : a), null), dernier = complets[complets.length - 1];
+    const catAn = CATS.map((c) => ({ c, ...ratios(somme(D.categories.filter((r) => r.mois.startsWith(String(an)) && catKey(r.categorie) === c))) })).filter((x) => x.spend > 0).sort((a, b) => b.spend - a.spend);
+    const catTot = catAn.reduce((a, x) => a + x.spend, 0) || 1, catFaible = catAn.filter((x) => x.spend / catTot > 0.03).reduce((a, x) => (!a || x.roas < a.roas ? x : a), null);
+    const nb = (k) => A.produits.filter((p) => p.action === k).length;
+    const bfP = bf[String(anP)], semBf = bfP ? sommeJours(A.jours, ajouterJours(bfP, -3), ajouterJours(bfP, 4)) : null;
+    const jourTop = Lx.semaine.reduce((a, s) => (!a || s.roas > a.roas ? s : a), null);
+    const resume = {
+      mois: meilleur && dernier ? L(`Meilleur mois ${an} : ${f.moisLong(meilleur.mois)} (ROAS ${f.x(meilleur.roas)}) · dernier mois complet : ${f.moisLong(dernier.mois)} (${f.x(dernier.roas)})`, `Best month of ${an}: ${f.moisLong(meilleur.mois)} (ROAS ${f.x(meilleur.roas)}) · last full month: ${f.moisLong(dernier.mois)} (${f.x(dernier.roas)})`, `Mejor mes de ${an}: ${f.moisLong(meilleur.mois)} (ROAS ${f.x(meilleur.roas)}) · último mes completo: ${f.moisLong(dernier.mois)} (${f.x(dernier.roas)})`, `${an} 最佳月份：${f.moisLong(meilleur.mois)}（ROAS ${f.x(meilleur.roas)}）· 最近完整月：${f.moisLong(dernier.mois)}（${f.x(dernier.roas)}）`) : null,
+      cat: catAn[0] ? L(`${catAn[0].c} : ${f.pct(catAn[0].spend / catTot)} de la dépense ${an} (ROAS ${f.x(catAn[0].roas)})${catFaible && catFaible.c !== catAn[0].c ? ` · plus faible : ${catFaible.c} (${f.x(catFaible.roas)})` : ""}`, `${catAn[0].c}: ${f.pct(catAn[0].spend / catTot)} of ${an} spend (ROAS ${f.x(catAn[0].roas)})${catFaible && catFaible.c !== catAn[0].c ? ` · weakest: ${catFaible.c} (${f.x(catFaible.roas)})` : ""}`, `${catAn[0].c}: ${f.pct(catAn[0].spend / catTot)} del gasto ${an} (ROAS ${f.x(catAn[0].roas)})${catFaible && catFaible.c !== catAn[0].c ? ` · más débil: ${catFaible.c} (${f.x(catFaible.roas)})` : ""}`, `${catAn[0].c}：占 ${an} 花费 ${f.pct(catAn[0].spend / catTot)}（ROAS ${f.x(catAn[0].roas)}）${catFaible && catFaible.c !== catAn[0].c ? ` · 最弱：${catFaible.c}（${f.x(catFaible.roas)}）` : ""}`) : null,
+      prod: L(`${nb("acc")} à accélérer · ${nb("optim")} à optimiser · ${nb("couper")} à couper — ${A.produits.length} produits`, `${nb("acc")} to scale up · ${nb("optim")} to optimise · ${nb("couper")} to cut — ${A.produits.length} products`, `${nb("acc")} a acelerar · ${nb("optim")} a optimizar · ${nb("couper")} a cortar — ${A.produits.length} productos`, `${nb("acc")} 个加大投入 · ${nb("optim")} 个优化 · ${nb("couper")} 个停投 — 共 ${A.produits.length} 个产品`),
+      jours: [semBf && semBf.spend ? L(`Semaine du Black Friday ${anP} : ROAS ${f.x(semBf.roas)}`, `Black Friday ${anP} week: ROAS ${f.x(semBf.roas)}`, `Semana del Black Friday ${anP}: ROAS ${f.x(semBf.roas)}`, `${anP} 黑五周：ROAS ${f.x(semBf.roas)}`) : null, jourTop && jourTop.roas ? L(`meilleur jour : ${f.jourSem(jourTop.d)} (${f.x(jourTop.roas)})`, `best day: ${f.jourSem(jourTop.d)} (${f.x(jourTop.roas)})`, `mejor día: ${f.jourSem(jourTop.d)} (${f.x(jourTop.roas)})`, `最佳：${t.jours_sem[jourTop.d]}（${f.x(jourTop.roas)}）`) : null].filter(Boolean).join(" · "),
+      mots: K && K.spend ? L(`${f.int(K.n_sans_conv)} mots-clés sur ${f.int(K.n)} sans conversion (${f.pct(K.spend_sans_conv / K.spend)} de la dépense mots-clés)`, `${f.int(K.n_sans_conv)} of ${f.int(K.n)} keywords with no conversion (${f.pct(K.spend_sans_conv / K.spend)} of keyword spend)`, `${f.int(K.n_sans_conv)} de ${f.int(K.n)} palabras clave sin conversión (${f.pct(K.spend_sans_conv / K.spend)} del gasto)`, `${f.int(K.n)} 个关键词中 ${f.int(K.n_sans_conv)} 个无转化（占关键词花费 ${f.pct(K.spend_sans_conv / K.spend)}）`) : null,
+      budgets: D.budgets.map((b) => `${b.pf} : ${f.pct(b.depense / b.budget)} ${L("consommé", "used", "consumido", "已用")} (${L("reste", "left", "resta", "剩余")} ${f.eur(b.budget - b.depense)})`).join(" · "),
+      plan: L(`${Lx.plan.length} actions, recalculées à chaque import`, `${Lx.plan.length} actions, recomputed on each import`, `${Lx.plan.length} acciones, recalculadas en cada importación`, `${Lx.plan.length} 项行动，每次导入自动更新`),
+      methode: L("Sources, définitions, limites et ligne du fichier budget", "Sources, definitions, limits and budget file line", "Fuentes, definiciones, límites y línea del presupuesto", "来源、定义、局限与预算文件数据"),
+    };
+
+    // ---------- entrée : verdict, chiffres clés, tendance, priorités
+    const tonCol = (ton) => (ton === "bad" ? VZ.bad : ton === "warn" ? VZ.warn : VZ.good);
+    const ordre = { bad: 0, warn: 1, ok: 2 };
+    const constats = [...Lx.constats].sort((a, b) => ordre[a.ton] - ordre[b.ton]);
+    const pastilles = [];
+    if (C.mm.length >= 3 && C.prev.roas) {
+      const r = C.cur.roas / C.prev.roas;
+      pastilles.push(r < 0.85 ? { c: VZ.bad, i: TrendingDown, l: L("Croissance chère", "Costly growth", "Crecimiento caro", "增长成本高") } : r > 1.05 ? { c: VZ.good, i: TrendingUp, l: L(`Plus efficace qu'en ${anP}`, `More efficient than ${anP}`, `Más eficiente que en ${anP}`, `比 ${anP} 更高效`) } : { c: VZ.muted, i: Activity, l: L("Efficacité stable", "Stable efficiency", "Eficiencia estable", "效率稳定") });
+    }
+    D.budgets.filter((b) => (scope === "Total" || b.pf === scope) && b.budget && b.depense / b.budget >= 0.9).forEach((b) => pastilles.push({ c: VZ.bad, i: AlertTriangle, l: L(`Budget ${b.pf} à ${f.pct(b.depense / b.budget)}`, `${b.pf} budget at ${f.pct(b.depense / b.budget)}`, `Presupuesto ${b.pf} al ${f.pct(b.depense / b.budget)}`, `${b.pf} 预算已用 ${f.pct(b.depense / b.budget)}`) }));
+    const vS = C.prev.spend ? C.cur.spend / C.prev.spend - 1 : null, vC = C.prev.sales ? C.cur.sales / C.prev.sales - 1 : null, vA = C.prev.acos != null && C.cur.acos != null ? (C.cur.acos - C.prev.acos) * 100 : null;
+    const pts = (v) => (v == null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString(loc, { maximumFractionDigits: 1 })} ${L("pts", "pts", "pts", "点")}`);
+    const spark = graphe.filter((r) => r.spend > 0).map((r) => ({ lab: r.lab, mois: r.mois, roas: +r.roas.toFixed(2), partiel: r.partiel }));
+    const Delta = ({ v, txt, bon }) => (v == null || !isFinite(v) ? null : (
+      <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md mt-1.5" style={{ color: bon == null ? VZ.muted : bon ? VZ.good : VZ.bad, background: bon == null ? "rgba(255,255,255,0.06)" : bon ? `${VZ.good}1A` : `${VZ.bad}1A` }}>
+        {v > 0 ? "▲" : v < 0 ? "▼" : "="} {txt}
+      </span>
+    ));
+    const Gros = ({ label, value, children }) => (
+      <div className="min-w-0 rounded-2xl p-3 sm:p-4" style={{ background: "rgba(10,9,8,0.45)", border: `1px solid ${VZ.line}` }}>
+        <div className="text-[10.5px] uppercase tracking-wider leading-snug" style={{ color: VZ.muted }}>{label}</div>
+        <div className="font-bold tabular-nums mt-1 whitespace-nowrap" style={{ fontSize: "clamp(19px, 5vw, 26px)", lineHeight: 1.1 }}>{value}</div>
+        {children}
+      </div>
+    );
+    const Mini = ({ label, value, sub, color }) => (
+      <div className="min-w-0">
+        <div className="text-[10.5px] uppercase tracking-wider leading-snug" style={{ color: VZ.muted }}>{label}</div>
+        <div className="text-[16px] font-bold tabular-nums mt-0.5" style={{ color: color || VZ.text }}>{value}</div>
+        {sub && <div className="text-[11px] leading-snug mt-0.5" style={{ color: VZ.dim }}>{sub}</div>}
+      </div>
+    );
+    const sec = (id, Icone, titre, res, contenu) => <Section id={id} icone={Icone} titre={titre} resume={res} ouvert={ouverts.has(id)} onToggle={() => basculer(id)}>{contenu}</Section>;
+
     corps = (
       <>
-        {ligneBudget && <details className="mb-4"><summary className="text-[11.5px] cursor-pointer" style={{ color: VZ.muted }}>{t.ligne_budget} ({t.src_budget})</summary><div className="mt-2">{ligneBudget}</div></details>}
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-          <span className="text-[11px]" style={{ color: VZ.muted }}>{t.source} : {D.source}</span>
-          <Chips label={t.perimetre} value={scope} onChange={setScope} items={[["Total", t.total], ["3P", t.p3], ["1P", t.p1]]} />
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <Stat label={`${t.depense} ${an}`} value={f.eur(ytd.spend)} sub={cmp(f.var(C.cur.spend / C.prev.spend - 1))} />
-          <Stat label={`${t.ca} ${an}`} value={f.eur(ytd.sales)} sub={cmp(f.var(C.cur.sales / C.prev.sales - 1))} />
-          <Stat label={`${t.roas} ${an}`} value={f.x(ytd.roas)} color={toneRoas(ytd.roas)} sub={cmp(`${f.x(C.prev.roas)} → ${f.x(C.cur.roas)}`)} />
-          <Stat label={t.acos_l} value={f.pct(ytd.acos)} sub={cmp(f.pct(C.prev.acos))} />
-          <Stat label={t.marginal} value={marg != null ? f.eur2(marg) : "–"} color={marg != null ? toneRoas(marg) : undefined} sub={marg != null ? `${t.marginal_sub} ${per}` : null} />
-          <Stat label={t.conv} value={f.int(ytd.conv)} sub={`${t.cvr} ${f.pct(ytd.cvr)}`} />
-          <Stat label={t.cpc} value={f.eurU(ytd.cpc)} sub={cmp(f.eurU(C.prev.cpc))} />
-          <Stat label={t.panier} value={f.eur(ytd.aov)} sub={cmp(f.eur(C.prev.aov))} />
+        {/* ===== entrée de l'analyse ===== */}
+        <div className="rounded-3xl border p-4 sm:p-6" style={{ background: `linear-gradient(160deg, rgba(255,90,31,0.14) 0%, rgba(255,90,31,0.035) 40%, ${VZ.card} 78%)`, borderColor: "rgba(255,90,31,0.28)" }}>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10.5px] uppercase tracking-[0.18em] font-bold mr-1" style={{ color: ORANGE }}>{L("Synthèse", "Summary", "Resumen", "概览")} {an}</span>
+              {pastilles.map((p, i) => { const I = p.i; return <span key={i} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full" style={{ color: p.c, background: `${p.c}1F` }}><I size={12} />{p.l}</span>; })}
+            </div>
+            <Chips label={t.perimetre} value={scope} onChange={setScope} items={[["Total", t.total], ["3P", t.p3], ["1P", t.p1]]} />
+          </div>
+
+          <div className="mt-5">
+            <div className="text-[12.5px]" style={{ color: VZ.muted }}>{L(`En ${an}, 1 € de pub a rapporté`, `In ${an}, each €1 of ads brought`, `En ${an}, cada 1 € de publicidad aportó`, `${an} 年，每 1 € 广告带来`)}</div>
+            <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+              <span className="font-bold tabular-nums" style={{ fontSize: "clamp(36px, 9vw, 52px)", lineHeight: 1, color: toneRoas(ytd.roas), letterSpacing: "-0.02em" }}>{f.eur2(ytd.roas)}</span>
+              <span className="text-[14px]" style={{ color: VZ.text }}>{L("de CA attribué", "in attributed sales", "de facturación atribuida", "归因销售额")}</span>
+            </div>
+            {C.mm.length > 0 && <div className="text-[12.5px] mt-1.5 leading-snug" style={{ color: VZ.muted }}>
+              {L(`${perCur} : ${f.eur2(C.cur.roas)}, contre ${f.eur2(C.prev.roas)} sur ${per}`, `${perCur}: ${f.eur2(C.cur.roas)}, vs ${f.eur2(C.prev.roas)} in ${per}`, `${perCur}: ${f.eur2(C.cur.roas)}, frente a ${f.eur2(C.prev.roas)} en ${per}`, `${perCur}：${f.eur2(C.cur.roas)}，对比 ${per}：${f.eur2(C.prev.roas)}`)}
+            </div>}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-5">
+            <Gros label={t.depense} value={f.k(ytd.spend)}><Delta v={vS} txt={f.var(vS).replace(/^[+−]/, "")} bon={null} /></Gros>
+            <Gros label={t.ca} value={f.k(ytd.sales)}><Delta v={vC} txt={f.var(vC).replace(/^[+−]/, "")} bon={vC >= 0} /></Gros>
+            <Gros label={t.acos} value={f.pct(ytd.acos)}><Delta v={vA} txt={pts(vA).replace(/^[+−]/, "")} bon={vA <= 0} /></Gros>
+          </div>
+          {C.mm.length > 0 && <div className="text-[11px] mt-1.5" style={{ color: VZ.dim }}>{L(`Évolutions : ${perCur} comparé à ${per}. ACoS = dépense ÷ CA attribué.`, `Changes: ${perCur} vs ${per}. ACoS = spend ÷ attributed sales.`, `Evolución: ${perCur} frente a ${per}. ACoS = gasto ÷ facturación atribuida.`, `变化：${perCur} 对比 ${per}。ACoS = 花费 ÷ 归因销售额。`)}</div>}
+
+          {spark.length > 2 && (
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between text-[11px]" style={{ color: VZ.muted }}><span>{L("ROAS mois par mois", "Monthly ROAS", "ROAS mes a mes", "月度 ROAS")}</span><span className="tabular-nums">{spark[0].lab} → {spark[spark.length - 1].lab}</span></div>
+              <div style={{ height: 70 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={spark} margin={{ top: 8, right: 6, left: 6, bottom: 2 }}>
+                    <YAxis hide domain={[0, "dataMax"]} />
+                    <XAxis dataKey="lab" hide />
+                    <Tooltip {...TT} cursor={{ stroke: VZ.line }} formatter={(v, n, p) => [f.x(v), `ROAS${p.payload.partiel ? ` (${t.partiel})` : ""}`]} labelFormatter={(l, p) => (p && p[0] ? f.moisLong(p[0].payload.mois) : l)} />
+                    <Line type="monotone" dataKey="roas" stroke={ORANGE} strokeWidth={2} dot={(d) => <circle key={d.index} cx={d.cx} cy={d.cy} r={d.index === spark.length - 1 ? 3.5 : 2} fill={d.payload.partiel ? VZ.card : ORANGE} stroke={ORANGE} strokeWidth={1.5} />} activeDot={{ r: 4 }} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3 mt-4 pt-4 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+            <Mini label={t.marginal} value={marg != null ? f.eur2(marg) : "–"} color={marg != null ? toneRoas(marg) : undefined} sub={marg != null ? L(`par € ajouté vs ${per}`, `per extra € vs ${per}`, `por € añadido vs ${per}`, `每增加 1 €，对比 ${per}`) : null} />
+            <Mini label={t.cvr} value={f.pct(ytd.cvr)} sub={`${f.int(ytd.conv)} ${t.conv.toLowerCase()}`} />
+            <Mini label={t.cpc} value={f.eurU(ytd.cpc)} sub={cmp(f.eurU(C.prev.cpc))} />
+            <Mini label={t.panier} value={f.eur(ytd.aov)} sub={cmp(f.eur(C.prev.aov))} />
+          </div>
         </div>
 
-        <Zone>{t.constats}</Zone>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
-          {Lx.constats.map((c, i) => (
-            <Box key={i} style={{ borderLeft: `3px solid ${c.ton === "bad" ? VZ.bad : c.ton === "warn" ? VZ.warn : VZ.good}` }}>
-              <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: c.ton === "bad" ? VZ.bad : c.ton === "warn" ? VZ.warn : VZ.good }}>{c.tag}</div>
-              <div className="text-[13.5px] font-semibold mt-1">{c.titre}</div>
-              <p className="text-[12.5px] mt-1.5 leading-relaxed" style={{ color: "#DCD5C9" }}>{c.texte}</p>
-            </Box>
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 mt-3">
+          <div className="lg:col-span-3 rounded-2xl border p-4 sm:p-5" style={{ background: VZ.card, borderColor: VZ.line }}>
+            <div className="flex items-center gap-2 mb-1"><Sparkles size={15} style={{ color: ORANGE }} /><h3 className="text-[14px] font-semibold">{t.constats}</h3></div>
+            <ul>
+              {constats.slice(0, voirConstats ? constats.length : 3).map((c, i) => { const col = tonCol(c.ton); const I = c.ton === "bad" ? AlertTriangle : c.ton === "warn" ? AlertCircle : CheckCircle2; return (
+                <li key={i} className="flex gap-3 py-3" style={{ borderTop: i ? `1px solid ${VZ.line}` : "none" }}>
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: `${col}1F`, color: col }}><I size={15} /></span>
+                  <div className="min-w-0">
+                    <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: col }}>{c.tag}</div>
+                    <div className="text-[14px] font-semibold leading-snug mt-0.5">{c.titre}</div>
+                    <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: "#DCD5C9" }}>{c.texte}</p>
+                  </div>
+                </li>); })}
+            </ul>
+            {constats.length > 3 && <button type="button" onClick={() => setVoirConstats((v) => !v)} className="mt-1 text-[12px] font-semibold inline-flex items-center gap-1" style={{ color: ORANGE }}>
+              {voirConstats ? L("Réduire", "Show less", "Mostrar menos", "收起") : L(`Voir les ${constats.length - 3} autres constats`, `Show ${constats.length - 3} more`, `Ver ${constats.length - 3} más`, `查看其余 ${constats.length - 3} 条`)}
+              <ChevronDown size={14} style={{ transform: voirConstats ? "rotate(180deg)" : "none" }} />
+            </button>}
+          </div>
+          <div className="lg:col-span-2 rounded-2xl border p-4 sm:p-5 flex flex-col" style={{ background: VZ.card, borderColor: VZ.line }}>
+            <div className="flex items-center gap-2 mb-3"><Target size={15} style={{ color: ORANGE }} /><h3 className="text-[14px] font-semibold">{L("À faire maintenant", "Do now", "Hacer ahora", "立即行动")}</h3></div>
+            <ol className="flex flex-col gap-3">
+              {Lx.plan.slice(0, 3).map((p, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11.5px] font-bold" style={{ background: ORANGE, color: "#0A0908" }}>{i + 1}</span>
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: "#DCD5C9" }}>{p}</span>
+                </li>
+              ))}
+            </ol>
+            <button type="button" onClick={() => ouvrirEtAller("plan")} className="mt-4 self-start text-[12px] font-semibold inline-flex items-center gap-1" style={{ color: ORANGE }}>{L(`Plan complet (${Lx.plan.length} actions)`, `Full plan (${Lx.plan.length} actions)`, `Plan completo (${Lx.plan.length} acciones)`, `完整计划（${Lx.plan.length} 项）`)} <ArrowRight size={14} /></button>
+          </div>
         </div>
 
-        <Zone>{t.mensuel}</Zone>
+        {/* ===== sections repliées : ouvrables au toucher ===== */}
+        <div className="flex items-center gap-3 mt-8 mb-3">
+          <span className="text-[10px] uppercase tracking-[0.22em] font-bold shrink-0" style={{ color: ORANGE }}>{L("Explorer l'analyse", "Explore the analysis", "Explorar el análisis", "深入分析")}</span>
+          <span className="flex-1 h-px" style={{ background: VZ.line }} />
+          <button type="button" onClick={toutBasculer} className="text-[11.5px] font-semibold shrink-0" style={{ color: VZ.muted }}>{ouverts.size === SECTIONS.length ? L("Tout fermer", "Close all", "Cerrar todo", "全部收起") : L("Tout ouvrir", "Open all", "Abrir todo", "全部展开")}</button>
+        </div>
+        <div className="flex flex-col gap-2.5">
+        {sec("mois", CalendarDays, t.mensuel, resume.mois, <>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
           {[["spend", t.dep_mens], ["sales", t.ca_mens]].map(([k, titre]) => (
             <Box key={k}>
@@ -442,8 +585,9 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             </tbody>
           </Tableau>
         </Box>
+        </>)}
 
-        <Zone>{t.categories}</Zone>
+        {sec("categories", Layers, t.categories, resume.cat, <>
         <div className="grid grid-cols-1 gap-2.5">
           <Box>
             <H>{t.dep_cat}</H>
@@ -468,8 +612,9 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             </Tableau>
           </Box>
         </div>
+        </>)}
 
-        <Zone>{t.produits}</Zone>
+        {sec("produits", Package, t.produits, resume.prod, <>
         <Box>
           <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
             <H sub={t.regle_action}>{t.produits_sub}</H>
@@ -493,8 +638,9 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             <tbody>{top.map((p) => (<tr key={p.id}><Td l wrap><span className="block" style={{ minWidth: 190, maxWidth: 320 }}>{p.produit}</span></Td><Td>{f.eur(p.spend)}</Td>{moisAn.map((m) => { const v = pm(p.id, m); return <Td key={m} style={{ textAlign: "center", ...heat(v) }}>{v == null ? "" : f.x(v)}</Td>; })}</tr>))}</tbody>
           </Tableau>
         </Box>
+        </>)}
 
-        <Zone>{t.jours}</Zone>
+        {sec("jours", Activity, t.jours, resume.jours, <>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
           {[["r", t.bf_roas, (v) => f.x(v)], ["s", t.bf_dep, (v) => f.eur(v / facteur)]].map(([k, titre, fmt]) => (
             <Box key={k}>
@@ -516,8 +662,9 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             </Box>
           ))}
         </div>
+        </>)}
 
-        <Zone>{t.mots}</Zone>
+        {sec("mots", Search, t.mots, resume.mots, <>
         <Box>
           <H sub={K ? (lang === "fr" ? `${f.int(K.n)} mots-clés en ${an} · ${f.eur(K.spend)} dépensés (le reste du budget passe par les pages catégories et produits) · ${f.pct(K.spend_sans_conv / K.spend)} de cette dépense sur ${f.int(K.n_sans_conv)} mots-clés sans conversion.` : `${f.int(K.n)} keywords in ${an} · ${f.eur(K.spend)} spent · ${f.pct(K.spend_sans_conv / K.spend)} of it on ${f.int(K.n_sans_conv)} keywords with no conversion.`) : null}>{t.mots_top}</H>
           <Tableau>
@@ -528,8 +675,9 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             </tbody>
           </Tableau>
         </Box>
+        </>)}
 
-        <Zone>{t.budgets}</Zone>
+        {sec("budgets", Wallet, t.budgets, resume.budgets, <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           {D.budgets.map((b) => { const pct = b.budget ? Math.min(1, b.depense / b.budget) : 0; const r = D.mensuel.find((x) => x.mois === D.mois_partiel && x.pf === b.pf); const rythme = r ? r.spend / +D.donnees_au.slice(8, 10) : null; return (
             <Box key={b.campagne}>
@@ -539,13 +687,17 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
             </Box>); })}
         </div>
         {D.rallonge && <p className="text-[11.5px] mt-2" style={{ color: VZ.muted }}>{t.rallonge} : {f.eur(D.rallonge.montant)} ({new Date(D.rallonge.signee + "T12:00:00").toLocaleDateString(loc)}), {lang === "fr" ? "prend le relais du budget 3P à son épuisement (devis régie)." : "takes over from the 3P budget once used up."}</p>}
+        </>)}
 
-        <Zone>{t.plan}</Zone>
-        <Box><ol className="list-decimal pl-5 flex flex-col gap-2 text-[12.5px] leading-relaxed">{Lx.plan.map((p, i) => <li key={i}>{p}</li>)}</ol></Box>
+        {sec("plan", ListChecks, t.plan, resume.plan, <>
+        <ol className="flex flex-col gap-3 pt-1">{Lx.plan.map((p, i) => (
+          <li key={i} className="flex gap-3"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11.5px] font-bold" style={{ background: i < 3 ? ORANGE : "rgba(255,255,255,0.08)", color: i < 3 ? "#0A0908" : VZ.text }}>{i + 1}</span><span className="text-[12.5px] leading-relaxed" style={{ color: "#DCD5C9" }}>{p}</span></li>
+        ))}</ol>
+        </>)}
 
-        <details className="mt-6 mb-2">
-          <summary className="text-[12.5px] font-semibold cursor-pointer">{t.methode}</summary>
-          <ul className="list-disc pl-5 mt-2 flex flex-col gap-1.5 text-[11.5px] leading-relaxed" style={{ color: VZ.muted }}>
+        {sec("methode", BookOpen, t.methode, resume.methode, <>
+          {ligneBudget}
+          <ul className="list-disc pl-5 mt-1 flex flex-col gap-1.5 text-[11.5px] leading-relaxed" style={{ color: VZ.muted }}>
             {(lang === "fr" ? [
               `Sources : ${D.source}. Campagnes : ${D.campagnes.map((c) => c[0]).join(", ")}.`,
               "CA attribué (« CA Web » de la régie) : CA réalisé sur toute la marque par les visiteurs ayant cliqué sur une annonce, dans les 15 jours. Il inclut l'effet de halo : le ROAS est plus généreux qu'une attribution au produit exact.",
@@ -561,7 +713,8 @@ export function AdsDetailMarketplace({ nom, ligne, lang = "fr", facteur = 1, onC
               "Takeaways and action plan are recomputed from the data on each import; thresholds are guides to adjust to actual margin.",
             ]).map((x, i) => <li key={i}>{x}</li>)}
           </ul>
-        </details>
+        </>)}
+        </div>
       </>
     );
   }

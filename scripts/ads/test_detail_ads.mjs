@@ -6,9 +6,9 @@
  *
  * Vérifie, dans Chromium (Playwright) :
  *   - chaque marketplace de l'onglet (anneaux de budget, top 3, à surveiller, liste) s'ouvre au clic ou au clavier (Entrée) ;
- *   - Leroy Merlin France : titre, date des données, chiffres de l'année (dépense, CA attribué, ROAS) recalculés ici depuis
- *     data/ads/leroy_merlin_fr.json, périmètres Total | 3P | 1P, constats, tableau mensuel (mois partiel signalé), produits filtrés
- *     par action, mots-clés, budgets, plan d'action, méthode ; 4 langues ;
+ *   - Leroy Merlin France : entrée (synthèse : « 1 € de pub a rapporté … », dépense et CA attribué recalculés ici depuis
+ *     data/ads/leroy_merlin_fr.json, périmètres Total | 3P | 1P, 3 constats puis les autres, « Plan complet ») ; 8 sections repliées à
+ *     l'entrée, ouvertes/refermées au toucher, « Tout ouvrir » ; mois partiel signalé, produits filtrés par action ; 4 langues ;
  *   - une marketplace sans rapports (Amazon FR) : ligne du fichier budget + message « détail pas encore disponible » ;
  *   - fermeture par la croix, par Échap et par le fond ; le défilement de la page revient ;
  *   - mobile 390 et 360 px : aucun débordement horizontal de la page (les tableaux défilent dans leur cadre) ;
@@ -37,6 +37,8 @@ function chargerPlaywright() {
 }
 const norm = (s) => String(s).replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
 const eur = (v) => norm(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v)) + " €";
+// même arrondi que l'entrée du détail (k€ : sans décimale au-delà de 100 k€, une décimale en dessous)
+const k = (v) => (Math.abs(v) >= 1000 ? norm((v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: Math.abs(v) >= 1e5 ? 0 : 1, minimumFractionDigits: Math.abs(v) >= 1e5 ? 0 : 1 })).replace(/,0$/, "") + " k€" : eur(v));
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".woff2": "font/woff2" };
 const serveur = () => new Promise((ok) => {
@@ -101,26 +103,47 @@ async function main() {
       let t = await texteDialogue(page);
       verifier(t.includes(bas("Leroy Merlin France")), "titre « Leroy Merlin France » absent");
       verifier(t.includes(bas(`Données au ${new Date(D.donnees_au + "T12:00:00").toLocaleDateString("fr-FR")}`)), "date des données absente");
-      for (const lib of ["Ce qu'il faut retenir", "Mois par mois", "Détail mensuel", "Catégories", "Produits", "Jour par jour", "Mots-clés", "Budgets", "Plan d'action", "Méthode et définitions"]) verifier(t.includes(bas(lib)), `section « ${lib} » absente`);
-      verifier(t.includes(bas("(partiel)")), "mois partiel non signalé dans le tableau mensuel");
-      verifier(t.includes(bas("ACoS")), "ACoS absent");
+      // entrée : synthèse visible, toutes les sections repliées
+      for (const lib of ["Synthèse", "Ce qu'il faut retenir", "À faire maintenant", "Explorer l'analyse", "Mois par mois", "Catégories", "Produits", "Jour par jour", "Mots-clés", "Budgets", "Plan d'action", "Méthode et définitions"]) verifier(t.includes(bas(lib)), `« ${lib} » absent de l'entrée`);
+      const fermees = () => dialogue(page).locator('section > button[aria-expanded="false"]').count();
+      const ouvertes = () => dialogue(page).locator('section > button[aria-expanded="true"]').count();
+      verifier(await fermees() === 8 && await ouvertes() === 0, `8 sections repliées attendues à l'entrée (repliées ${await fermees()}, ouvertes ${await ouvertes()})`);
+      verifier(await dialogue(page).locator("table").count() === 0, "un tableau est affiché alors que les sections sont repliées");
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "lm_bureau_entree.png") });
       for (const [scope, lab] of [["Total", "Total"], ["3P", "3P · marketplace"], ["1P", "1P · revendeur"]]) {
         await dialogue(page).getByRole("tab", { name: lab, exact: true }).click();
         await page.waitForTimeout(250);
         t = await texteDialogue(page);
         const a = ATTENDU[scope];
-        verifier(t.includes(bas(`Dépense ${an} ${eur(a.spend)}`)), `${scope} : dépense ${an} attendue ${eur(a.spend)}`);
-        verifier(t.includes(bas(`CA attribué ${an} ${eur(a.sales)}`)), `${scope} : CA attribué ${an} attendu ${eur(a.sales)}`);
-        const roas = norm((a.sales / a.spend).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
-        verifier(t.includes(bas(`ROAS ${an} ${roas}`)), `${scope} : ROAS ${an} attendu ${roas}`);
+        const roas = norm((a.sales / a.spend).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + " €";
+        verifier(t.includes(bas(`En ${an}, 1 € de pub a rapporté ${roas} de CA attribué`)), `${scope} : « 1 € de pub a rapporté ${roas} » attendu`);
+        verifier(t.includes(bas(`Dépense ${k(a.spend)}`)) && t.includes(bas(`CA attribué ${k(a.sales)}`)), `${scope} : dépense ${k(a.spend)} et CA attribué ${k(a.sales)} attendus`);
       }
       await dialogue(page).getByRole("tab", { name: "Total", exact: true }).click();
-      const nbConstats = await dialogue(page).locator("text=/^(Budget|Efficacité|Gaspillage|Mois en cours|Black Friday|Locomotive)$/").count();
-      verifier(nbConstats >= 5, `au moins 5 constats attendus, ${nbConstats} trouvés`);
+      const tags = () => dialogue(page).locator("text=/^(Budget|Efficacité|Gaspillage|Mois en cours|Black Friday|Locomotive)$/").count();
+      verifier(await tags() === 3, `3 constats attendus à l'entrée, ${await tags()} affichés`);
+      await dialogue(page).getByRole("button", { name: /Voir les \d+ autres constats/ }).click();
+      verifier(await tags() >= 5, `au moins 5 constats attendus une fois dépliés, ${await tags()} trouvés`);
+      // « Plan complet » ouvre la section du plan
+      await dialogue(page).getByRole("button", { name: /Plan complet/ }).click();
+      await page.waitForTimeout(400);
+      verifier(await dialogue(page).locator('#sec-plan > button').getAttribute("aria-expanded") === "true", "« Plan complet » n'ouvre pas la section du plan");
+      // une section s'ouvre et se referme au toucher
+      const mois = dialogue(page).locator('#sec-mois > button');
+      await mois.click(); await page.waitForTimeout(300);
+      verifier(await mois.getAttribute("aria-expanded") === "true" && norm(await dialogue(page).locator("#sec-mois").innerText()).includes("(partiel)"), "la section « Mois par mois » ne s'ouvre pas (ou mois partiel non signalé)");
+      await mois.click(); await page.waitForTimeout(200);
+      verifier(await mois.getAttribute("aria-expanded") === "false", "la section « Mois par mois » ne se referme pas");
+      // tout ouvrir
+      await dialogue(page).getByRole("button", { name: "Tout ouvrir" }).click();
+      await page.waitForTimeout(600);
+      verifier(await ouvertes() === 8, `« Tout ouvrir » : ${await ouvertes()} sections ouvertes sur 8`);
+      t = await texteDialogue(page);
+      for (const lib of ["Détail mensuel", "Dépense par catégorie", "ROAS journalier autour du Black Friday", "Mots-clés les plus financés", "Rythme du mois", "Ligne du fichier budget marketing"]) verifier(t.includes(bas(lib)), `« ${lib} » absent une fois les sections ouvertes`);
       // filtre produits par action : chaque ligne affichée porte l'action choisie
       await dialogue(page).getByRole("tab", { name: "Couper", exact: true }).click();
       await page.waitForTimeout(250);
-      const actions = await dialogue(page).locator("table").nth(2).locator("tbody tr td:last-child").allInnerTexts();
+      const actions = await dialogue(page).locator("#sec-produits table").first().locator("tbody tr td:last-child").allInnerTexts();
       verifier(actions.length > 0 && actions.every((x) => norm(x) === "Couper"), `filtre « Couper » : ${actions.length} lignes, actions ${[...new Set(actions.map(norm))].join("/")}`);
       if (SHOTS) await dialogue(page).screenshot({ path: path.join(SHOTS, "lm_bureau.png") }).catch(() => {});
       verifier(await page.evaluate(() => document.body.style.overflow) === "hidden", "défilement de la page non bloqué pendant le détail");
@@ -179,9 +202,14 @@ async function main() {
       verifier(largeurPanneau <= 1, `${largeur} px : le détail déborde de ${largeurPanneau} px`);
       if (SHOTS) {
         await panneau.evaluate((el) => { el.scrollTop = 0; });
-        await page.screenshot({ path: path.join(SHOTS, `lm_${largeur}_1.png`) });
-        for (let i = 2; i <= 8; i++) { await panneau.evaluate((el) => { el.scrollTop += el.clientHeight * 0.9; }); await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, `lm_${largeur}_${i}.png`) }); }
+        for (let i = 1; i <= 3; i++) { await page.screenshot({ path: path.join(SHOTS, `lm_${largeur}_entree_${i}.png`) }); await panneau.evaluate((el) => { el.scrollTop += el.clientHeight * 0.9; }); await page.waitForTimeout(250); }
       }
+      await dialogue(page).getByRole("button", { name: "Tout ouvrir" }).click();
+      await page.waitForTimeout(700);
+      verifier(await debordement(page) <= 1, `${largeur} px, sections ouvertes : débordement horizontal de ${await debordement(page)} px`);
+      const largeurOuvert = await panneau.evaluate((el) => el.scrollWidth - el.clientWidth);
+      verifier(largeurOuvert <= 1, `${largeur} px, sections ouvertes : le détail déborde de ${largeurOuvert} px`);
+      if (SHOTS) { await dialogue(page).locator("#sec-produits").scrollIntoViewIfNeeded(); await page.waitForTimeout(300); await page.screenshot({ path: path.join(SHOTS, `lm_${largeur}_produits.png`) }); }
       verifier(erreurs.length === 0, `erreurs JS (${largeur} px) : ${erreurs.slice(0, 3).join(" | ")}`);
       await ctx.close();
     }
