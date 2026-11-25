@@ -26,6 +26,8 @@
  *   - la carte « Produits vendus » de Répartitions › Pays (6 novembre 2026) : noms, quantités et CA HT des produits du pays choisi (ou de tous), classés par la mesure de
  *     l'onglet ; total = classement du pays ; pays choisi dans la carte (liste native) ou dans le classement ; « hors France » ; marketplace choisie ou filtre global ;
  *     2025 expliqué sans chiffre inventé ; absente hors du découpage par pays ; 4 langues ; mobile 390 et 360 px (aucun nom coupé, liste défilable) ;
+ *   - l'export détaillé de Répartitions (25 novembre 2026) : filtres cumulables pays × marque × canal (choix multiples), totaux = PRODUITS_PAYS filtré,
+ *     fichier Excel téléchargé (onglets Synthèse, Par produit, Détail mensuel) relu et comparé à l'attendu ;
  *   - la navigation mobile (24 octobre 2026) : sur téléphone (390 et 360 px), barre du haut (logo, période, marketplace — une seule ligne de 53 px) et barre du bas
  *     (7 onglets, nom court de l'onglet actif) réellement collées à l'écran avant et après un long défilement ; un appui change d'onglet et remonte en haut de page,
  *     un appui sur l'onglet actif aussi ; filtres de période et de marketplace (croix de remise à zéro, dates personnalisées, champs en 16 px contre le zoom d'iOS) ;
@@ -1209,6 +1211,70 @@ async function verifierRepartitions(browser, base, E) {
     await ctx.close();
   }
   await verifierProduitsPays(browser, base, E, X);
+  await verifierExport(browser, base, X);
+}
+// ---- Répartitions : export détaillé (25 novembre 2026) — filtres cumulables pays × marque × canal × période, Excel de la sélection ----
+function expAttendu(X, { pays = [], marques = [], mps = [], du = 1, au = 12 } = {}) {
+  const marque = new Map(X.C.SKU_PRODUIT.map((n, i) => [n, X.C.SKU_MARQUE[i] || REP_AUTRES]));
+  let ca = 0, qte = 0, n = 0;
+  for (const [nom, p, m, mo, c, q] of X.C.PRODUITS_PAYS) {
+    if (mo < du || mo > au) continue;
+    if (pays.length && !pays.includes(p)) continue;
+    if (mps.length && !mps.includes(m)) continue;
+    if (marques.length && !marques.includes(marque.get(nom) || REP_AUTRES)) continue;
+    if (c === 0 && !q) continue;
+    ca += c; qte += q; n++;
+  }
+  return { ca, qte, n };
+}
+const lireExport = (page) => page.evaluate(() => { const e = document.querySelector('[data-rep="export"]'); return e ? { n: Number(e.dataset.lignes), ca: Number(e.dataset.ca), qte: Number(e.dataset.qte), texte: e.innerText } : null; });
+async function expCocher(page, attr, valeur) {
+  await page.click(`[data-rep-exp="${attr}"] > button`);
+  await page.locator(`[data-rep-exp="${attr}"] label`).filter({ hasText: valeur }).first().locator("input").check();
+  await page.mouse.click(5, 5);
+  await page.waitForTimeout(300);
+}
+async function verifierExport(browser, base, X) {
+  const pw = chargerPlaywright();
+  const { ctx, page, erreurs } = await ouvrir(browser, { largeur: 1280, hauteur: 1000 });
+  // ExcelJS vient d'un CDN : servi ici depuis node_modules s'il y est, sinon le téléchargement n'est pas testé
+  const exceljsLocal = [path.join(RACINE, "node_modules/exceljs/dist/exceljs.min.js"), "/tmp/xl/node_modules/exceljs/dist/exceljs.min.js"].find((f) => fs.existsSync(f));
+  if (exceljsLocal) await page.route("**/exceljs.min.js", (r) => r.fulfill({ path: exceljsLocal, contentType: "text/javascript" }));
+  await ouvrirRep(page, base);
+  let S = await lireExport(page);
+  const tous = expAttendu(X);
+  verifier(S && S.n === tous.n && proche(S.ca, tous.ca, 0.05) && S.qte === tous.qte, `Export : sans filtre ${S && S.n} lignes / ${S && S.ca} € / ${S && S.qte} u ≠ ${tous.n} / ${tous.ca.toFixed(2)} / ${tous.qte}`);
+  await expCocher(page, "pays", "France");
+  await expCocher(page, "marques", "Bestherm");
+  await expCocher(page, "canaux", "Leroy Merlin");
+  S = await lireExport(page);
+  const f = { pays: ["France"], marques: ["Bestherm"], mps: ["Leroy Merlin"] }, a = expAttendu(X, f);
+  verifier(S && S.n === a.n && proche(S.ca, a.ca, 0.05) && S.qte === a.qte && S.n > 0, `Export (France × Bestherm × Leroy Merlin) : ${S && S.n} lignes / ${S && S.ca} € / ${S && S.qte} u ≠ ${a.n} / ${a.ca.toFixed(2)} / ${a.qte}`);
+  await expCocher(page, "pays", "Espagne");
+  S = await lireExport(page);
+  const a2 = expAttendu(X, { ...f, pays: ["France", "Espagne"] });
+  verifier(S && S.n === a2.n && S.qte === a2.qte && contient(S.texte, "2 choisis"), `Export (France + Espagne) : ${S && S.n} lignes / ${S && S.qte} u ≠ ${a2.n} / ${a2.qte}`);
+  if (exceljsLocal) {
+    const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 30000 }), page.click('[data-rep-exp="bouton"]')]);
+    const fichier = path.join(fs.mkdtempSync("/tmp/exp-"), dl.suggestedFilename());
+    await dl.saveAs(fichier);
+    verifier(/^Ventes_\d{4}_Bestherm_Leroy_Merlin_/.test(dl.suggestedFilename()), `Export : nom de fichier inattendu ${dl.suggestedFilename()}`);
+    try {
+      const ExcelJS = createRequire(exceljsLocal.replace(/dist\/exceljs\.min\.js$/, "package.json"))("exceljs");
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(fichier);
+      const noms = wb.worksheets.map((w) => w.name);
+      verifier(["Synthèse", "Par produit", "Détail mensuel"].every((n) => noms.includes(n)), `Export : onglets ${noms.join(", ")}`);
+      const det = wb.getWorksheet("Détail mensuel");
+      let q = 0, c = 0, n = 0;
+      det.eachRow((r, i) => { if (i > 1 && r.getCell(1).value !== "Total" && typeof r.getCell(7).value === "number") { q += r.getCell(7).value; c += r.getCell(8).value; n++; } });
+      verifier(n === a2.n && q === a2.qte && proche(c, a2.ca, 0.5), `Export Excel : détail ${n} lignes / ${q} u / ${c.toFixed(2)} € ≠ ${a2.n} / ${a2.qte} / ${a2.ca.toFixed(2)}`);
+      const pays = new Set(); det.eachRow((r, i) => { if (i > 1 && r.getCell(1).value !== "Total") pays.add(r.getCell(1).value); });
+      verifier([...pays].every((p) => p === "France" || p === "Espagne"), `Export Excel : pays inattendus ${[...pays].join(", ")}`);
+    } catch (e) { verifier(false, `Export Excel illisible : ${e.message}`); }
+  } else console.log("AVERTISSEMENT · Export Excel non testé (ExcelJS absent en local)");
+  if (shotsDir) await page.locator('[data-rep="export"]').screenshot({ path: path.join(shotsDir, "repartitions-export.png") });
+  verifier(erreurs.length === 0, `erreurs JavaScript (Répartitions · export) : ${erreurs.slice(0, 3).join(" | ")}`);
+  await ctx.close();
 }
 // ---- Navigation mobile (24 octobre 2026) : barre du haut et barre du bas figées à l'écran, filtres compacts, sous-onglets sur une ligne ----
 const ONGLETS = ["apercu", "marketplaces", "marques", "prix", "ads", "concurrence", "data"];

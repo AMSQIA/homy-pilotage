@@ -288,3 +288,51 @@ export function infoMois(dmax) {
   const joursDuMois = new Date(Date.UTC(a, m, 0)).getUTCDate();
   return { an: a, mois: m, jour: j, joursDuMois, partiel: j < joursDuMois };
 }
+
+/* ---------------------------------------------------------------------------------------------------------------------------------------
+ * Export détaillé (Répartitions) : filtres cumulables pays × marque × canal × mois sur les lignes PRODUITS_PAYS
+ * [produit, pays, marketplace, mois (1-12), CA HT, quantité]. Ensemble vide ou null = pas de filtre sur cette dimension.
+ *  marqueDe(produit) / categorieDe(produit) : rattachement catalogue (produit inconnu → AUTRES_PRODUITS).
+ * Renvoie { lignes: [{ pays, marque, categorie, mp, produit, mois, ca, qte }] triées, ca, qte }.
+ */
+export function filtrerExport(lignes, { pays = null, marques = null, mps = null, du = 1, au = 12 } = {}, marqueDe = () => AUTRES_PRODUITS, categorieDe = () => AUTRES_PRODUITS) {
+  const actif = (s) => s && s.size > 0;
+  const par = new Map();
+  let ca = 0, qte = 0;
+  for (const [produit, p, m, mo, c, q] of lignes || []) {
+    if (mo < du || mo > au) continue;
+    if (actif(pays) && !pays.has(p)) continue;
+    if (actif(mps) && !mps.has(m)) continue;
+    const marque = marqueDe(produit) || AUTRES_PRODUITS;
+    if (actif(marques) && !marques.has(marque)) continue;
+    const k = `${p}\u0000${m}\u0000${produit}\u0000${mo}`;
+    let a = par.get(k);
+    if (!a) { a = { pays: p, marque, categorie: categorieDe(produit) || AUTRES_PRODUITS, mp: m, produit, mois: mo, ca: 0, qte: 0 }; par.set(k, a); }
+    a.ca += c; a.qte += q || 0; ca += c; qte += q || 0;
+  }
+  const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+  const out = [...par.values()].filter((l) => l.ca !== 0 || l.qte !== 0)
+    .sort((x, y) => cmp(x.pays, y.pays) || cmp(x.marque, y.marque) || cmp(x.mp, y.mp) || cmp(x.produit, y.produit) || x.mois - y.mois);
+  return { lignes: out, ca, qte };
+}
+
+/** Cumul des lignes filtrées par les clés données (ex. ["marque", "mp"]) : [{ ...clés, ca, qte }] classé par CA décroissant. */
+export function cumulerExport(lignes, cles) {
+  const par = new Map();
+  for (const l of lignes) {
+    const k = cles.map((c) => l[c]).join("\u0000");
+    let a = par.get(k);
+    if (!a) { a = Object.fromEntries(cles.map((c) => [c, l[c]])); a.ca = 0; a.qte = 0; par.set(k, a); }
+    a.ca += l.ca; a.qte += l.qte;
+  }
+  return [...par.values()].sort((x, y) => y.ca - x.ca || y.qte - x.qte);
+}
+
+/** Valeurs disponibles pour les filtres de l'export, classées par CA décroissant : { pays, marques, mps }. */
+export function choixExport(lignes, marqueDe = () => AUTRES_PRODUITS) {
+  const tot = { pays: new Map(), marques: new Map(), mps: new Map() };
+  const add = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
+  for (const [produit, p, m, , c] of lignes || []) { add(tot.pays, p, c); add(tot.marques, marqueDe(produit) || AUTRES_PRODUITS, c); add(tot.mps, m, c); }
+  const tri = (m) => [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k]) => k);
+  return { pays: tri(tot.pays), marques: tri(tot.marques), mps: tri(tot.mps) };
+}
